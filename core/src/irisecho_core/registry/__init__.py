@@ -52,6 +52,13 @@ class FileSpec:
         return posixpath.join(rel, self.subdir, self.filename)
 
     @property
+    def pinned(self) -> bool:
+        """Whether the recorded hash is a real one that a download can be checked against."""
+        if self.sha256:
+            return len(self.sha256) == 64 and all(c in "0123456789abcdef" for c in self.sha256)
+        return len(self.git_sha1) == 40 and all(c in "0123456789abcdef" for c in self.git_sha1)
+
+    @property
     def filename(self) -> str:
         return self.save_as or posixpath.basename(self.path)
 

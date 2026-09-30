@@ -7,7 +7,13 @@
 Reads core/src/irisecho_core/registry/models.yaml, asks the Hugging Face API
 for each file at the pinned revision, and writes registry/lock.json. Small
 files that are not stored in LFS are downloaded and hashed. With --check,
-exits non-zero if lock.json is missing entries instead of writing it.
+exits non-zero if lock.json is missing entries, or holds one that is not a
+real hash, instead of writing it.
+
+Hugging Face hides the hashes of a gated model's files from anyone not signed
+in (it answers with asterisks). To lock one, accept its terms on its page and
+set HF_TOKEN to a read token of your own for this run; it is sent only to
+huggingface.co.
 """
 
 from __future__ import annotations
@@ -15,6 +21,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import re
 import sys
 import urllib.parse
 from collections import defaultdict
@@ -25,6 +33,20 @@ import yaml
 
 REGISTRY = Path(__file__).parents[1] / "core" / "src" / "irisecho_core" / "registry"
 HF = "https://huggingface.co"
+SHA256 = re.compile(r"[0-9a-f]{64}")
+GIT_SHA1 = re.compile(r"[0-9a-f]{40}")
+
+
+def auth() -> dict[str, str]:
+    token = os.environ.get("HF_TOKEN", "").strip()
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def well_formed(entry: dict) -> bool:
+    """A real hash, not a placeholder such as the asterisks Hugging Face shows for gated files."""
+    if "sha256" in entry:
+        return bool(SHA256.fullmatch(entry["sha256"]))
+    return bool(GIT_SHA1.fullmatch(entry.get("git_sha1", "")))
 
 
 def file_paths(entry: dict) -> list[str]:
@@ -43,7 +65,7 @@ def paths_info(repo: str, revision: str, paths: list[str]) -> dict[str, dict]:
         content=urllib.parse.urlencode(data),
         timeout=60,
         follow_redirects=True,
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        headers={"Content-Type": "application/x-www-form-urlencoded", **auth()},
     )
     r.raise_for_status()
     return {item["path"]: item for item in r.json()}
@@ -54,7 +76,7 @@ def tree_info(repo: str, revision: str) -> dict[str, dict]:
     url = f"{HF}/api/models/{repo}/tree/{revision}?recursive=true&expand=true"
     out: dict[str, dict] = {}
     while url:
-        r = httpx.get(url, timeout=60, follow_redirects=True)
+        r = httpx.get(url, timeout=60, follow_redirects=True, headers=auth())
         r.raise_for_status()
         for item in r.json():
             if item.get("type") == "file":
@@ -66,7 +88,7 @@ def tree_info(repo: str, revision: str) -> dict[str, dict]:
 def hash_download(repo: str, revision: str, path: str) -> str:
     url = f"{HF}/{repo}/resolve/{revision}/{urllib.parse.quote(path)}"
     digest = hashlib.sha256()
-    with httpx.stream("GET", url, timeout=120, follow_redirects=True) as r:
+    with httpx.stream("GET", url, timeout=120, follow_redirects=True, headers=auth()) as r:
         r.raise_for_status()
         for chunk in r.iter_bytes(1 << 20):
             digest.update(chunk)
@@ -91,10 +113,11 @@ def main() -> int:
     fresh = {}
     for repo, paths in wanted.items():
         revision = registry["repos"][repo]
-        todo = [p for p in paths if lock_key(repo, revision, p) not in lock]
+        # An entry without a real hash is locked again, as if it were missing.
+        todo = [p for p in paths if not well_formed(lock.get(lock_key(repo, revision, p), {}))]
         for p in paths:
             key = lock_key(repo, revision, p)
-            if key in lock:
+            if p not in todo:
                 fresh[key] = lock[key]
         if not todo:
             continue
@@ -114,6 +137,11 @@ def main() -> int:
             if item is None:
                 sys.exit(f"{repo}@{revision} has no file {p}")
             lfs = item.get("lfs") or {}
+            if lfs.get("oid") and not SHA256.fullmatch(lfs["oid"]):
+                sys.exit(
+                    f"{repo}: Hugging Face hid the hash of {p}. Accept the model's terms on "
+                    f"{HF}/{repo} and run again with HF_TOKEN set to a read token."
+                )
             if lfs.get("oid"):
                 entry = {"size": item["size"], "sha256": lfs["oid"]}
             elif gated:
@@ -126,7 +154,7 @@ def main() -> int:
 
     if args.check:
         for key in missing:
-            print(f"not locked: {key}", file=sys.stderr)
+            print(f"not locked, or not a real hash: {key}", file=sys.stderr)
         return 1 if missing else 0
 
     with open(lock_path, "w", encoding="utf-8", newline="\n") as f:

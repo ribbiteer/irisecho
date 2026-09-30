@@ -77,6 +77,13 @@ class DownloadManager:
                 continue
             d = Download(id=spec.id, size=spec.size, page=spec.page)
             self.items[spec.id] = d
+            if not spec.pinned:
+                # Nothing to check the file against: say so now, not after a long download.
+                d.state = "error"
+                d.error = "IrisEcho has no usable record of this file. Update IrisEcho."
+                self._emit(d)
+                started.append(d)
+                continue
             d._task = asyncio.create_task(self._run(spec, d))
             self._emit(d)
             started.append(d)
