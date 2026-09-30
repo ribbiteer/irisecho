@@ -31,7 +31,7 @@ coding agent: [give your agents generation capabilities](#give-your-agents-gener
 | **Upscale** | Enlarge 2-4× and restore detail, no prompt needed | SeedVR2 |
 | **Video** | 2-5 s clips from text, a first frame, a last frame, or both | Wan 2.2 |
 | **Voice** | Narration in 28 preset voices, a whole script at once | Kokoro |
-| **Clone** | Any voice from a 5-15 s sample, with performed laughs and sighs | Chatterbox, Chatterbox Turbo |
+| **Clone** | A voice you have the right to use, from a 5-15 s sample, with performed laughs and sighs | Chatterbox, Chatterbox Turbo |
 | **Music** | Beds, jingles and stingers from a few tags; seamless loops on the bar | ACE-Step 1.5 |
 | **Sound** | One-shot effects: foley, UI sounds, impacts, ambience | Stable Audio 3 SFX\* |
 
