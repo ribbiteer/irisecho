@@ -1,0 +1,24 @@
+[package]
+name = "irisecho"
+version = "0.1.0"
+description = "IrisEcho desktop app"
+license = "AGPL-3.0-or-later"
+edition = "2021"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+tauri = { version = "2.12", features = [] }
+tauri-plugin-dialog = "2.8"
+tauri-plugin-opener = "2.7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

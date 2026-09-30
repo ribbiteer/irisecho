@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "IrisEcho",
+  "version": "0.1.0",
+  "identifier": "app.irisecho",
+  "build": {
+    "frontendDist": "../splash"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "app", "dmg"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": ["resources/*"],
+    "publisher": "The IrisEcho contributors",
+    "copyright": "Copyright (C) 2026 The IrisEcho contributors. AGPL-3.0-or-later.",
+    "license": "AGPL-3.0-or-later",
+    "licenseFile": "../../LICENSE",
+    "category": "GraphicsAndDesign",
+    "shortDescription": "Pictures and sound, made on your own GPU.",
+    "longDescription": "Local image, video, voice, music and sound-effect generation.",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "displayLanguageSelector": false
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "13.0"
+    }
+  }
+}

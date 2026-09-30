@@ -1,0 +1,6 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Block commits that carry identifying paths, hosts, emails or media metadata,
+# or that are authored with a non-noreply email.
+. "$(dirname "$0")/_python.sh"
+run_py scripts/identity_scan.py --check-ident --staged

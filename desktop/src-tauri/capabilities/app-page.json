@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "app-page",
+  "description": "The IrisEcho core's own page, served from this computer: pick a folder, open a link in the system browser, open the logs. Nothing else in the shell is open to it.",
+  "windows": ["main"],
+  "local": false,
+  "remote": {
+    "urls": ["http://127.0.0.1:*/*"]
+  },
+  "permissions": ["allow-pick-folder", "allow-open-external", "allow-open-logs"]
+}

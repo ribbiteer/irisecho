@@ -1,0 +1,98 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  identity:
+    name: identity scan and sign-off
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The private denylist comes from a repository secret, so the list is
+      # never public. Forks do not get the secret and fall back to generic rules.
+      - name: Load private denylist
+        env:
+          IDENTITY_DENYLIST: ${{ secrets.IDENTITY_DENYLIST }}
+        run: |
+          if [ -n "$IDENTITY_DENYLIST" ]; then
+            printf '%s\n' "$IDENTITY_DENYLIST" > "$RUNNER_TEMP/denylist.txt"
+            echo "IRISECHO_DENYLIST=$RUNNER_TEMP/denylist.txt" >> "$GITHUB_ENV"
+          fi
+
+      - name: Scan tracked files
+        run: python scripts/identity_scan.py --all
+
+      - name: Check commit authors, sign-offs and messages
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null \
+             || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            RANGE="$HEAD"
+          else
+            RANGE="$BASE..$HEAD"
+          fi
+          status=0
+          for c in $(git rev-list --no-merges "$RANGE"); do
+            for email in $(git show -s --format='%ae %ce' "$c"); do
+              case "$email" in
+                *@users.noreply.github.com|noreply@github.com) ;;
+                *) echo "::error::commit $c uses a non-noreply email"; status=1 ;;
+              esac
+            done
+            msg="$RUNNER_TEMP/msg-$c"
+            git show -s --format=%B "$c" > "$msg"
+            python scripts/identity_scan.py --commit-msg "$msg" || status=1
+          done
+          exit $status
+
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - run: uv run ruff check
+      - run: uv run ruff format --check
+      - run: uv run pytest
+      - name: Registry is locked and MODELS.md is current
+        if: runner.os == 'Linux'
+        run: |
+          uv run python scripts/lock_registry.py --check
+          uv run python scripts/gen_models_md.py --check
+
+  ui:
+    name: interface
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci
+        working-directory: ui
+      - run: npm run check
+        working-directory: ui
+      - run: npm run build
+        working-directory: ui

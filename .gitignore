@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+
+# Node / web UI
+node_modules/
+.vite/
+
+# Tauri / Rust
+target/
+
+# Model weights and generated media never belong in the repo
+models/
+outputs/
+*.safetensors
+*.gguf
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.onnx
+
+# Local config and secrets
+.env
+.env.*
+*.token
+identity-denylist.txt
+
+# OS / editors
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+
+# Built UI (made by `npm run build` in ui/)
+core/src/irisecho_core/web/
+
+# Scratch files engines write next to where they are run from
+.cache/

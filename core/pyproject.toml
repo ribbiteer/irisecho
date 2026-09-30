@@ -1,0 +1,28 @@
+[project]
+name = "irisecho-core"
+version = "0.1.0"
+description = "IrisEcho core: job queue, GPU lease, model registry and local API."
+license = "AGPL-3.0-or-later"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "websockets>=13",
+    "httpx>=0.27",
+    "python-multipart>=0.0.9",
+    "pyyaml>=6",
+    "keyring>=25",
+    "uv>=0.8",
+    "segno>=1.6",
+]
+
+[project.scripts]
+irisecho = "irisecho_core.cli:main"
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/irisecho_core"]
+artifacts = ["src/irisecho_core/web/**"]

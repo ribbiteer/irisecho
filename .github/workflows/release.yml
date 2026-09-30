@@ -1,0 +1,33 @@
+name: release
+
+# Builds the Windows installer when a version tag is pushed and attaches it to
+# a draft release, so it can be checked before publishing. macOS joins the
+# matrix once it has been run on real hardware.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - run: uv sync --locked
+      - run: uv run python scripts/build_desktop.py
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: desktop/src-tauri/target/release/bundle/nsis/*.exe

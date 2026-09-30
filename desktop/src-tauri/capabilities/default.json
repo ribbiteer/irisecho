@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The bundled splash screen: watch the core start, retry, open the logs.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "allow-boot-status",
+    "allow-retry-boot",
+    "allow-open-logs"
+  ]
+}

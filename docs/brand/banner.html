@@ -1,0 +1,100 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later
+     Banner / social-preview layout. Rendered to PNG by render_banner.py.
+     Query: ?w=1280&h=640&art=../assets/art/hero.jpg -->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face {
+    font-family: "Bricolage";
+    src: url(".cache/BricolageGrotesque.ttf");
+    font-weight: 200 800;
+    font-stretch: 75% 100%;
+  }
+  :root {
+    --pupil: #0E0B16;
+    --limbus: #2A2140;
+    --violet: #6B5BD6;
+    --teal: #2FB8A6;
+    --amber: #F2A541;
+    --sclera: #F3F0FA;
+  }
+  html, body { margin: 0; background: var(--pupil); }
+  .frame {
+    position: relative;
+    overflow: hidden;
+    background: var(--pupil);
+    font-family: "Bricolage", sans-serif;
+    color: var(--sclera);
+  }
+  .art {
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: 58%;
+    background-size: cover;
+    background-position: 12% center;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 48%);
+            mask-image: linear-gradient(90deg, transparent 0%, #000 48%);
+  }
+  .copy {
+    position: absolute;
+    left: 7%;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 52%;
+  }
+  .copy img { display: block; width: 100%; }
+  .tagline {
+    margin: 0.9em 0 0;
+    font-size: var(--tag);
+    font-weight: 400;
+    font-stretch: 92%;
+    line-height: 1.25;
+    color: color-mix(in oklab, var(--sclera) 82%, var(--violet));
+  }
+  .kinds {
+    margin-top: 1.6em;
+    display: flex;
+    gap: 0.5em;
+    flex-wrap: wrap;
+    font-size: var(--kind);
+    font-weight: 600;
+    font-stretch: 100%;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .kinds span {
+    padding: 0.45em 0.8em;
+    border-radius: 999px;
+    border: 1.5px solid color-mix(in oklab, var(--violet) 55%, transparent);
+    color: color-mix(in oklab, var(--sclera) 88%, var(--teal));
+    background: color-mix(in oklab, var(--pupil) 70%, transparent);
+  }
+  .kinds span.echo { border-color: color-mix(in oklab, var(--teal) 55%, transparent); }
+</style>
+</head>
+<body>
+<div class="frame" id="frame">
+  <div class="art" id="art"></div>
+  <div class="copy">
+    <img src="../assets/wordmark-on-dark.svg" alt="IrisEcho">
+    <p class="tagline">Pictures and sound, made on your own GPU.</p>
+    <div class="kinds">
+      <span>Images</span><span>Video</span>
+      <span class="echo">Voice</span><span class="echo">Music</span><span class="echo">Sound effects</span>
+    </div>
+  </div>
+</div>
+<script>
+  const q = new URLSearchParams(location.search);
+  const w = +(q.get("w") || 1280), h = +(q.get("h") || 640);
+  const f = document.getElementById("frame");
+  f.style.width = w + "px";
+  f.style.height = h + "px";
+  f.style.setProperty("--tag", Math.round(h * 0.047) + "px");
+  f.style.setProperty("--kind", Math.round(h * 0.024) + "px");
+  document.getElementById("art").style.backgroundImage = `url("${q.get("art") || "../assets/art/hero.jpg"}")`;
+</script>
+</body>
+</html>

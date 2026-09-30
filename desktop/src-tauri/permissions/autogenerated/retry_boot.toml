@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-retry-boot"
+description = "Enables the retry_boot command without any pre-configured scope."
+commands.allow = ["retry_boot"]
+
+[[permission]]
+identifier = "deny-retry-boot"
+description = "Denies the retry_boot command without any pre-configured scope."
+commands.deny = ["retry_boot"]

@@ -1,0 +1,5 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Require a DCO sign-off with a noreply address, and scan the message itself.
+. "$(dirname "$0")/_python.sh"
+run_py scripts/identity_scan.py --commit-msg "$1"

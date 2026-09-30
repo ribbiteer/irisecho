@@ -1,0 +1,29 @@
+# Workspace root. Each package (core now, engines later) has its own
+# pyproject.toml; engines that pin conflicting torch versions get their own
+# environments and are not workspace members.
+
+[tool.uv.workspace]
+members = ["core"]
+
+[tool.uv.sources]
+irisecho-core = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "irisecho-core",
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["irisecho_core"]
+
+[tool.pytest.ini_options]
+testpaths = ["core/tests", "tests"]
