@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -65,6 +66,16 @@ class Engine(ABC):
         return (
             stamp.get("version") == self.install_version and stamp.get("key") == self.install_key()
         )
+
+    @property
+    def constraints(self) -> Path | None:
+        """The engine's recorded package versions (scripts/freeze_engine.py), if it has them.
+
+        Without them, a new release of any dependency on PyPI can change, or
+        break, what a new install gets.
+        """
+        path = Path(sys.modules[type(self).__module__].__file__).parent / "constraints.txt"
+        return path if path.is_file() else None
 
     def install_key(self) -> str:
         """Anything that, when it changes, means the environment must be rebuilt."""

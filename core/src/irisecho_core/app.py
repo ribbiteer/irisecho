@@ -200,21 +200,30 @@ class App:
         log = self.install_logs.setdefault(engine_id, deque(maxlen=400))
         log.clear()
         throttle = Throttle(0.5)
+        # Kept on disk as well: a failed install is often only looked at after a retry or a restart.
+        log_file = paths.sub("logs") / f"install-{engine_id}.log"
 
         def write(line: str) -> None:
             log.append(line)
+            try:
+                with log_file.open("a", encoding="utf-8") as f:
+                    f.write(line + "\n")
+            except OSError:
+                pass
             if throttle.ready():
                 self.bus.publish("engine", {**engine.public(), "log": line})
 
         async def task() -> None:
             engine.state, engine.detail = "installing", ""
             self.bus.publish("engine", engine.public())
+            write(f"--- {datetime.now().isoformat(timespec='seconds')} installing {engine.name}")
             try:
                 await engine.install(write)
                 engine.state = "idle"
+                write("--- installed")
             except Exception as e:
                 engine.state, engine.detail = "error", str(e)
-                log.append(traceback.format_exc())
+                write(traceback.format_exc())
             finally:
                 self.install_tasks.pop(engine_id, None)
                 self.bus.publish("engine", engine.public())

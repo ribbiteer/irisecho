@@ -82,12 +82,34 @@ async def run(args: list[str], log: Log, cwd: Path | None = None, env: dict | No
 
 
 async def create_venv(venv: Path, python: str, log: Log) -> None:
+    """A fresh environment, replacing anything an earlier attempt left behind.
+
+    An install that stopped halfway (the app closed, the network dropped) leaves
+    a folder without the installed stamp. Removing it here, rather than relying
+    on how a given uv treats an existing folder, lets every retry start clean.
+    """
+    if venv.exists():
+        log("Removing what an earlier, unfinished install left behind")
+        shutil.rmtree(venv)
     await run([uv_bin(), "venv", "--python", python, "--seed", str(venv)], log)
 
 
-async def pip_install(venv: Path, packages: list[str], log: Log, *extra: str) -> None:
+async def pip_install(
+    venv: Path, packages: list[str], log: Log, *extra: str, constraints: Path | None = None
+) -> None:
+    """Install packages; with `constraints`, every dependency resolves to its recorded version."""
+    pinned = ["--constraint", str(constraints)] if constraints else []
     await run(
-        [uv_bin(), "pip", "install", "--python", str(venv_python(venv)), *extra, *packages],
+        [
+            uv_bin(),
+            "pip",
+            "install",
+            "--python",
+            str(venv_python(venv)),
+            *pinned,
+            *extra,
+            *packages,
+        ],
         log,
     )
 

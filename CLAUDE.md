@@ -30,12 +30,28 @@ uv run python scripts/check_comfy_graphs.py   # after changing ComfyUI graphs (n
 Commits are signed off (`git commit -s`) with a GitHub noreply address; the
 hooks from `python scripts/dev_setup.py` enforce this and run the identity scan.
 
+## Releasing
+
+1. `uv run python scripts/bump_version.py X.Y.Z` (the version is kept in 11
+   places plus `uv.lock`; never edit them by hand).
+2. Commit, push, and wait for CI to pass.
+3. `git tag -a vX.Y.Z -m "IrisEcho X.Y.Z"` and push the tag. `release.yml`
+   builds the Windows installer into a draft release; publish it by hand after
+   installing it once.
+
+The repository is public: never rewrite its history.
+
 ## Rules that matter
 
 - Nothing identifying goes in the repo: no personal paths, hostnames, LAN
   addresses, real emails, or image metadata. The identity scan blocks them.
 - Every new dependency or model gets its license checked (code must be
   AGPL-compatible) and recorded in THIRD_PARTY_NOTICES.md or the registry.
+- Engines install against recorded package versions: `engines/<name>/constraints.txt`
+  for pip-installed ones, the upstream `uv.lock` for ACE-Step and Stable Audio.
+  Nothing may resolve freely, or a new release on PyPI breaks new installs
+  overnight. After changing an engine's packages, install it, use it, then run
+  `uv run python scripts/freeze_engine.py <engine> <its .venv>`.
 - Linked model folders are read-only. An engine that writes into its model
   folder gets `no_link: true` in the registry.
 - Never accept a model license or use a Hugging Face token on someone's behalf.

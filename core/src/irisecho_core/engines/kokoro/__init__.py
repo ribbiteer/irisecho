@@ -78,6 +78,7 @@ class KokoroEngine(WorkerEngine):
             ],
             log,
             *uvenv.torch_backend_args(self.hw.backend, self.hw.cuda_tag),
+            constraints=self.constraints,
         )
         self.mark_installed()
 

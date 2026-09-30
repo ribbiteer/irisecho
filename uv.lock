@@ -278,7 +278,7 @@ wheels = [
 
 [[package]]
 name = "irisecho-core"
-version = "0.1.1"
+version = "0.1.2"
 source = { editable = "core" }
 dependencies = [
     { name = "fastapi" },
@@ -300,7 +300,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "segno", specifier = ">=1.6" },
-    { name = "uv", specifier = ">=0.8" },
+    { name = "uv", specifier = "==0.12.21" },
     { name = "uvicorn", specifier = ">=0.30" },
     { name = "websockets", specifier = ">=13" },
 ]

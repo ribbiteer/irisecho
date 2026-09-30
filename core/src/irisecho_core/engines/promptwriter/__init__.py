@@ -54,7 +54,11 @@ class PromptWriterEngine(WorkerEngine):
         self.home.mkdir(parents=True, exist_ok=True)
         await uvenv.create_venv(self.venv, self.python_version, log)
         await uvenv.pip_install(
-            self.venv, DEPS, log, *uvenv.torch_backend_args(self.hw.backend, self.hw.cuda_tag)
+            self.venv,
+            DEPS,
+            log,
+            *uvenv.torch_backend_args(self.hw.backend, self.hw.cuda_tag),
+            constraints=self.constraints,
         )
         self.mark_installed()
 

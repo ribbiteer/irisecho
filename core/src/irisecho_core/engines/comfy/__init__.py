@@ -154,8 +154,6 @@ class ComfyEngine(Engine):
                 continue
             await self._fetch_source(repo, sha, self.src / "custom_nodes" / name, log)
 
-        if self.venv.exists():
-            shutil.rmtree(self.venv)
         await uvenv.create_venv(self.venv, self.python_version, log)
         packages = [
             TORCH,
@@ -171,7 +169,11 @@ class ComfyEngine(Engine):
             packages += NUNCHAKU_NODE_DEPS
         log("Installing PyTorch, ComfyUI and nunchaku (several GB, one time)")
         await uvenv.pip_install(
-            self.venv, packages, log, *uvenv.torch_backend_args(self.hw.backend, self.hw.cuda_tag)
+            self.venv,
+            packages,
+            log,
+            *uvenv.torch_backend_args(self.hw.backend, self.hw.cuda_tag),
+            constraints=self.constraints,
         )
         self.mark_installed()
 

@@ -74,11 +74,12 @@ jobs:
       - run: uv run ruff check
       - run: uv run ruff format --check
       - run: uv run pytest
-      - name: Registry is locked and MODELS.md is current
+      - name: Registry is locked, MODELS.md is current, versions agree
         if: runner.os == 'Linux'
         run: |
           uv run python scripts/lock_registry.py --check
           uv run python scripts/gen_models_md.py --check
+          uv run python scripts/bump_version.py --check
 
   ui:
     name: interface
