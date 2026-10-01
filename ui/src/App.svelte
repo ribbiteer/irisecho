@@ -59,6 +59,7 @@
     height: 100%;
     display: grid;
     grid-template-rows: auto 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   main {
     min-height: 0;

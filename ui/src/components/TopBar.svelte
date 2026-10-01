@@ -181,4 +181,21 @@
       height: 40px;
     }
   }
+  /* A phone: the status button already shows the mark, and the four tabs need the room. */
+  @media (max-width: 520px) {
+    header {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+    .brand {
+      display: none;
+    }
+    nav {
+      justify-self: start;
+      min-width: 0;
+    }
+    .tab {
+      padding: 0 9px;
+      font-size: 13.5px;
+    }
+  }
 </style>

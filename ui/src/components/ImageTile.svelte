@@ -3,11 +3,12 @@
   import Download from "@lucide/svelte/icons/download";
   import Heart from "@lucide/svelte/icons/heart";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
+  import Trash from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
   import Iris from "./Iris.svelte";
   import { api, outputUrl } from "../lib/api";
   import { elapsed } from "../lib/format";
-  import { app, fail, modelById, submit } from "../lib/state.svelte";
+  import { app, fail, modelById, submit, toast } from "../lib/state.svelte";
   import type { Job } from "../lib/types";
 
   let { job }: { job: Job } = $props();
@@ -46,6 +47,13 @@
   function retry() {
     if (model) submit(model, job.params);
   }
+  async function remove() {
+    try {
+      await api(`/jobs/${job.id}`, { method: "DELETE" });
+    } catch (e) {
+      fail(e);
+    }
+  }
 </script>
 
 <article class="tile" style:aspect-ratio={ratio} class:done={job.status === "done"}>
@@ -81,16 +89,32 @@
     </div>
   {:else if job.status === "running" || job.status === "queued"}
     <div class="state">
-      <Iris size={84} bars={44} active={job.status === "running"} progress={job.status === "running" ? job.progress : 0} />
-      <strong>{job.status === "queued" ? (position ? `Waiting · #${position}` : "Waiting") : (job.message ?? "Working")}</strong>
-      <small>{job.params.prompt}</small>
-      <button class="btn sm ghost" onclick={cancel}><X size={14} /> Cancel</button>
+      <span class="mark">
+        <Iris size={84} bars={44} active={job.status === "running"} progress={job.status === "running" ? job.progress : 0} />
+      </span>
+      <div class="words">
+        <strong>{job.status === "queued" ? (position ? `Waiting · #${position}` : "Waiting") : (job.message ?? "Working")}</strong>
+        <small>{job.params.prompt}</small>
+        <div class="buttons">
+          <button class="btn sm ghost" onclick={cancel} title="Cancel"><X size={14} /> <span class="label">Cancel</span></button>
+        </div>
+      </div>
     </div>
   {:else}
-    <div class="state muted">
-      <strong>{job.status === "failed" ? "Didn't work" : job.status === "interrupted" ? "Interrupted" : "Cancelled"}</strong>
-      <small>{job.status === "failed" ? job.error : job.params.prompt}</small>
-      <button class="btn sm" onclick={retry}><RotateCcw size={14} /> Try again</button>
+    <div class="state muted" title={job.status === "failed" ? (job.error ?? undefined) : undefined}>
+      <div class="words">
+        {#if job.status === "failed" && job.error}
+          <!-- A short tile has no room for the reason, and a phone has no hover: a tap shows it. -->
+          <button class="why" onclick={() => toast(job.error ?? "", "error", 8000)}><strong>Didn't work</strong></button>
+        {:else}
+          <strong>{job.status === "failed" ? "Didn't work" : job.status === "interrupted" ? "Interrupted" : "Cancelled"}</strong>
+        {/if}
+        <small>{job.status === "failed" ? job.error : job.params.prompt}</small>
+        <div class="buttons">
+          <button class="btn sm" onclick={retry} title="Try again"><RotateCcw size={14} /> <span class="label">Try again</span></button>
+          <button class="btn sm icon ghost danger" onclick={remove} title="Remove" aria-label="Remove"><Trash size={14} /></button>
+        </div>
+      </div>
     </div>
   {/if}
 </article>
@@ -169,6 +193,13 @@
   .glass.fav {
     color: #ff8fa3;
   }
+  /* A tile takes the shape of what it will hold, so a wide picture makes a short
+     tile. The waiting and stopped states size themselves to the tile: the mark
+     shrinks with its height, the prompt goes when there is no room for it, and a
+     short tile lays out in a row. */
+  .tile:not(.done) {
+    container: tile / size;
+  }
   .state {
     position: absolute;
     inset: 0;
@@ -176,13 +207,28 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    padding: 18px;
+    gap: clamp(4px, 4cqh, 12px);
+    padding: clamp(8px, 6cqh, 18px) 12px;
     text-align: center;
+  }
+  .mark :global(svg) {
+    width: clamp(30px, 34cqh, 84px);
+    height: auto;
+  }
+  .words {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    max-width: 100%;
   }
   .state strong {
     font-size: 13.5px;
-    margin-top: 4px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .state small {
     font-size: 12px;
@@ -196,6 +242,56 @@
   }
   .state.muted strong {
     color: var(--text-2);
+  }
+  .buttons {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+  }
+  @container tile (max-height: 210px) {
+    .state small {
+      display: none;
+    }
+  }
+  @container tile (max-height: 150px) {
+    .state {
+      flex-direction: row;
+      gap: 12px;
+      text-align: left;
+    }
+    .mark :global(svg) {
+      width: clamp(30px, 48cqh, 56px);
+    }
+    .words {
+      align-items: flex-start;
+      gap: 4px;
+    }
+    .buttons {
+      justify-content: flex-start;
+    }
+    /* Nothing beside the words in a stopped tile: keep them centred. */
+    .muted .words {
+      align-items: center;
+    }
+    .muted .buttons {
+      justify-content: center;
+    }
+  }
+  .why {
+    border: 0;
+    padding: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    max-width: 100%;
+    cursor: help;
+    text-decoration: underline dotted var(--text-3);
+    text-underline-offset: 3px;
+  }
+  @container tile (max-width: 200px) and (max-height: 150px) {
+    .label {
+      display: none;
+    }
   }
   @keyframes appear {
     from {
