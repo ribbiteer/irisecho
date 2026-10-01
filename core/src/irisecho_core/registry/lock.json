@@ -451,9 +451,17 @@
   "size": 12654443144,
   "sha256": "09360052af6777fd36623b7f3604b67ae0f93323b0e46eab92490acb4159eabd"
  },
+ "nunchaku-ai/nunchaku-qwen-image@4d9f4f667ea571ab172e0ee29ac2c27b82a41a6b:svdq-fp4_r32-qwen-image-lightningv1.0-4steps.safetensors": {
+  "size": 11948923656,
+  "sha256": "d96e8d27fd05fdc2811dab97791ad5be09e8d6a4542801db73846bb4fe1fe4f5"
+ },
  "nunchaku-ai/nunchaku-qwen-image@4d9f4f667ea571ab172e0ee29ac2c27b82a41a6b:svdq-fp4_r32-qwen-image.safetensors": {
   "size": 11948923656,
   "sha256": "90f1f4d26c6506a76dd689d34d2954756f3b91d43495c1153c1aaf2eb78b5ded"
+ },
+ "nunchaku-ai/nunchaku-qwen-image@4d9f4f667ea571ab172e0ee29ac2c27b82a41a6b:svdq-int4_r32-qwen-image-lightningv1.0-4steps.safetensors": {
+  "size": 11521979944,
+  "sha256": "db487a5f50862b9bd39bf60cebbf0476cdf2d176600bc9299e122d6731906e6c"
  },
  "nunchaku-ai/nunchaku-qwen-image@4d9f4f667ea571ab172e0ee29ac2c27b82a41a6b:svdq-int4_r32-qwen-image.safetensors": {
   "size": 11521979944,

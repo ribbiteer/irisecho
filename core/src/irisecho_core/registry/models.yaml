@@ -269,6 +269,14 @@ files:
     repo: nunchaku-ai/nunchaku-qwen-image
     path: svdq-fp4_r32-qwen-image.safetensors
     category: diffusion_models
+  qwen-image-fast-int4:
+    repo: nunchaku-ai/nunchaku-qwen-image
+    path: svdq-int4_r32-qwen-image-lightningv1.0-4steps.safetensors
+    category: diffusion_models
+  qwen-image-fast-fp4:
+    repo: nunchaku-ai/nunchaku-qwen-image
+    path: svdq-fp4_r32-qwen-image-lightningv1.0-4steps.safetensors
+    category: diffusion_models
 
   # Picture edits
   qwen-edit-fast-int4:
@@ -544,13 +552,28 @@ models:
         files: [schnell-fp4, t5xxl-fp8, clip-l, flux-ae]
     settings: {prompt_style: flux-schnell, steps: 4, guidance: null}
 
+  qwen-image-fast:
+    name: Qwen-Image Fast
+    kind: image
+    engine: comfy
+    license: apache-2.0
+    summary: Qwen-Image's text and layout in four steps. Use it for drafts, then switch to Qwen-Image.
+    settings: {prompt_style: qwen-image, steps: 4, cfg: 1.0, shift: 3.0}
+    variants:
+      - when: {backend: cuda, quant: int4}
+        workflow: qwen-image-nunchaku
+        files: [qwen-image-fast-int4, qwen25vl-fp8, qwen-image-vae]
+      - when: {backend: cuda, quant: fp4}
+        workflow: qwen-image-nunchaku
+        files: [qwen-image-fast-fp4, qwen25vl-fp8, qwen-image-vae]
+
   qwen-image:
     name: Qwen-Image
     kind: image
     engine: comfy
     license: apache-2.0
-    summary: The one to use for words in pictures. Logos, signs, posters, labels.
-    settings: {prompt_style: qwen-image}
+    summary: The one to use for words in pictures. Logos, signs, posters, labels. Twenty steps; slow.
+    settings: {prompt_style: qwen-image, steps: 20, cfg: 2.5, shift: 3.1}
     variants:
       - when: {backend: cuda, quant: int4}
         workflow: qwen-image-nunchaku

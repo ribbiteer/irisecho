@@ -206,7 +206,7 @@ def flux(*, prompt, seed, aspect, names, settings, hw, prefix, **_):
 
 def qwen_image(*, prompt, seed, aspect, names, settings, hw, prefix, **_):
     w, h = size_for(aspect, 1328)
-    dit = names.get("qwen-image-int4") or names.get("qwen-image-fp4")
+    dit, _dtype = _nunchaku_dit(names, hw)
     g: dict = {
         "unet": {
             "class_type": "NunchakuQwenImageDiTLoader",
@@ -228,7 +228,7 @@ def qwen_image(*, prompt, seed, aspect, names, settings, hw, prefix, **_):
         "vae": {"class_type": "VAELoader", "inputs": {"vae_name": names["qwen-image-vae"]}},
         "shift": {
             "class_type": "ModelSamplingAuraFlow",
-            "inputs": {"model": ["unet", 0], "shift": 3.1},
+            "inputs": {"model": ["unet", 0], "shift": float(settings.get("shift", 3.1))},
         },
         "text": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["clip", 0], "text": prompt}},
         "negative": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["clip", 0], "text": ""}},
@@ -237,15 +237,21 @@ def qwen_image(*, prompt, seed, aspect, names, settings, hw, prefix, **_):
             "inputs": {"width": w, "height": h, "batch_size": 1},
         },
     }
-    guider = {
-        "class_type": "CFGGuider",
-        "inputs": {
-            "model": ["shift", 0],
-            "positive": ["text", 0],
-            "negative": ["negative", 0],
-            "cfg": 2.5,
-        },
-    }
+    cfg = float(settings.get("cfg", 2.5))
+    # The distilled files run at cfg 1: no negative pass, so each step costs half.
+    guider = (
+        None
+        if cfg <= 1.0
+        else {
+            "class_type": "CFGGuider",
+            "inputs": {
+                "model": ["shift", 0],
+                "positive": ["text", 0],
+                "negative": ["negative", 0],
+                "cfg": cfg,
+            },
+        }
+    )
     _custom_sampler(
         g,
         model=["shift", 0],
