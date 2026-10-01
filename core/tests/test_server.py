@@ -167,3 +167,13 @@ def test_saved_bad_folder_does_not_block_startup(tmp_path, monkeypatch):
     s = settings.Settings(models_dir=str(a_file), outputs_dir=str(a_file))
     assert s.models_path.is_dir() and s.models_path != a_file
     assert s.outputs_path.is_dir() and s.outputs_path != a_file
+
+
+def test_loopback_client_ignores_proxy_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("IRISECHO_HOME", str(tmp_path))
+    monkeypatch.setenv("ALL_PROXY", "socks5://127.0.0.1:9")
+    from irisecho_core.cli import Remote
+
+    remote = Remote(8000, "t0ken")
+    assert not remote.http._mounts
+    assert Remote.find() is None

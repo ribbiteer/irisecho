@@ -266,7 +266,7 @@ class ComfyEngine(Engine):
     async def _wait_until_up(self, report, cancelled: asyncio.Event | None) -> None:
         started = time.monotonic()
         told = 0
-        async with httpx.AsyncClient(timeout=3) as client:
+        async with httpx.AsyncClient(timeout=3, trust_env=False) as client:
             while (waited := time.monotonic() - started) < START_TIMEOUT:
                 if cancelled is not None and cancelled.is_set():
                     raise asyncio.CancelledError
@@ -403,7 +403,7 @@ class ComfyEngine(Engine):
         async with websockets.connect(
             f"ws://127.0.0.1:{self.port}/ws?clientId={client_id}", max_size=None
         ) as ws:
-            async with httpx.AsyncClient(timeout=30) as client:
+            async with httpx.AsyncClient(timeout=30, trust_env=False) as client:
                 r = await client.post(
                     self.url("/prompt"), json={"prompt": graph, "client_id": client_id}
                 )
@@ -471,7 +471,7 @@ class ComfyEngine(Engine):
         prompt_id = self.prompt_of.get(job_id)
         if not prompt_id or not self.alive:
             return
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
             await client.post(self.url("/queue"), json={"delete": [prompt_id]})
             await client.post(self.url("/interrupt"), json={"prompt_id": prompt_id})
 
@@ -480,7 +480,7 @@ class ComfyEngine(Engine):
         if not self.alive:
             return
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
+            async with httpx.AsyncClient(timeout=30, trust_env=False) as client:
                 await client.post(
                     self.url("/free"), json={"unload_models": True, "free_memory": True}
                 )

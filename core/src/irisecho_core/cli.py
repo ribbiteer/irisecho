@@ -280,6 +280,7 @@ class Remote:
             cookies={COOKIE: token},
             headers={"X-IrisEcho": "1"},
             timeout=60,
+            trust_env=False,  # loopback: never through a proxy from the environment
         )
 
     @classmethod

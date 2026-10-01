@@ -34,6 +34,7 @@ versions shown when a model that needs them is first set up.
 | FastAPI | MIT | https://github.com/fastapi/fastapi |
 | Uvicorn | BSD-3-Clause | https://github.com/encode/uvicorn |
 | HTTPX | BSD-3-Clause | https://github.com/encode/httpx |
+| socksio (httpx SOCKS extra) | MIT | https://github.com/sethmlarson/socksio |
 | websockets | BSD-3-Clause | https://github.com/python-websockets/websockets |
 | python-multipart | Apache-2.0 | https://github.com/Kludex/python-multipart |
 | PyYAML | MIT | https://github.com/yaml/pyyaml |
