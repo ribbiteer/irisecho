@@ -94,6 +94,15 @@ With IrisEcho it can also make the art, the voice-over, the music and the sound
 effects for it**, on your own GPU: no API keys, no per-image bill, nothing
 uploaded.
 
+<p align="center">
+  <a href="docs/assets/agent-demo.mp4"><img src="docs/assets/screens/agent-demo.jpg" alt="Claude Code on the left and IrisEcho on the right: the agent has made four pictures of a game boss and explains which one it picked to animate. Links to the demo video." width="100%"></a>
+</p>
+
+<sub>One prompt to Claude Code on a fresh install: four pictures of a game boss
+with Qwen-Image Fast, the agent picks one, animates it with Wan 2.2 and adds a
+roar and a score. The waits are sped up; it all ran on one RTX 4070 SUPER.
+[Watch the video](docs/assets/agent-demo.mp4) (1:45, with sound at the end).</sub>
+
 IrisEcho ships with its own instructions for agents. Open Settings → Scripts
 and coding agents, press **Copy a note for your assistant**, and paste it to
 Claude Code, Codex or whatever works on your computer. The note tells the agent
