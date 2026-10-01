@@ -30,21 +30,46 @@ class Settings:
 
     @property
     def models_path(self) -> Path:
-        path = Path(self.models_dir) if self.models_dir else paths.data_dir() / "models"
-        path.mkdir(parents=True, exist_ok=True)
-        return path
+        return _folder(self.models_dir, "models")
 
     @property
     def outputs_path(self) -> Path:
-        path = Path(self.outputs_dir) if self.outputs_dir else paths.data_dir() / "outputs"
-        path.mkdir(parents=True, exist_ok=True)
-        return path
+        return _folder(self.outputs_dir, "outputs")
 
     def public(self) -> dict:
         data = asdict(self)
         data["models_path"] = str(self.models_path)
         data["outputs_path"] = str(self.outputs_path)
         return data
+
+
+def _folder(chosen: str, default: str) -> Path:
+    """The chosen folder, made if needed; the default one when the choice cannot be used.
+
+    A bad value may already be saved (a file, a drive that is gone), and it must
+    not stop the app from starting.
+    """
+    if chosen:
+        path = Path(chosen)
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            return path
+        except OSError:
+            pass
+    path = paths.data_dir() / default
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def check_folder(value: str) -> None:
+    """Raise ValueError, with a message for the person, unless value is a usable folder."""
+    path = Path(value)
+    if not path.is_absolute():
+        raise ValueError("Use a full folder path.")
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        raise ValueError(f"Cannot use {value} as a folder: {e.strerror or e}") from e
 
 
 def settings_file() -> Path:

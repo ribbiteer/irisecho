@@ -408,8 +408,11 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
         allowed = {"outputs_dir", "models_dir", "strip_metadata"}
         changes = {k: v for k, v in body.items() if k in allowed}
         for key in ("outputs_dir", "models_dir"):
-            if changes.get(key) and not Path(changes[key]).is_absolute():
-                raise HTTPException(400, "Use a full folder path.")
+            if changes.get(key):
+                try:
+                    settings.check_folder(changes[key])
+                except ValueError as e:
+                    raise HTTPException(400, str(e)) from e
         settings.update(core.settings, changes)
         if "models_dir" in changes:
             core.store.root = core.settings.models_path

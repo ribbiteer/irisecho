@@ -146,3 +146,24 @@ def test_search_follows_edits_and_deletes(client):
     assert [j["id"] for j in db.list(q="harbor")] == ["b1"]
     db.delete("b1")
     assert db.list(q="harbor") == []
+
+
+def test_settings_reject_unusable_folder(client, tmp_path):
+    client.get("/")
+    a_file = tmp_path / "not-a-folder"
+    a_file.write_text("x")
+    for key in ("models_dir", "outputs_dir"):
+        r = client.patch("/api/settings", json={key: str(a_file)}, headers={"X-IrisEcho": "1"})
+        assert r.status_code == 400
+    assert client.get("/api/settings").json()["models_dir"] == ""
+
+
+def test_saved_bad_folder_does_not_block_startup(tmp_path, monkeypatch):
+    monkeypatch.setenv("IRISECHO_HOME", str(tmp_path / "home"))
+    from irisecho_core import settings
+
+    a_file = tmp_path / "not-a-folder"
+    a_file.write_text("x")
+    s = settings.Settings(models_dir=str(a_file), outputs_dir=str(a_file))
+    assert s.models_path.is_dir() and s.models_path != a_file
+    assert s.outputs_path.is_dir() and s.outputs_path != a_file
