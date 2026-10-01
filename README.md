@@ -101,7 +101,7 @@ uploaded.
 <sub>One prompt to Claude Code on a fresh install: four pictures of a game boss
 with Qwen-Image Fast, the agent picks one, animates it with Wan 2.2 and adds a
 roar and a score. The waits are sped up; it all ran on one RTX 4070 SUPER.
-[Watch the video](docs/assets/agent-demo.mp4) (1:45, with sound at the end).</sub>
+[Watch the video](https://github.com/user-attachments/assets/77f22b92-c779-4ca7-b212-7782e8fbafd4) (1:45, with sound at the end).</sub>
 
 IrisEcho ships with its own instructions for agents. Open Settings → Scripts
 and coding agents, press **Copy a note for your assistant**, and paste it to
