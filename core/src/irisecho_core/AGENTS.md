@@ -142,6 +142,45 @@ that is not a GET. The token changes every time the app starts. It opens this
 computer's IrisEcho to whoever holds it, so keep it out of logs, prompts and
 commits.
 
+## From another computer on the network
+
+An agent on another computer can use this IrisEcho over the local network the
+way a phone does, once the person running it lets it in. The command line and
+this guide's paths are for this computer only; from elsewhere, everything goes
+through HTTP.
+
+1. The person turns on Settings → Phone and network access, chooses Pair a
+   phone, and gives you the pairing link (`http://HOST:7789/pair?code=CODE`).
+   The code works once and expires after five minutes.
+2. Open that link with a client that keeps cookies. The answer sets the cookie
+   `irisecho_device`; send it with every call from then on. It lasts until the
+   person revokes the device in Settings.
+
+```sh
+curl -c jar.txt -L "http://HOST:7789/pair?code=CODE"
+curl -b jar.txt http://HOST:7789/api/models
+curl -b jar.txt -H "X-IrisEcho: 1" -H "Content-Type: application/json" -d @job.json http://HOST:7789/api/jobs
+curl -b jar.txt -o result.png http://HOST:7789/api/jobs/JOB_ID/outputs/0
+```
+
+In Windows PowerShell, `curl` is another command: type `curl.exe`.
+
+- The calls and job `params` are the ones in the tables above, and anything
+  that is not a GET still needs the header `X-IrisEcho: 1`.
+- A paired device can read models, settings, the system and jobs; queue,
+  cancel, delete and favourite jobs; download outputs from
+  `/api/jobs/{id}/outputs/{n}`; and upload with `POST /api/uploads`. Nothing
+  else: setting up or downloading models, accepting licenses and changing
+  settings or folders are for the computer running IrisEcho, and answer 403.
+- A job's `outputs[n].path` names a file on the other computer; fetch it from
+  `/api/jobs/{id}/outputs/{n}`. Pictures and sounds for a job must be uploaded:
+  the `uploads` folder is out of reach.
+- 401 with `"pair": true` means the cookie is missing or was revoked: ask the
+  person for a new code. After five wrong codes, pairing pauses for a minute.
+- The connection is plain HTTP. Anyone who can see the network traffic can see
+  the cookie and everything you send, so use it only on a network the person
+  trusts, and keep the cookie out of logs, prompts and commits.
+
 ## Where things are
 
 Inside the data folder:
