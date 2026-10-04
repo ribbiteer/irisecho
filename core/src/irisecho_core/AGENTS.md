@@ -126,7 +126,7 @@ Job `params` by kind of model:
 
 | Kind | Models | Params |
 |---|---|---|
-| image | `z-image-turbo`, `flux-schnell`, `qwen-image-fast`, `qwen-image`, `flux-dev`, `flux-krea` | `prompt`, `aspect`, `seed` |
+| image | `z-image-turbo`, `flux-schnell`, `qwen-image-fast`, `qwen-image`, `flux-dev`, `flux-krea`, `krea-2` | `prompt`, `aspect`, `seed` |
 | edit | `qwen-edit-fast`, `qwen-edit`, `flux-kontext` | `prompt`, `image1` (and `image2`, `image3` for the Qwen models), `seed` |
 | upscale | `seedvr2` | `image1`, `scale` (2, 3 or 4), `retain` (true keeps the original size) |
 | video | `wan22-t2v`, `wan22-i2v`, `wan22-i2v-1022` | `prompt`, `aspect`, `seconds` (2 to 5), `size` (`standard`, `large`, or `720p` on a 12 GB card), `smooth`, and for the `i2v` models a `start` and/or `end` frame |

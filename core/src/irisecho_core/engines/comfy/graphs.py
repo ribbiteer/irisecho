@@ -327,6 +327,48 @@ def qwen_image(*, prompt, seed, aspect, names, settings, hw, prefix, **_):
     return g, _finish(g, ["vae", 0], prefix)
 
 
+def krea2(*, prompt, seed, aspect, names, settings, hw, prefix, **_):
+    """Krea 2 Turbo: ComfyUI's own 4-bit weights, eight steps at cfg 1, a zeroed negative."""
+    w, h = size_for(aspect, 1024)
+    g: dict = {
+        "unet": {
+            "class_type": "UNETLoader",
+            "inputs": {"unet_name": names["krea2-turbo-w4a4"], "weight_dtype": "default"},
+        },
+        "clip": {
+            "class_type": "CLIPLoader",
+            "inputs": {
+                "clip_name": names["krea2-text-encoder"],
+                "type": "krea2",
+                "device": "default",
+            },
+        },
+        "vae": {"class_type": "VAELoader", "inputs": {"vae_name": names["qwen-image-vae"]}},
+        "text": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["clip", 0], "text": prompt}},
+        "negative": {"class_type": "ConditioningZeroOut", "inputs": {"conditioning": ["text", 0]}},
+        "latent": {
+            "class_type": "EmptySD3LatentImage",
+            "inputs": {"width": w, "height": h, "batch_size": 1},
+        },
+        "sample": {
+            "class_type": "KSampler",
+            "inputs": {
+                "model": ["unet", 0],
+                "positive": ["text", 0],
+                "negative": ["negative", 0],
+                "latent_image": ["latent", 0],
+                "seed": seed,
+                "steps": int(settings.get("steps", 8)),
+                "cfg": float(settings.get("cfg", 1.0)),
+                "sampler_name": "euler",
+                "scheduler": "simple",
+                "denoise": 1.0,
+            },
+        },
+    }
+    return g, _finish(g, ["vae", 0], prefix)
+
+
 def _nunchaku_dit(names: dict, hw) -> tuple[str, str]:
     dit = next(v for k, v in names.items() if k.endswith(("-int4", "-fp4")))
     # Turing cards (RTX 20) have no bfloat16.
@@ -800,6 +842,7 @@ BUILDERS = {
     "z-image-native": z_image_native,
     "flux-nunchaku": flux,
     "qwen-image-nunchaku": qwen_image,
+    "krea2": krea2,
     "qwen-edit": qwen_edit,
     "kontext": kontext,
     "seedvr2": seedvr2,

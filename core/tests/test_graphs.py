@@ -232,6 +232,7 @@ NUNCHAKU_RECIPES = {
     "qwen-image-fast": {"steps": 4, "cfg": 1.0, "shift": 3.0},
     "qwen-edit": {"steps": 8, "cfg": 1.0},
     "qwen-edit-fast": {"steps": 4, "cfg": 1.0},
+    "krea-2": {"steps": 8, "cfg": 1.0},
 }
 
 
@@ -275,3 +276,36 @@ def test_qwen_image_lightning_graph_has_no_negative_pass():
     assert g["guider"]["class_type"] == "BasicGuider"
     assert g["sigmas"]["inputs"]["steps"] == 8
     assert g["shift"]["inputs"]["shift"] == 3.0
+
+
+def krea2_graph(aspect="16:9"):
+    model = registry.default().models["krea-2"]
+    names = {f: f"{f}.safetensors" for f in model.variants[0].files}
+    return graphs.krea2(
+        prompt="a fox",
+        seed=1,
+        aspect=aspect,
+        names=names,
+        settings=model.settings,
+        hw=HW,
+        prefix="x",
+    )[0]
+
+
+def test_krea2_runs_eight_steps_with_a_zeroed_negative():
+    g = krea2_graph()
+    assert g["clip"]["inputs"]["type"] == "krea2"
+    assert g["negative"] == {
+        "class_type": "ConditioningZeroOut",
+        "inputs": {"conditioning": ["text", 0]},
+    }
+    assert g["sample"]["inputs"]["steps"] == 8
+    assert g["sample"]["inputs"]["cfg"] == 1.0
+    assert (g["latent"]["inputs"]["width"], g["latent"]["inputs"]["height"]) == (1360, 768)
+    assert g["decode"]["inputs"]["samples"] == ["sample", 0]
+
+
+def test_krea2_is_offered_only_on_cuda_13_builds():
+    model = registry.default().models["krea-2"]
+    assert all(v.when["cuda_tag"] == "cu130" for v in model.variants)
+    assert {v.files for v in model.variants} == {model.variants[0].files}

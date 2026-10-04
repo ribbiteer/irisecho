@@ -127,6 +127,24 @@ STYLES: dict[str, Style] = {
             ),
         ),
         Style(
+            "krea2",
+            "Krea 2",
+            edit=False,
+            video=False,
+            guide=(
+                "Target: Krea 2. Its text encoder is asked, as Qwen-Image's is, for color, "
+                "shape, size, texture, quantity, text and spatial relationships, so write "
+                "one cohesive paragraph of full sentences, 60 to 150 words. Give each "
+                "subject its own attributes and action in one place, then the setting from "
+                f"front to back, then the light and the camera. {LIGHT} Keep any medium the "
+                "draft names (photograph, illustration, painting, 3D render) and stay in it. "
+                "Put every piece of visible text in double quotes, exactly as asked. Add no "
+                "objects, props or animals the draft does not imply; if the draft is already "
+                "detailed, polish it and keep its wording. Assume clothing covers intimate "
+                "anatomy."
+            ),
+        ),
+        Style(
             "qwen-image",
             "Qwen-Image",
             edit=False,

@@ -53,7 +53,7 @@ def test_multi_picture_edits_get_only_the_result_form(pictures, draft, multi):
 
 
 def test_still_styles_ask_for_light_as_facts_and_an_eyeline():
-    for sid in ("zimage", "flux", "qwen-image"):
+    for sid in ("zimage", "flux", "qwen-image", "krea2"):
         prompt = system_prompt(STYLES[sid], "improve", 0)
         assert "which side falls into shadow" in prompt, sid
     for sid in ("zimage", "flux"):
