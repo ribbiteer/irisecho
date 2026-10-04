@@ -43,6 +43,7 @@ UPLOAD_TYPES = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
     "image/webp": ".webp",
+    "video/mp4": ".mp4",
     "audio/wav": ".wav",
     "audio/x-wav": ".wav",
     "audio/wave": ".wav",
@@ -391,7 +392,7 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
         ext = UPLOAD_TYPES.get(file.content_type or "")
         if not ext:
             raise HTTPException(
-                415, "Use a PNG, JPEG or WebP image, or a WAV, MP3, FLAC or OGG sound."
+                415, "Use a PNG, JPEG or WebP image, an MP4 clip, or a WAV, MP3, FLAC or OGG sound."
             )
         data = await file.read(MAX_UPLOAD + 1)
         if len(data) > MAX_UPLOAD:

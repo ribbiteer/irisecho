@@ -20,6 +20,18 @@ import httpx
 from irisecho_core.app import App
 from irisecho_core.engines.comfy import graphs
 
+BASE = {"scale": 2, "retain": True, "seconds": 3, "smooth": True}
+# Further cases per workflow, beyond every input given and the base params:
+# (label, inputs to leave out, params to add).
+EXTRA = {
+    "flux-nunchaku": [
+        ("text only", ("image1",), {}),
+        ("redraw at a size", (), {"width": 1920, "height": 1088, "denoise": 0.2}),
+    ],
+    "wan22": [("720p, 5 s", (), {"size": "720p", "seconds": 5})],
+    "seedvr2-video": [("720", (), {"short_side": 720})],
+}
+
 
 def check(graph: dict, info: dict) -> list[str]:
     problems = []
@@ -69,27 +81,31 @@ async def main() -> int:
             for variant in model.variants:
                 builder = graphs.BUILDERS[variant.workflow]
                 names = {f.id: f.filename for f in app.registry.expand(variant.files)}
-                images = {k: "check.png" for k in graphs.IMAGE_INPUTS.get(variant.workflow, ())}
-                graph, _ = builder(
-                    prompt="test",
-                    seed=1,
-                    aspect="16:9",
-                    names=names,
-                    settings=model.settings,
-                    hw=app.hw,
-                    prefix="check",
-                    images=images,
-                    params={"scale": 2, "retain": True, "seconds": 3, "smooth": True},
-                )
-                problems = check(graph, info)
-                label = f"{model.id} [{variant.workflow}, {variant.when or 'any'}]"
-                if problems:
-                    failed += 1
-                    print(f"FAIL {label}")
-                    for p in problems:
-                        print(f"     {p}")
-                else:
-                    print(f"ok   {label}")
+                inputs = graphs.IMAGE_INPUTS.get(variant.workflow, ())
+                cases = [("", (), {})] + EXTRA.get(variant.workflow, [])
+                for case, leave_out, params in cases:
+                    images = {k: "check.png" for k in inputs if k not in leave_out}
+                    graph, _ = builder(
+                        prompt="test",
+                        seed=1,
+                        aspect="16:9",
+                        names=names,
+                        settings=model.settings,
+                        hw=app.hw,
+                        prefix="check",
+                        images=images,
+                        params={**BASE, **params},
+                    )
+                    problems = check(graph, info)
+                    label = f"{model.id} [{variant.workflow}, {variant.when or 'any'}]"
+                    label += f" {case}" if case else ""
+                    if problems:
+                        failed += 1
+                        print(f"FAIL {label}")
+                        for p in problems:
+                            print(f"     {p}")
+                    else:
+                        print(f"ok   {label}")
         return 1 if failed else 0
     finally:
         await app.stop()

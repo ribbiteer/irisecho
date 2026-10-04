@@ -165,6 +165,36 @@ def test_comfy_gives_up_on_a_missing_record():
     assert len(calls) == 10
 
 
+def video_upscale_graph(**params):
+    model = registry.default().models["seedvr2-video"]
+    names = {f: f"{f}.bin" for f in model.variants[0].files}
+    return graphs.seedvr2_video(
+        seed=1, names=names, prefix="x", images={"video": "clip.mp4"}, params=params
+    )[0]
+
+
+def test_video_upscale_keeps_the_clips_shape_at_1080():
+    g = video_upscale_graph()
+    assert g["load"]["inputs"]["file"] == "clip.mp4"
+    assert g["resize"]["inputs"]["resize_type"] == "scale shorter dimension"
+    assert g["resize"]["inputs"]["resize_type.shorter_size"] == 1080
+    assert g["post"]["inputs"]["original_resized_images"] == ["even", 0]
+    assert g["video"]["inputs"]["fps"] == ["parts", 2]
+
+
+@pytest.mark.parametrize("short_side", [480, 1440])
+def test_video_upscale_refuses_untested_sizes(short_side):
+    with pytest.raises(ValueError, match="short_side"):
+        video_upscale_graph(short_side=short_side)
+
+
+def test_video_upscale_needs_a_clip_and_no_prompt():
+    with pytest.raises(ValueError, match="clip"):
+        graphs.seedvr2_video(seed=1, names={}, prefix="x", images={}, params={})
+    assert "seedvr2-video" in graphs.PROMPT_OPTIONAL
+    assert graphs.IMAGE_INPUTS["seedvr2-video"] == ("video",)
+
+
 def test_comfy_release_waits_until_memory_is_back():
     import asyncio
 

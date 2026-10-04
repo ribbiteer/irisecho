@@ -426,6 +426,17 @@ models:
         workflow: seedvr2
         files: [seedvr2-3b, seedvr2-vae]
 
+  seedvr2-video:
+    name: SeedVR2 Video
+    kind: video-upscale  # not a studio: reached through the API and the command line only
+    engine: comfy
+    license: apache-2.0
+    summary: Restores detail in a whole clip and enlarges it to 1080p. Experimental; it can make faces look plastic and add grit and flicker, so compare it with a plain resize.
+    variants:
+      - when: {backend: cuda}
+        workflow: seedvr2-video
+        files: [seedvr2-3b, seedvr2-vae]
+
   wan22-i2v:
     name: Wan 2.2 from a picture
     kind: video

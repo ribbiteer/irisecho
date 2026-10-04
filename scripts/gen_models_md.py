@@ -19,6 +19,7 @@ KIND = {
     "edit": "Edits",
     "upscale": "Upscaling",
     "video": "Video",
+    "video-upscale": "Video upscaling (API and command line only)",
     "voice": "Voice",
     "clone": "Voice cloning",
     "music": "Music",

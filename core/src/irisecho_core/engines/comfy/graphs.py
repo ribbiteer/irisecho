@@ -547,6 +547,108 @@ def seedvr2(*, seed, names, prefix, images, params, **_):
     return g, "save"
 
 
+def seedvr2_video(*, seed, names, prefix, images, params, **_):
+    """Restoration upscale of a whole clip with ComfyUI's SeedVR2 video nodes.
+
+    Opt-in only: on generated clips it made faces look plastic, and on a macro shot
+    it added grit and flicker, so a plain resize is often the better master.
+    """
+    if not images.get("video"):
+        raise ValueError("Add the clip to upscale.")
+    short_side = int(params.get("short_side") or 1080)
+    if not 720 <= short_side <= 1080:
+        raise ValueError("Set short_side between 720 and 1080.")
+    tiled = {"tile_size": 512, "overlap": 128, "temporal_size": 32, "temporal_overlap": 8}
+    g: dict = {
+        "load": {"class_type": "LoadVideo", "inputs": {"file": images["video"]}},
+        "parts": {"class_type": "GetVideoComponents", "inputs": {"video": ["load", 0]}},
+        "unet": {
+            "class_type": "UNETLoader",
+            "inputs": {"unet_name": names["seedvr2-3b"], "weight_dtype": "default"},
+        },
+        "vae": {"class_type": "VAELoader", "inputs": {"vae_name": names["seedvr2-vae"]}},
+        "resize": {
+            "class_type": "ResizeImageMaskNode",
+            "inputs": {
+                "input": ["parts", 0],
+                "resize_type": "scale shorter dimension",
+                "resize_type.shorter_size": short_side,
+                "scale_method": "lanczos",
+            },
+        },
+        # Video encoders want even sides; already-even frames pass through untouched.
+        "even": {
+            "class_type": "ResizeImageMaskNode",
+            "inputs": {
+                "input": ["resize", 0],
+                "resize_type": "scale to multiple",
+                "resize_type.multiple": 2,
+                "scale_method": "lanczos",
+            },
+        },
+        "pre": {"class_type": "SeedVR2Preprocess", "inputs": {"resized_images": ["even", 0]}},
+        "encode": {
+            "class_type": "VAEEncodeTiled",
+            "inputs": {"pixels": ["pre", 0], "vae": ["vae", 0], **tiled},
+        },
+        # The largest 4n + 1 chunk that fits in free memory; neighbouring chunks
+        # overlap by 2 latent frames and are crossfaded.
+        "chunk": {
+            "class_type": "SeedVR2TemporalChunk",
+            "inputs": {"latent": ["encode", 0], "temporal_overlap": 2, "chunking_mode": "auto"},
+        },
+        "cond": {
+            "class_type": "SeedVR2Conditioning",
+            "inputs": {"model": ["unet", 0], "vae_conditioning": ["chunk", 0]},
+        },
+        "sample": {
+            "class_type": "KSampler",
+            "inputs": {
+                "model": ["unet", 0],
+                "positive": ["cond", 0],
+                "negative": ["cond", 1],
+                "latent_image": ["chunk", 0],
+                "seed": seed,
+                "steps": 1,
+                "cfg": 1.0,
+                "sampler_name": "euler",
+                "scheduler": "simple",
+                "denoise": 1.0,
+            },
+        },
+        "merge": {
+            "class_type": "SeedVR2TemporalMerge",
+            "inputs": {"latents": ["sample", 0], "temporal_overlap": ["chunk", 1]},
+        },
+        "decode": {
+            "class_type": "VAEDecodeTiled",
+            "inputs": {"samples": ["merge", 0], "vae": ["vae", 0], **tiled},
+        },
+        "post": {
+            "class_type": "SeedVR2PostProcessing",
+            "inputs": {
+                "images": ["decode", 0],
+                "original_resized_images": ["even", 0],
+                "color_correction_method": "lab",
+            },
+        },
+        "video": {
+            "class_type": "CreateVideo",
+            "inputs": {"images": ["post", 0], "fps": ["parts", 2]},
+        },
+        "save": {
+            "class_type": "SaveVideo",
+            "inputs": {
+                "video": ["video", 0],
+                "filename_prefix": prefix,
+                "format": "auto",
+                "codec": "auto",
+            },
+        },
+    }
+    return g, "save"
+
+
 # Pixel budgets: sqrt(480 x 832), sqrt(576 x 1024) and sqrt(720 x 1280).
 VIDEO_TIERS = {"standard": 632, "large": 768, "720p": 960}
 # 720p peaks at about 11.7 GB of a 12 GB card.
@@ -701,18 +803,20 @@ BUILDERS = {
     "qwen-edit": qwen_edit,
     "kontext": kontext,
     "seedvr2": seedvr2,
+    "seedvr2-video": seedvr2_video,
     "wan22": wan22,
 }
 
-# The uploaded pictures each workflow reads, by parameter name.
+# The uploaded pictures (and clips) each workflow reads, by parameter name.
 IMAGE_INPUTS = {
     "flux-nunchaku": ("image1",),
     "qwen-edit": ("image1", "image2", "image3"),
     "kontext": ("image1",),
     "seedvr2": ("image1",),
+    "seedvr2-video": ("video",),
     "wan22": ("start", "end"),
 }
-PROMPT_OPTIONAL = {"seedvr2"}
+PROMPT_OPTIONAL = {"seedvr2", "seedvr2-video"}
 
 
 def describe_error(data: dict) -> str:

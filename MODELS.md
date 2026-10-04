@@ -43,6 +43,12 @@ encoders are counted once per model but downloaded once overall.
 | Wan 2.2 camera moves | Bigger camera moves that keep faces intact. A last frame sets where the move ends. | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) | Yes | 25.8 GB | [Comfy-Org/Wan_2.2_ComfyUI_Repackaged](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged), [Comfy-Org/frame_interpolation](https://huggingface.co/Comfy-Org/frame_interpolation), [QuantStack/Wan2.2-I2V-A14B-GGUF](https://huggingface.co/QuantStack/Wan2.2-I2V-A14B-GGUF), [lightx2v/Wan2.2-Distill-Loras](https://huggingface.co/lightx2v/Wan2.2-Distill-Loras) |
 | Wan 2.2 from text | A short clip from a description alone. | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) | Yes | 26.8 GB | [Comfy-Org/Wan_2.2_ComfyUI_Repackaged](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged), [Comfy-Org/frame_interpolation](https://huggingface.co/Comfy-Org/frame_interpolation), [QuantStack/Wan2.2-T2V-A14B-GGUF](https://huggingface.co/QuantStack/Wan2.2-T2V-A14B-GGUF) |
 
+## Video upscaling (API and command line only)
+
+| Model | What it is for | License | Commercial use | Size | Source |
+|---|---|---|---|---|---|
+| SeedVR2 Video | Restores detail in a whole clip and enlarges it to 1080p. Experimental; it can make faces look plastic and add grit and flicker, so compare it with a plain resize. | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) | Yes | 3.7 GB | [Comfy-Org/SeedVR2](https://huggingface.co/Comfy-Org/SeedVR2) |
+
 ## Voice
 
 | Model | What it is for | License | Commercial use | Size | Source |

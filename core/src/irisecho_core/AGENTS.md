@@ -134,11 +134,17 @@ Job `params` by kind of model:
 | clone | `chatterbox-turbo`, `chatterbox` | `text`, `ref`, `consent` (must be `true`), `takes`, `seed`; `exaggeration` and `cfg` on `chatterbox` |
 | music | `ace-step` | `prompt` (style tags), `duration`, `bpm`, `lyrics`, `takes`, `loop`, `thinking`, `seed` |
 | sfx | `sa3-sfx` | `prompt`, `duration` (0.5 to 30), `takes`, `trim`, `seed` |
+| video-upscale | `seedvr2-video` | `video` (an upload id of an MP4 clip), `short_side` (720 to 1080, default 1080), `seed` |
 
-`image1`, `image2`, `image3`, `start`, `end` and `ref` are upload ids. An agent
-on this computer can skip the upload call: copy the file into the `uploads`
-folder inside the data folder under a new name of lowercase hex digits plus its
-extension (`3fa2b1c4.png`) and pass that name.
+`image1`, `image2`, `image3`, `start`, `end`, `ref` and `video` are upload ids.
+An agent on this computer can skip the upload call: copy the file into the
+`uploads` folder inside the data folder under a new name of lowercase hex digits
+plus its extension (`3fa2b1c4.png`) and pass that name.
+
+`seedvr2-video` is experimental and never part of a default workflow. On
+generated clips it made faces look plastic, and on a close-up of objects it added
+grit and flicker. Compare its result with a plain resize before using it. A 4 s
+720p clip takes about 7 minutes and nearly all of a 12 GB card.
 
 For camera moves from a still, use `wan22-i2v-1022` with an `end` frame where
 the move should finish: for a push-in a centre crop of the start frame, for a
