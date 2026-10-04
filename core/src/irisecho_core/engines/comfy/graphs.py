@@ -57,14 +57,14 @@ def stage_labels(graph: dict) -> dict[str, str]:
 
 
 def _custom_sampler(
-    g: dict, *, model, conditioning, latent, seed, steps, sampler, guider=None
+    g: dict, *, model, conditioning, latent, seed, steps, sampler, guider=None, denoise=1.0
 ) -> str:
     """Add the RandomNoise → SamplerCustomAdvanced chain; returns the sampler node id."""
     g["noise"] = {"class_type": "RandomNoise", "inputs": {"noise_seed": seed}}
     g["sampler"] = {"class_type": "KSamplerSelect", "inputs": {"sampler_name": sampler}}
     g["sigmas"] = {
         "class_type": "BasicScheduler",
-        "inputs": {"model": model, "scheduler": "simple", "steps": steps, "denoise": 1.0},
+        "inputs": {"model": model, "scheduler": "simple", "steps": steps, "denoise": denoise},
     }
     if guider is None:
         g["guider"] = {
@@ -136,8 +136,39 @@ def z_image_native(**kw):
     return z_image(native=True, **kw)
 
 
-def flux(*, prompt, seed, aspect, names, settings, hw, prefix, **_):
-    w, h = size_for(aspect, 1024)
+# The largest Flux size measured on a 12 GB card: 1920 x 1088 peaked at 11.7 GB.
+FLUX_MAX_AREA = 1920 * 1088
+
+
+def _flux_size(params: dict) -> tuple[int, int] | None:
+    """An explicit width and height for a Flux image, or None to use the default size."""
+    if params.get("width") is None and params.get("height") is None:
+        return None
+    try:
+        w, h = int(params.get("width") or 0) // 16 * 16, int(params.get("height") or 0) // 16 * 16
+    except (TypeError, ValueError):
+        w = h = 0
+    if min(w, h) < 256 or w * h > FLUX_MAX_AREA:
+        raise ValueError("Give a width and height of 256 or more, at most 1920 x 1088 in area.")
+    return w, h
+
+
+def flux(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, **_):
+    init = images.get("image1")
+    explicit = _flux_size(params)
+    if explicit:
+        w, h = explicit
+    elif init:
+        # The picture keeps its own aspect at about one megapixel; only the area
+        # reaches the shift below, so the square of the same area stands in.
+        w, h = 1024, 1024
+    else:
+        w, h = size_for(aspect, 1024)
+    denoise = 1.0
+    if init:
+        denoise = float(params["denoise"]) if params.get("denoise") is not None else 0.2
+        if not 0.05 <= denoise <= 1.0:
+            raise ValueError("Set denoise between 0.05 and 1.")
     dit = next(v for k, v in names.items() if k.endswith(("-int4", "-fp4")))
     # Turing cards (RTX 20) have no bfloat16.
     dtype = (
@@ -192,6 +223,36 @@ def flux(*, prompt, seed, aspect, names, settings, hw, prefix, **_):
             },
         }
         model = ["shift", 0]
+    if init:
+        # Image to image: the picture is resized, encoded and re-noised to `denoise`.
+        # A low denoise over the whole frame at a larger size redraws fine detail
+        # (skin, hair) and keeps the people and the composition.
+        g["init"] = {"class_type": "LoadImage", "inputs": {"image": init}}
+        if explicit:
+            g["init_scale"] = {
+                "class_type": "ImageScale",
+                "inputs": {
+                    "image": ["init", 0],
+                    "upscale_method": "lanczos",
+                    "width": w,
+                    "height": h,
+                    "crop": "disabled",
+                },
+            }
+        else:
+            g["init_scale"] = {
+                "class_type": "ImageScaleToTotalPixels",
+                "inputs": {
+                    "image": ["init", 0],
+                    "upscale_method": "lanczos",
+                    "megapixels": 1.0,
+                    "resolution_steps": 16,
+                },
+            }
+        g["latent"] = {
+            "class_type": "VAEEncode",
+            "inputs": {"pixels": ["init_scale", 0], "vae": ["vae", 0]},
+        }
     _custom_sampler(
         g,
         model=model,
@@ -200,6 +261,7 @@ def flux(*, prompt, seed, aspect, names, settings, hw, prefix, **_):
         seed=seed,
         steps=int(settings.get("steps", 4)),
         sampler="euler",
+        denoise=denoise,
     )
     return g, _finish(g, ["vae", 0], prefix)
 
@@ -635,6 +697,7 @@ BUILDERS = {
 
 # The uploaded pictures each workflow reads, by parameter name.
 IMAGE_INPUTS = {
+    "flux-nunchaku": ("image1",),
     "qwen-edit": ("image1", "image2", "image3"),
     "kontext": ("image1",),
     "seedvr2": ("image1",),

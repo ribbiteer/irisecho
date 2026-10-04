@@ -69,7 +69,7 @@ marks them) must not be used for commercial work.
 
 | Command | Makes | Main options |
 |---|---|---|
-| `image PROMPT` | pictures | `--model` (default `z-image-turbo`), `--aspect 1:1\|4:3\|3:4\|16:9\|9:16\|3:2\|2:3`, `--count`, `--seed` |
+| `image PROMPT` | pictures | `--model` (default `z-image-turbo`), `--aspect 1:1\|4:3\|3:4\|16:9\|9:16\|3:2\|2:3`, `--count`, `--seed`; FLUX models also `--from picture.png`, `--denoise`, `--size 1920x1088` |
 | `say TEXT` | narration | `--voice` (default `af_heart`), `--speed`, `--file cues.txt` |
 | `clone TEXT --ref clip.wav` | speech in a sampled voice | `--model chatterbox-turbo\|chatterbox`, `--takes`, `--file cues.txt` |
 | `music TAGS` | music | `--seconds`, `--bpm`, `--loop`, `--lyrics`, `--takes`, `--file cues.txt` |
@@ -134,6 +134,15 @@ Job `params` by kind of model:
 on this computer can skip the upload call: copy the file into the `uploads`
 folder inside the data folder under a new name of lowercase hex digits plus its
 extension (`3fa2b1c4.png`) and pass that name.
+
+The FLUX image models (`flux-schnell`, `flux-dev`, `flux-krea`) also take an
+optional `image1` to redraw, with `denoise` (0.05 to 1, default 0.2) for how
+much changes, and `width` and `height` (multiples of 16, at most 1920 x 1088 in
+area; without them the picture keeps its own aspect at about one megapixel).
+The tested use is `flux-krea` redrawing a whole picture larger at 0.2, with the
+prompt that made it: people and composition stay, skin and hair gain detail.
+Props can change, so check them; a crop of a face redrawn this way does not
+keep the person.
 
 To call the API without `irisecho api`: read `port` and `token` from
 `server.json` in the data folder, send the cookie `irisecho_session=<token>`

@@ -706,11 +706,33 @@ def cmd_music(args) -> int:
 
 
 def cmd_image(args) -> int:
+    import uuid
+
+    extra: dict = {}
+    if (args.source or args.size) and args.model not in ("flux-schnell", "flux-dev", "flux-krea"):
+        print("--from and --size work with flux-schnell, flux-dev and flux-krea.", file=sys.stderr)
+        return 2
+    if args.size:
+        try:
+            w, h = (int(v) for v in args.size.lower().split("x"))
+        except ValueError:
+            print("--size takes WIDTHxHEIGHT, for example 1920x1088.", file=sys.stderr)
+            return 2
+        extra.update(width=w, height=h)
+    if args.source:
+        src = Path(args.source)
+        if not src.is_file():
+            print(f"No such file: {src}", file=sys.stderr)
+            return 2
+        upload = f"{uuid.uuid4().hex}{src.suffix.lower()}"
+        shutil.copyfile(src, paths.sub("uploads") / upload)
+        extra.update(image1=upload, denoise=args.denoise)
     params = [
         {
             "prompt": args.prompt,
             "aspect": args.aspect,
             "seed": (args.seed + i) if args.seed is not None else None,
+            **extra,
         }
         for i in range(args.count)
     ]
@@ -843,6 +865,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("--seed", type=int)
     p.add_argument("--count", type=int, default=1)
+    p.add_argument("--from", dest="source", help="redraw this picture (FLUX models)")
+    p.add_argument("--denoise", type=float, default=0.2, help="how much --from changes, 0.05-1")
+    p.add_argument("--size", help="WIDTHxHEIGHT, for example 1920x1088 (FLUX models)")
     p.add_argument("--accept-license", action="store_true")
     p.add_argument("--out", help="copy results into this folder")
     p.add_argument("--json", action="store_true", help="one JSON object per job on stdout")

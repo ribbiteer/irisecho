@@ -6,12 +6,13 @@
   import Download from "@lucide/svelte/icons/download";
   import FolderOpen from "@lucide/svelte/icons/folder-open";
   import Heart from "@lucide/svelte/icons/heart";
+  import Maximize from "@lucide/svelte/icons/maximize-2";
   import Repeat from "@lucide/svelte/icons/repeat-2";
   import Trash from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
   import { api, outputUrl } from "../lib/api";
   import { ago, elapsed } from "../lib/format";
-  import { app, fail, modelById, toast } from "../lib/state.svelte";
+  import { app, fail, modelById, submit, toast } from "../lib/state.svelte";
 
   const lb = $derived(app.lightbox!);
   const job = $derived(lb.job);
@@ -73,6 +74,53 @@
     await navigator.clipboard.writeText(job.params.prompt ?? job.params.text ?? "");
     toast("Prompt copied", "ok", 1800);
   }
+
+  // Redraw the whole picture with FLUX.1 Krea at about twice the pixels and a
+  // light denoise: the people and the composition stay, skin and hair gain
+  // detail. Offered for pictures well under the largest size that fits.
+  const MAX_AREA = 1920 * 1088; // graphs.FLUX_MAX_AREA
+  const krea = $derived(modelById("flux-krea"));
+  const redrawSize = $derived.by((): [number, number] | null => {
+    const out = job.outputs[lb.index];
+    if (job.kind !== "image" || out?.type !== "image" || !out.width || !out.height || !job.params.prompt) return null;
+    const area = out.width * out.height;
+    if (area * 1.5 > MAX_AREA) return null;
+    const s = Math.min(Math.SQRT2, Math.sqrt(MAX_AREA / area));
+    let w = Math.round((out.width * s) / 16) * 16;
+    let h = Math.round((out.height * s) / 16) * 16;
+    while (w * h > MAX_AREA) {
+      if (w >= h) w -= 16;
+      else h -= 16;
+    }
+    return [w, h];
+  });
+  let redrawing = $state(false);
+  async function redraw() {
+    if (!redrawSize || !krea || redrawing) return;
+    redrawing = true;
+    try {
+      const res = await fetch(outputUrl(job, lb.index), { credentials: "same-origin" });
+      const blob = await res.blob();
+      const form = new FormData();
+      form.append("file", new File([blob], "redraw.png", { type: blob.type || "image/png" }));
+      const up = await api<{ id: string }>("/uploads", { form });
+      const [width, height] = redrawSize;
+      const queued = await submit(krea, {
+        prompt: job.params.prompt,
+        aspect: job.params.aspect,
+        image1: up.id,
+        denoise: 0.2,
+        width,
+        height,
+        seed: Math.floor(Math.random() * 2 ** 50),
+      });
+      if (queued) toast(`Redrawing at ${width} × ${height}`, "ok");
+    } catch (e) {
+      fail(e);
+    } finally {
+      redrawing = false;
+    }
+  }
 </script>
 
 <svelte:window onkeydown={onKey} />
@@ -112,6 +160,9 @@
       {#if job.params.aspect}
         <div><dt>Shape</dt><dd class="mono">{job.params.aspect}</dd></div>
       {/if}
+      {#if job.params.image1 && job.params.denoise != null}
+        <div><dt>Redrawn</dt><dd class="mono">denoise {job.params.denoise}</dd></div>
+      {/if}
       {#if job.params.scale}
         <div><dt>Upscale</dt><dd class="mono">{job.params.scale}×{job.params.retain ? " (kept size)" : ""}</dd></div>
       {/if}
@@ -127,6 +178,16 @@
 
     <div class="actions">
       <button class="btn primary" onclick={reuse}><Repeat size={16} /> Use these settings again</button>
+      {#if krea?.ready && redrawSize}
+        <button
+          class="btn"
+          onclick={redraw}
+          disabled={redrawing}
+          title="Redraws the whole picture at {redrawSize[0]} × {redrawSize[1]} with {krea.name} ({krea.license.name}). People and composition stay; small objects can change."
+        >
+          <Maximize size={16} /> Redraw larger
+        </button>
+      {/if}
       <div class="row">
         <a class="btn" href={outputUrl(job, lb.index, true)}><Download size={16} /> Download</a>
         {#if !app.remote}
