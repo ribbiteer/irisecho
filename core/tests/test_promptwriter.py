@@ -97,3 +97,32 @@ def test_prompt_jobs_are_hidden_from_listings(tmp_path):
     assert [j["id"] for j in db.list()] == ["j1"]
     assert len(db.list(kind="prompt")) == 2
     assert db.prune("prompt", keep=1) == ["j0"]
+
+
+def test_text_rules_reach_the_writer_only_when_the_draft_is_about_words():
+    plain = system_prompt(STYLES["zimage"], "improve", 0, "a leopard in a garden")
+    assert "double quotes" not in plain
+    assert "lettering" not in plain
+    sign = system_prompt(STYLES["zimage"], "improve", 0, "a neon sign that says OPEN")
+    assert "double quotes" in sign
+    assert "double quotes" in system_prompt(STYLES["zimage"], "describe", 1)
+
+
+def test_qwen_image_lettering_guide_is_kept_for_drafts_with_text():
+    assert "neon tube" not in system_prompt(STYLES["qwen-image"], "improve", 0, "a red fox")
+    poster = system_prompt(STYLES["qwen-image"], "improve", 0, 'a poster that reads "SALE"')
+    assert "neon tube" in poster
+
+
+def test_style_guides_do_not_hand_the_writer_a_negation_to_repeat():
+    for sid in ("zimage", "flux", "flux-schnell", "qwen-image", "krea2"):
+        guide = STYLES[sid].guide
+        assert "Use no " not in guide, sid
+        assert "Add no " not in guide, sid
+
+
+def test_clock_rule_reaches_the_writer_only_for_drafts_with_a_clock():
+    plain = system_prompt(STYLES["flux"], "improve", 0, "a fisherman on a dock")
+    assert "baton markers" not in plain
+    watch = system_prompt(STYLES["flux"], "improve", 0, "a man holding a pocket watch")
+    assert "baton markers" in watch

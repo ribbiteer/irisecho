@@ -18,12 +18,22 @@ import re
 from dataclasses import dataclass
 
 COMMON = (
-    "Keep everything the person asked for: the subject, counts, colors and names. If "
-    "they asked for words to appear in the picture, put those words in double quotes, "
-    "copied exactly; never add captions, signs or lettering they did not ask for. Write "
+    "Keep everything the person asked for: the subject, counts, colors and names. Write "
     "only positive statements: never use 'no', 'not', 'without' or 'avoid'; describe "
     "what is there instead. Do not pad with quality words such as 'masterpiece', '8k' "
     "or 'highly detailed'."
+)
+# Given only when the draft is about words in the picture, or a picture is being
+# described. A small writer that is told about lettering closes every prompt with
+# "No text appears", and a model that cannot be told "no" may then draw some.
+TEXT = (
+    "Copy the exact words that should be written in the picture into double quotes, once "
+    "each, and leave the rest of the prompt without quotation marks."
+)
+WORDS = re.compile(
+    r"[\"“”]|\b(says?|reads?|text|words?|signs?|signage|labels?|titles?|logos?|"
+    r"posters?|banners?|captions?|lettering|written|writes?|menus?|headlines?|slogans?)\b",
+    re.IGNORECASE,
 )
 
 REPLY = (
@@ -43,10 +53,12 @@ EYES = (
     "where that person looks, naming the thing they look at in this scene: '[person] looks "
     "[down at, out of, toward] [thing].'"
 )
+# Given only when the draft has a clock or watch, for the same reason as TEXT.
 DIALS = (
-    "If the scene has a clock or watch and the draft gives it no numerals or time, describe "
-    "its face with plain baton markers."
+    "Describe the face of a clock or watch as a clean dial with plain baton markers; if "
+    "the draft gives a time, use that time."
 )
+CLOCKS = re.compile(r"\b(clocks?|watch(es)?|dials?|wristwatch(es)?)\b", re.IGNORECASE)
 EDIT_ONE = (
     "Write a direct instruction in 15 to 50 words that starts with a verb (Replace, Change, "
     "Add, Remove, Make) and states exactly what changes: object, attribute, position and "
@@ -75,6 +87,7 @@ class Style:
     guide: str
     guide_with_image: str = ""  # used instead of `guide` when a picture is supplied
     guide_multi: str = ""  # used instead of both when the edit combines several pictures
+    text_guide: str = ""  # added only when the draft is about words in the picture
 
 
 STYLES: dict[str, Style] = {
@@ -93,8 +106,8 @@ STYLES: dict[str, Style] = {
                 "arranged from front to back, then the light, then the lens or art style. "
                 "Where the draft leaves a design open, decide it and describe exactly what "
                 "you decided: shape, material and color. Put the subject first: with so few "
-                f"sampling steps early words count most. {LIGHT} {EYES} Use no metaphors "
-                f"and no words for moods or feelings. {DIALS} Keep the draft's language."
+                f"sampling steps early words count most. {LIGHT} {EYES} Use literal "
+                "wording and physical facts in place of moods. Keep the draft's language."
             ),
         ),
         Style(
@@ -110,7 +123,7 @@ STYLES: dict[str, Style] = {
                 "Then the setting from front to back, then the light. "
                 f"{LIGHT} Then materials, color and surface wear, and the camera as facts "
                 "(shot size, camera height, focal length and aperture) or one named art medium; "
-                f"stay in that one style. {DIALS}"
+                "stay in that one style."
             ),
         ),
         Style(
@@ -133,15 +146,14 @@ STYLES: dict[str, Style] = {
             video=False,
             guide=(
                 "Target: Krea 2. Its text encoder is asked, as Qwen-Image's is, for color, "
-                "shape, size, texture, quantity, text and spatial relationships, so write "
+                "shape, size, texture, quantity and spatial relationships, so write "
                 "one cohesive paragraph of full sentences, 60 to 150 words. Give each "
                 "subject its own attributes and action in one place, then the setting from "
                 f"front to back, then the light and the camera. {LIGHT} Keep any medium the "
                 "draft names (photograph, illustration, painting, 3D render) and stay in it. "
-                "Put every piece of visible text in double quotes, exactly as asked. Add no "
-                "objects, props or animals the draft does not imply; if the draft is already "
-                "detailed, polish it and keep its wording. Assume clothing covers intimate "
-                "anatomy."
+                "Keep to the things the draft names or clearly implies. If the draft is already "
+                "detailed, polish it and keep its wording. Finish with the camera and stop "
+                "there: write nothing after it."
             ),
         ),
         Style(
@@ -150,18 +162,20 @@ STYLES: dict[str, Style] = {
             edit=False,
             video=False,
             guide=(
-                "Target: Qwen-Image, which draws lettering well. Its text encoder is asked "
-                "for color, shape, size, texture, quantity, text, spatial relationships and "
-                "background, so cover each of them. Start with the style as a short "
-                "sentence of its own, the way its developers do ('Realistic photography "
-                "style.', 'Flat vector illustration style.'). Then write full sentences, 80 "
-                "to 180 words: the subject and its characteristics, then foreground, middle "
-                f"and background with their positions, then the light and composition. {LIGHT} "
-                "For every piece of visible text give the exact string in double quotes, "
-                "where it sits, its size and how it is made (typeface mood, color, material "
-                "such as neon tube or etched stone). Keep text to a few large words. If the "
-                "draft only says 'a name and a date', invent one concrete example. "
-                f"{DIALS}"
+                "Target: Qwen-Image. Its text encoder is asked for color, shape, size, "
+                "texture, quantity, spatial relationships and background, so cover each of "
+                "them. Start with the style as a short sentence of its own, the way its "
+                "developers do ('Realistic photography style.', 'Flat vector illustration "
+                "style.'). Then write full sentences, 80 to 180 words: the subject and its "
+                "characteristics, then foreground, middle and background with their "
+                f"positions, then the light and composition. {LIGHT}"
+            ),
+            text_guide=(
+                "Qwen-Image draws lettering well. For every piece of visible text give the "
+                "exact string in double quotes, where it sits, its size and how it is made "
+                "(typeface mood, color, material such as neon tube or etched stone). Keep "
+                "text to a few large words. If the draft only says 'a name and a date', "
+                "invent one concrete example."
             ),
         ),
         Style(
@@ -253,7 +267,13 @@ def system_prompt(style: Style, mode: str, pictures: int, draft: str = "") -> st
         guide = style.guide_with_image if pictures and style.guide_with_image else style.guide
     if style.edit and pictures > 1:
         guide += f" The {pictures} pictures are attached in order: Picture 1 to Picture {pictures}."
-    return f"{guide}\n\n{COMMON}\n\n{REPLY}"
+    parts = [guide]
+    if mode == "describe" or WORDS.search(draft):
+        parts += [style.text_guide, TEXT] if style.text_guide else [TEXT]
+    if CLOCKS.search(draft) and not style.edit and not style.video:
+        parts.append(DIALS)
+    parts += [COMMON, REPLY]
+    return "\n\n".join(parts)
 
 
 def user_prompt(style: Style, mode: str, draft: str, pictures: int = 1) -> str:
