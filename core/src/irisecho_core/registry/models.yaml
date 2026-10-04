@@ -610,4 +610,4 @@ models:
       - when: {backend: cuda, quant: fp4}
         workflow: flux-nunchaku
         files: [flux-krea-fp4, t5xxl-fp8, clip-l, flux-ae]
-    settings: {prompt_style: flux, steps: 8, guidance: 4.5, shift: true}
+    settings: {prompt_style: flux, steps: 28, guidance: 4.5, shift: true}
