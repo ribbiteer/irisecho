@@ -91,6 +91,19 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+async def finished_entry(history, wait: float = 60.0, every: float = 0.25) -> dict:
+    """A finished job's history entry. ComfyUI announces success before it records
+    the job, and after a long video the record can lag by seconds; reading it at
+    once found no outputs and failed jobs whose files were already written."""
+    entry: dict = {}
+    for _ in range(max(1, int(wait / every))):
+        entry = await history()
+        if entry.get("status"):
+            break
+        await asyncio.sleep(every)
+    return entry
+
+
 # What ComfyUI still holds once its models are unloaded (about 0.1 GB).
 RELEASED_BYTES = 1 << 30
 
@@ -464,8 +477,12 @@ class ComfyEngine(Engine):
                             break
                     if ctx.cancelled.is_set():
                         raise asyncio.CancelledError
-                    r = await client.get(self.url(f"/history/{prompt_id}"))
-                    entry = r.json().get(prompt_id) or {}
+
+                    async def history() -> dict:
+                        r = await client.get(self.url(f"/history/{prompt_id}"))
+                        return r.json().get(prompt_id) or {}
+
+                    entry = await finished_entry(history)
                     status = entry.get("status") or {}
                     if status.get("status_str") == "error":
                         raise RuntimeError(graphs.history_error(status))

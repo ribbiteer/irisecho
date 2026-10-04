@@ -136,6 +136,35 @@ def test_wan_720p_needs_a_12_gb_card():
     assert wan_graph(hw=small, size="large")
 
 
+def test_comfy_waits_for_the_history_record():
+    import asyncio
+
+    from irisecho_core.engines.comfy import finished_entry
+
+    answers = [{}, {}, {"status": {"status_str": "success"}, "outputs": {"save": {}}}]
+
+    async def history():
+        return answers.pop(0)
+
+    entry = asyncio.run(finished_entry(history, every=0.001))
+    assert entry["status"]["status_str"] == "success" and not answers
+
+
+def test_comfy_gives_up_on_a_missing_record():
+    import asyncio
+
+    from irisecho_core.engines.comfy import finished_entry
+
+    calls = []
+
+    async def history():
+        calls.append(1)
+        return {}
+
+    assert asyncio.run(finished_entry(history, wait=0.01, every=0.001)) == {}
+    assert len(calls) == 10
+
+
 def test_comfy_release_waits_until_memory_is_back():
     import asyncio
 
