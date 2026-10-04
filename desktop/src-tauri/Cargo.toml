@@ -1,6 +1,6 @@
 [package]
 name = "irisecho"
-version = "0.1.6"
+version = "0.1.7"
 description = "IrisEcho desktop app"
 license = "AGPL-3.0-or-later"
 edition = "2021"
