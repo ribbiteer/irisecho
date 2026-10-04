@@ -169,8 +169,8 @@
       <section class="card">
         <h2>Scripts and coding agents</h2>
         <p class="note">
-          Everything IrisEcho makes can also be asked for from a command line, so your own scripts, or an assistant such as
-          Claude Code working on this computer, can make pictures and sound with it. The guide explains how.
+          You can also run IrisEcho from a command line, so your own scripts, or an assistant such as Claude Code
+          working on this computer, can make pictures and sound with it. The guide explains how.
         </p>
         <div class="setting">
           <div class="what">

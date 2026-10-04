@@ -71,7 +71,7 @@
     {#if needsToken}
       <div class="gated">
         <strong>{model.name} is shared on request</strong>
-        <p>Its publisher asks each person to accept their terms before downloading. Two steps, once:</p>
+        <p>Its publisher asks each person to accept their terms before downloading. You do this once, in two steps:</p>
         <ol>
           <li>
             Sign in to Hugging Face and accept the terms on the

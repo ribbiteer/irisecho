@@ -4,6 +4,7 @@
 <script lang="ts">
   import Check from "@lucide/svelte/icons/check";
   import ImageUp from "@lucide/svelte/icons/image-up";
+  import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import Undo from "@lucide/svelte/icons/undo-2";
   import WandSparkles from "@lucide/svelte/icons/wand-sparkles";
   import X from "@lucide/svelte/icons/x";
@@ -33,6 +34,28 @@
   let picking = $state(false);
   let picture = $state<string | null>(null);
 
+  // A rewrite is written for one family of models (its prompt style). Remember which, so a
+  // later change of model can say so: FLUX and Krea share a style, Z-Image and Qwen do not.
+  type Written = { name: string; style: string };
+  const written = (m: Model): Written => ({ name: m.name, style: m.prompt_style ?? m.id });
+  let suggestionFor = $state<Written | null>(null); // the model the waiting suggestion is for
+  let writtenFor = $state<Written | null>(null); // the model the accepted rewrite is for
+  let dismissed = $state(false);
+  const staleFor = $derived(
+    writtenFor && value.trim() && !dismissed && written(model).style !== writtenFor.style ? writtenFor : null,
+  );
+  const pendingFor = $derived(
+    suggestion && suggestionFor && written(model).style !== suggestionFor.style ? suggestionFor : null,
+  );
+  // Emptying the box starts over; picking another model brings a dismissed warning back.
+  $effect(() => {
+    if (!value.trim()) writtenFor = null;
+  });
+  $effect(() => {
+    void model.id;
+    dismissed = false;
+  });
+
   const lookAt = $derived(images ? images.filter((i): i is string => !!i) : image ? [image] : []);
   let card = $state<HTMLElement>();
 
@@ -56,8 +79,10 @@
     if (busy || !(await ensure())) return;
     busy = true;
     suggestion = "";
+    const target = written(model);
     try {
       suggestion = await writePrompt({ mode, target: model.id, text: value.trim(), images }, (m) => (status = m));
+      suggestionFor = target;
     } catch (e) {
       fail(e);
     } finally {
@@ -77,6 +102,8 @@
   function accept() {
     previous = value;
     value = suggestion;
+    writtenFor = suggestionFor ?? written(model);
+    dismissed = false;
     suggestion = "";
   }
 
@@ -84,6 +111,7 @@
     if (previous === null) return;
     value = previous;
     previous = null;
+    writtenFor = null;
   }
 </script>
 
@@ -104,6 +132,23 @@
       {#if busy}<span class="status" role="status">{status || "Writing"}…</span>{/if}
     </div>
 
+    {#if staleFor}
+      <div class="notice" role="note">
+        <TriangleAlert size={16} />
+        <div class="body">
+          <p>
+            This prompt was improved for {staleFor.name}. {model.name} prefers a different style.
+          </p>
+          <div class="buttons">
+            <button class="btn sm" onclick={improve} disabled={busy || !value.trim()}>
+              <WandSparkles size={14} /> Improve for {model.name}
+            </button>
+            <button class="btn sm ghost" onclick={() => (dismissed = true)}>Dismiss</button>
+          </div>
+        </div>
+      </div>
+    {/if}
+
     {#if picking}
       <div class="pick">
         <ImageDrop bind:value={picture} label="Picture to describe" compact />
@@ -113,6 +158,15 @@
 
     {#if suggestion}
       <div class="suggestion" bind:this={card} role="region" aria-label="Suggested prompt">
+        {#if pendingFor}
+          <div class="notice" role="note">
+            <TriangleAlert size={16} />
+            <p>
+              This suggestion was written for {pendingFor.name}, not {model.name}. Press Improve again to write one for
+              {model.name}.
+            </p>
+          </div>
+        {/if}
         <div class="buttons">
           <button class="btn sm primary" onclick={accept}><Check size={14} /> Use this</button>
           <button class="btn sm ghost" onclick={() => (suggestion = "")}><X size={14} /> Keep mine</button>
@@ -154,9 +208,29 @@
     border: 1px solid var(--line-2);
     background: var(--surface-2);
   }
-  .suggestion p {
+  .suggestion > p {
     font-size: 13.5px;
     line-height: 1.5;
     color: var(--text);
+  }
+  .notice {
+    display: flex;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: var(--r-2);
+    border: 1px solid color-mix(in oklab, var(--amber) 35%, transparent);
+    background: color-mix(in oklab, var(--amber) 8%, transparent);
+    color: var(--amber-ink);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+  .notice :global(svg) {
+    flex: none;
+    margin-top: 2px;
+  }
+  .notice .body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
 </style>

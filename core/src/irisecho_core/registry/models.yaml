@@ -578,7 +578,7 @@ models:
     kind: image
     engine: comfy
     license: apache-2.0
-    summary: The fastest way to a good picture. 9 steps, strong at photographs.
+    summary: Quick, sharp pictures in 9 steps. Strong at photographs.
     settings: {prompt_style: zimage}
     variants:
       - when: {backend: cuda, quant: int4}
@@ -642,7 +642,7 @@ models:
     kind: image
     engine: comfy
     license: flux-dev-nc
-    summary: Detailed, well-composed images in 20 steps. Non-commercial.
+    summary: Detailed images in 20 steps. Works best with a full description. Non-commercial.
     variants:
       - when: {backend: cuda, quant: int4}
         workflow: flux-nunchaku
@@ -672,7 +672,7 @@ models:
     kind: image
     engine: comfy
     license: krea-2-community
-    summary: Natural photographs with real skin, hands and fur, even from a short prompt. Eight steps, about ten seconds.
+    summary: Photographs with natural skin, hands and fur, even from a short prompt. Eight steps, about ten seconds.
     variants:
       - when: {backend: cuda, quant: int4, cuda_tag: cu130}
         workflow: krea2
