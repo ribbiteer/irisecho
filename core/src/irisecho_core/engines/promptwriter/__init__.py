@@ -97,8 +97,8 @@ class PromptWriterEngine(WorkerEngine):
             ctx,
             "write",
             {
-                "system": system_prompt(style, mode, bool(image_paths)),
-                "user": user_prompt(style, mode, text),
+                "system": system_prompt(style, mode, len(image_paths), text),
+                "user": user_prompt(style, mode, text, len(image_paths)),
                 "images": image_paths,
                 "beams": BEAMS,
                 "max_new_tokens": 300,

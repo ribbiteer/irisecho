@@ -15,11 +15,13 @@
     model,
     value = $bindable(""),
     image = null,
+    images = null,
     describe = false,
   }: {
     model: Model; // the model the prompt is for
     value: string;
     image?: string | null; // a picture the rewrite may look at
+    images?: (string | null)[] | null; // several, in order (Picture 1, 2, 3); overrides `image`
     describe?: boolean; // offer "from a picture"
   } = $props();
 
@@ -31,7 +33,7 @@
   let picking = $state(false);
   let picture = $state<string | null>(null);
 
-  const lookAt = $derived(image ?? null);
+  const lookAt = $derived(images ? images.filter((i): i is string => !!i) : image ? [image] : []);
   let card = $state<HTMLElement>();
 
   // The composer scrolls; bring a new suggestion into view (its buttons come first).
@@ -64,7 +66,7 @@
     }
   }
 
-  const improve = () => run(lookAt && value.trim() ? "improve_image" : "improve", lookAt ? [lookAt] : []);
+  const improve = () => run(lookAt.length && value.trim() ? "improve_image" : "improve", lookAt);
 
   async function fromPicture() {
     if (!picture) return;

@@ -21,12 +21,43 @@ def test_models_without_a_style_are_refused():
 
 def test_styles_forbid_negative_phrasing():
     for style in STYLES.values():
-        assert "never use 'no'" in system_prompt(style, "improve", False)
+        assert "never use 'no'" in system_prompt(style, "improve", 0)
 
 
 def test_edit_style_swaps_guide_when_a_picture_is_given():
     style = STYLES["qwen-edit"]
-    assert system_prompt(style, "improve_image", True) != system_prompt(style, "improve", False)
+    assert system_prompt(style, "improve_image", 1) != system_prompt(style, "improve", 0)
+
+
+def test_edit_style_numbers_several_pictures():
+    style = STYLES["qwen-edit"]
+    assert "Picture 1 to Picture 3" in system_prompt(style, "improve_image", 3)
+    assert "Picture 1 to" not in system_prompt(style, "improve_image", 1)
+    assert "pictures are the references" in user_prompt(style, "improve_image", "x", 3)
+
+
+@pytest.mark.parametrize(
+    ("pictures", "draft", "multi"),
+    [
+        (0, "make his jacket red", False),
+        (1, "make his jacket red", False),
+        (0, "the dog from picture 2 sits on the sofa in picture 1", True),
+        (0, "put the cup from Image 3 on the table", True),
+        (2, "combine them", True),
+    ],
+)
+def test_multi_picture_edits_get_only_the_result_form(pictures, draft, multi):
+    prompt = system_prompt(STYLES["qwen-edit"], "improve", pictures, draft)
+    assert ("describes the finished picture" in prompt) is multi
+    assert ("keep [named things] unchanged" in prompt) is not multi
+
+
+def test_still_styles_ask_for_light_as_facts_and_an_eyeline():
+    for sid in ("zimage", "flux", "qwen-image"):
+        prompt = system_prompt(STYLES[sid], "improve", 0)
+        assert "which side falls into shadow" in prompt, sid
+    for sid in ("zimage", "flux"):
+        assert "where that person looks" in system_prompt(STYLES[sid], "improve", 0), sid
 
 
 def test_user_prompt_carries_the_draft():

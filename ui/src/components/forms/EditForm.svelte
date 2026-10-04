@@ -74,9 +74,11 @@
       class="textarea"
       rows="4"
       bind:value={prompt}
-      placeholder={multi ? "Put the teapot from picture 2 on the table in picture 1, lit like the rest of the room" : "Make it a rainy night, keep everything else the same"}
+      placeholder={multi
+        ? "The woman from Picture 2 sits at the table in Picture 1, holding the teapot from Picture 3"
+        : "Replace the white mug with a glass of orange juice; keep her hands and the table unchanged"}
     ></textarea>
-    <PromptTools {model} bind:value={prompt} image={image1} />
+    <PromptTools {model} bind:value={prompt} images={multi ? [image1, image2, image3] : [image1]} />
     <p class="tip">Name only what should change; the rest is kept.</p>
   </div>
 
