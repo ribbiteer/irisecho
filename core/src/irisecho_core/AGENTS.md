@@ -45,6 +45,10 @@ way, so batch by kind: all the pictures, then all the voice lines. Give several
 lines to one command (`--count`, `--file`) rather than starting the command
 many times.
 
+The last model used stays on the GPU. Before running another program that needs
+the graphics card, free it with `irisecho api POST system/unload` and check
+`vram` in `irisecho api GET system`; the next IrisEcho job loads its model again.
+
 ## Setting up
 
 Nothing is downloaded until a model is asked for.
@@ -115,7 +119,8 @@ between shells, so a body file and `-` is the dependable way.
 | `GET /api/jobs?q=fox&kind=image&limit=20` | search what has been made |
 | `POST /api/jobs/{id}/cancel` | stop a queued or running job |
 | `POST /api/uploads` (multipart `file`) | add a picture or sound for a job to use; returns its `id` |
-| `GET /api/system` | GPU, what is loaded, queue length |
+| `GET /api/system` | GPU, memory in use right now (`vram`: `used_mb` and `free_mb` per card, the whole card), what is loaded, queue length |
+| `POST /api/system/unload` | free the GPU for another program; 409 while a job is running |
 
 Job `params` by kind of model:
 

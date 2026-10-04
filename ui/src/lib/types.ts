@@ -117,6 +117,7 @@ export interface System {
     gpus: Gpu[];
     vram_mb: number;
   };
+  vram: { used_mb: number; free_mb: number }[]; // live, whole card; empty without nvidia-smi
   queue: { current: string | null; waiting: number };
   resident: string | null;
   loaded_model: string | null;

@@ -91,6 +91,21 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+# What ComfyUI still holds once its models are unloaded (about 0.1 GB).
+RELEASED_BYTES = 1 << 30
+
+
+async def until_released(stats, wait: float = 15.0, every: float = 0.25) -> bool:
+    """Wait until ComfyUI has given its memory back. /free only asks: its worker
+    thread unloads a moment later, and the next engine would start before that."""
+    for _ in range(max(1, int(wait / every))):
+        devices = (await stats()).get("devices") or []
+        if max((d.get("torch_vram_total") or 0 for d in devices), default=0) < RELEASED_BYTES:
+            return True
+        await asyncio.sleep(every)
+    return False
+
+
 def png_size(path: Path) -> tuple[int, int] | None:
     with open(path, "rb") as f:
         head = f.read(24)
@@ -484,6 +499,11 @@ class ComfyEngine(Engine):
                 await client.post(
                     self.url("/free"), json={"unload_models": True, "free_memory": True}
                 )
+
+                async def stats() -> dict:
+                    return (await client.get(self.url("/system_stats"))).json()
+
+                await until_released(stats)
         except httpx.HTTPError:
             await self.stop()
 

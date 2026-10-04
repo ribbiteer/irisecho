@@ -134,3 +134,28 @@ def test_wan_720p_needs_a_12_gb_card():
     with pytest.raises(ValueError, match="12 GB"):
         wan_graph(hw=small, size="720p")
     assert wan_graph(hw=small, size="large")
+
+
+def test_comfy_release_waits_until_memory_is_back():
+    import asyncio
+
+    from irisecho_core.engines.comfy import until_released
+
+    held = [8 << 30, 6 << 30, 100 << 20]
+
+    async def stats():
+        return {"devices": [{"torch_vram_total": held.pop(0)}]}
+
+    assert asyncio.run(until_released(stats, every=0.001))
+    assert not held
+
+
+def test_comfy_release_gives_up_after_a_while():
+    import asyncio
+
+    from irisecho_core.engines.comfy import until_released
+
+    async def stats():
+        return {"devices": [{"torch_vram_total": 8 << 30}]}
+
+    assert not asyncio.run(until_released(stats, wait=0.01, every=0.001))

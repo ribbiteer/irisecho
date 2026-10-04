@@ -91,3 +91,41 @@ def test_a_scan_that_breaks_still_reports_that_it_ended(app, tmp_path):
     done = [e["data"] for e in events if e["type"] == "scan" and e["data"].get("state") == "done"]
     assert done == [{"state": "done", "found": 0, "error": "disk went away"}]
     assert not app.scanning
+
+
+class _Stub:
+    id = "stub"
+    name = "Stub"
+
+    def __init__(self):
+        self.released = 0
+
+    async def release(self):
+        self.released += 1
+
+
+def test_unload_frees_the_gpu_once(app):
+    engine = _Stub()
+    app.resident, app.loaded_model = engine, "z-image-turbo"
+    asyncio.run(app.unload())
+    assert engine.released == 1
+    assert app.resident is None and app.loaded_model is None
+    asyncio.run(app.unload())  # nothing loaded: nothing to do
+    assert engine.released == 1
+
+
+def test_unload_is_refused_while_a_job_runs(app):
+    from irisecho_core.app import Busy
+
+    engine = _Stub()
+    app.resident, app.current_job = engine, "a1"
+    with pytest.raises(Busy):
+        asyncio.run(app.unload())
+    assert engine.released == 0 and app.resident is engine
+
+
+def test_system_reports_live_memory(app, monkeypatch):
+    from irisecho_core import hardware
+
+    monkeypatch.setattr(hardware, "vram_usage", lambda max_age=2.0: [{"used_mb": 1, "free_mb": 2}])
+    assert app.system()["vram"] == [{"used_mb": 1, "free_mb": 2}]

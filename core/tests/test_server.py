@@ -177,3 +177,13 @@ def test_loopback_client_ignores_proxy_environment(tmp_path, monkeypatch):
     remote = Remote(8000, "t0ken")
     assert not remote.http._mounts
     assert Remote.find() is None
+
+
+def test_unload_is_for_this_computer_only(client):
+    from irisecho_core import lan
+
+    client.get("/")
+    r = client.post("/api/system/unload", headers={"X-IrisEcho": "1"})
+    assert r.status_code == 200
+    assert r.json()["resident"] is None and "vram" in r.json()
+    assert not lan.device_may("POST", "/api/system/unload")

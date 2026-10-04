@@ -34,8 +34,8 @@ from fastapi import FastAPI, HTTPException, Request, UploadFile, WebSocket, WebS
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from irisecho_core import __version__, credentials, guide, lan, paths, settings
-from irisecho_core.app import App, NotReady
+from irisecho_core import __version__, credentials, guide, hardware, lan, paths, settings
+from irisecho_core.app import App, Busy, NotReady
 
 WEB = Path(__file__).parent / "web"
 COOKIE = "irisecho_session"
@@ -191,6 +191,7 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
 
     @api.get("/api/bootstrap")
     async def bootstrap(request: Request):
+        await asyncio.to_thread(hardware.vram_usage)  # read it off the event loop
         return {
             "version": __version__,
             "remote": remote(request),
@@ -210,6 +211,16 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
 
     @api.get("/api/system")
     async def system(request: Request):
+        await asyncio.to_thread(hardware.vram_usage)  # read it off the event loop
+        return public_system(request)
+
+    @api.post("/api/system/unload")
+    async def unload(request: Request):
+        try:
+            await core.unload()
+        except Busy as e:
+            raise HTTPException(409, str(e)) from None
+        await asyncio.to_thread(hardware.vram_usage, 0)  # the earlier reading is stale
         return public_system(request)
 
     # --- models ------------------------------------------------------------

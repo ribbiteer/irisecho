@@ -16,6 +16,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import asdict, dataclass, field
 from functools import lru_cache
 
@@ -84,6 +85,40 @@ def _nvidia_gpus() -> list[Gpu]:
         except ValueError:
             continue
     return gpus
+
+
+_vram: tuple[float, list[dict]] = (-1e9, [])
+
+
+def vram_usage(max_age: float = 2.0) -> list[dict]:
+    """Memory in use and free on each NVIDIA card right now, in MB, desktop included.
+
+    Empty without nvidia-smi. A reading younger than `max_age` seconds is reused.
+    """
+    global _vram
+    now = time.monotonic()
+    if now - _vram[0] < max_age:
+        return _vram[1]
+    rows: list[dict] = []
+    exe = shutil.which("nvidia-smi")
+    if exe:
+        try:
+            out = subprocess.run(
+                [exe, "--query-gpu=memory.used,memory.free", "--format=csv,noheader,nounits"],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=True,
+                creationflags=0x08000000 if sys.platform == "win32" else 0,  # CREATE_NO_WINDOW
+            ).stdout
+            for line in out.strip().splitlines():
+                used, free = (int(float(v)) for v in line.split(","))
+                rows.append({"used_mb": used, "free_mb": free})
+        except (OSError, subprocess.SubprocessError, ValueError):
+            rows = []
+    _vram = (now, rows)
+    return rows
 
 
 def _ram_mb() -> int:

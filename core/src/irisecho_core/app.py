@@ -33,6 +33,10 @@ class NotReady(Exception):
         self.needs = needs
 
 
+class Busy(Exception):
+    """A job is using the GPU."""
+
+
 class App:
     def __init__(self) -> None:
         self.settings = settings.load()
@@ -53,6 +57,7 @@ class App:
         self.resident: Engine | None = None
         self.current_job: str | None = None
         self.loaded_model: str | None = None
+        self._gpu = asyncio.Lock()  # held while a job runs or the GPU is being freed
         self._runner: asyncio.Task | None = None
 
     # --- lifecycle ---------------------------------------------------------
@@ -372,7 +377,8 @@ class App:
                 continue
             self.current_job = job_id
             try:
-                await self._run_job(job)
+                async with self._gpu:
+                    await self._run_job(job)
             finally:
                 self.current_job = None
                 self.contexts.pop(job_id, None)
@@ -472,9 +478,22 @@ class App:
             )
             self._emit_job(job["id"])
 
+    async def unload(self) -> None:
+        """Free the GPU for other programs. Refused while a job runs; a job queued
+        meanwhile starts once this is done and loads its model again."""
+        if self.current_job or self._gpu.locked():
+            raise Busy("A job is running. Try again when the queue is empty.")
+        async with self._gpu:
+            if self.resident is not None:
+                await self.resident.release()
+                self.resident = None
+                self.loaded_model = None
+                self.bus.publish("engines", {})
+
     def system(self) -> dict:
         return {
             "hardware": self.hw.public(),
+            "vram": hardware.vram_usage(),
             "queue": {"current": self.current_job, "waiting": self.queue.qsize()},
             "resident": self.resident.id if self.resident else None,
             "loaded_model": self.loaded_model if self.resident else None,

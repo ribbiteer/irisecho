@@ -10,7 +10,7 @@
   import { api } from "../lib/api";
   import { pickFolder } from "../lib/shell";
   import { app, fail, refresh, toast } from "../lib/state.svelte";
-  import type { Settings } from "../lib/types";
+  import type { Settings, System } from "../lib/types";
 
   let token = $state("");
   let saving = $state(false);
@@ -19,6 +19,22 @@
 
   const hw = $derived(app.system?.hardware);
   const gpu = $derived(hw?.gpus[0]);
+  const vram = $derived(app.system?.vram?.[0]);
+  const gb = (mb: number) => (mb / 1024).toFixed(1);
+
+  // Unloads the model IrisEcho keeps on the graphics card, for another program.
+  let freeing = $state(false);
+  async function freeGpu() {
+    freeing = true;
+    try {
+      app.system = await api<System>("/system/unload", { body: {} });
+      toast("The graphics card is free. The next job loads its model again.", "ok");
+    } catch (e) {
+      fail(e);
+    } finally {
+      freeing = false;
+    }
+  }
 
   async function saveToken() {
     saving = true;
@@ -205,6 +221,20 @@
         <dd>
           {#if gpu}{gpu.name} · {Math.round(gpu.vram_mb / 1024)} GB{:else if hw?.backend === "mps"}Apple Silicon (Metal){:else}None found (CPU only){/if}
         </dd>
+        {#if vram}
+          <dt>Graphics memory</dt>
+          <dd class="gpu-mem">
+            <span>{gb(vram.used_mb)} GB in use · {gb(vram.free_mb)} GB free</span>
+            {#if app.system?.resident}
+              <button
+                class="btn sm"
+                disabled={freeing || !!app.system.queue.current}
+                title="Unload the model IrisEcho keeps on the graphics card, so another program can use it"
+                onclick={freeGpu}>Free</button
+              >
+            {/if}
+          </dd>
+        {/if}
         <dt>Builds used</dt>
         <dd class="mono">{hw?.backend}{hw?.quant ? ` · ${hw.quant}` : ""}{hw?.cuda_tag ? ` · ${hw.cuda_tag}` : ""}</dd>
         <dt>Memory</dt>
@@ -334,6 +364,12 @@
   }
   dd.path {
     max-width: none;
+  }
+  .gpu-mem {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
   }
   .about {
     flex-direction: row;
