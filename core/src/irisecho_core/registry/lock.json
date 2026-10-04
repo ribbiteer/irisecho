@@ -403,6 +403,14 @@
   "size": 523425,
   "sha256": "b5204750dcba01029d2ac9cec17aec3b20a6d64073c579d694a23cb40effbd0e"
  },
+ "lightx2v/Wan2.2-Distill-Loras@570044187a5219776ef30a5c60c6f76428a3a10a:wan2.2_i2v_A14b_high_noise_lora_rank64_lightx2v_4step_1022.safetensors": {
+  "size": 634645944,
+  "sha256": "887c3bdeb74e83859c920438e16ca31f39ab18ce189abc5f0e36f8348c5bbb19"
+ },
+ "lightx2v/Wan2.2-Distill-Loras@570044187a5219776ef30a5c60c6f76428a3a10a:wan2.2_i2v_A14b_low_noise_lora_rank64_lightx2v_4step_1022.safetensors": {
+  "size": 739472104,
+  "sha256": "8833bd4fd7c8eabebf0bc8ee5cfaf47f4f310ce116928a02c1adf8941dd4b0f1"
+ },
  "nunchaku-ai/nunchaku-flux.1-dev@1a3d3f78b545e33a0897da2101150292ebbd158a:svdq-fp4_r32-flux.1-dev.safetensors": {
   "size": 7038706888,
   "sha256": "47188bd6b236c72203ac43219d5ee285baf699d06877fc4ecec217631a57cb2f"

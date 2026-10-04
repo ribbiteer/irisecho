@@ -547,19 +547,28 @@ def seedvr2(*, seed, names, prefix, images, params, **_):
     return g, "save"
 
 
-# Pixel budgets: sqrt(480 x 832) and sqrt(576 x 1024).
-VIDEO_TIERS = {"standard": 632, "large": 768}
+# Pixel budgets: sqrt(480 x 832), sqrt(576 x 1024) and sqrt(720 x 1280).
+VIDEO_TIERS = {"standard": 632, "large": 768, "720p": 960}
+# 720p peaks at about 11.7 GB of a 12 GB card.
+VIDEO_720P_MIN_MB = 12000
 
 
-def wan22(*, prompt, seed, aspect, names, settings, prefix, images, params, **_):
-    """Wan 2.2 14B: two experts with the Lightning LoRA, 4 steps split 2 + 2."""
+def wan22(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, **_):
+    """Wan 2.2 14B: two experts with a four-step distill LoRA, 4 steps split 2 + 2."""
     mode = settings.get("mode", "i2v")
     start, end = images.get("start"), images.get("end")
     if mode == "i2v" and not (start or end):
         raise ValueError("Add a first frame, a last frame, or both.")
     seconds = max(2, min(5, int(params.get("seconds") or 3)))
     frames = round((seconds * 16 - 1) / 4) * 4 + 1  # Wan needs 4n + 1 frames
-    w, h = size_for(aspect, VIDEO_TIERS.get(params.get("size", "standard"), 632))
+    size = params.get("size") or "standard"
+    if size not in VIDEO_TIERS:
+        raise ValueError("Choose a size: standard, large or 720p.")
+    if size == "720p" and hw.vram_mb < VIDEO_720P_MIN_MB:
+        raise ValueError("The 720p size needs a graphics card with 12 GB of memory.")
+    w, h = size_for(aspect, VIDEO_TIERS[size])
+    # lightx2v's distill LoRA pair: Seko-V1 by default, or the later 1022 pair.
+    lora = f"wan-{mode}-lora-1022" if settings.get("distill") == "1022" else f"wan-{mode}-lora"
     g: dict = {
         "unet_high": {
             "class_type": "UnetLoaderGGUF",
@@ -573,7 +582,7 @@ def wan22(*, prompt, seed, aspect, names, settings, prefix, images, params, **_)
             "class_type": "LoraLoaderModelOnly",
             "inputs": {
                 "model": ["unet_high", 0],
-                "lora_name": names[f"wan-{mode}-lora-high"],
+                "lora_name": names[f"{lora}-high"],
                 "strength_model": 1.0,
             },
         },
@@ -581,7 +590,7 @@ def wan22(*, prompt, seed, aspect, names, settings, prefix, images, params, **_)
             "class_type": "LoraLoaderModelOnly",
             "inputs": {
                 "model": ["unet_low", 0],
-                "lora_name": names[f"wan-{mode}-lora-low"],
+                "lora_name": names[f"{lora}-low"],
                 "strength_model": 1.0,
             },
         },

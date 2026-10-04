@@ -84,3 +84,53 @@ def test_flux_refuses_denoise_out_of_range(denoise):
 
 def test_flux_pictures_are_staged():
     assert graphs.IMAGE_INPUTS["flux-nunchaku"] == ("image1",)
+
+
+def wan_graph(model_id="wan22-i2v", hw=HW, **params):
+    model = registry.default().models[model_id]
+    names = {f: f"{f}.bin" for f in model.variants[0].files}
+    return graphs.wan22(
+        prompt="The camera pushes in.",
+        seed=1,
+        aspect="16:9",
+        names=names,
+        settings=model.settings,
+        hw=hw,
+        prefix="x",
+        images={"start": "s.png"},
+        params={"seconds": 4, **params},
+    )[0]
+
+
+def test_wan_keeps_the_v1_distill_by_default():
+    g = wan_graph()
+    assert g["lora_high"]["inputs"]["lora_name"] == "wan-i2v-lora-high.bin"
+    assert g["lora_low"]["inputs"]["lora_name"] == "wan-i2v-lora-low.bin"
+
+
+def test_wan_camera_moves_model_uses_the_1022_distill():
+    g = wan_graph("wan22-i2v-1022")
+    assert g["lora_high"]["inputs"]["lora_name"] == "wan-i2v-lora-1022-high.bin"
+    assert g["lora_low"]["inputs"]["lora_name"] == "wan-i2v-lora-1022-low.bin"
+
+
+@pytest.mark.parametrize(
+    ("size", "dims"),
+    [(None, (848, 480)), ("standard", (848, 480)), ("large", (1024, 576)), ("720p", (1280, 720))],
+)
+def test_wan_sizes(size, dims):
+    inputs = wan_graph(size=size)["frames"]["inputs"]
+    assert (inputs["width"], inputs["height"]) == dims
+    assert inputs["length"] == 65
+
+
+def test_wan_refuses_an_unknown_size():
+    with pytest.raises(ValueError, match="size"):
+        wan_graph(size="1080p")
+
+
+def test_wan_720p_needs_a_12_gb_card():
+    small = SimpleNamespace(gpus=[SimpleNamespace(compute_cap=8.6)], vram_mb=8192)
+    with pytest.raises(ValueError, match="12 GB"):
+        wan_graph(hw=small, size="720p")
+    assert wan_graph(hw=small, size="large")

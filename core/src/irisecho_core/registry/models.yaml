@@ -30,6 +30,7 @@ repos:
   Comfy-Org/Wan_2.2_ComfyUI_Repackaged: ee6f4a40737a995bf5818954cfce6d59443b0f04
   QuantStack/Wan2.2-I2V-A14B-GGUF: 6c6717459277b9cd1f72579d78a0fd62a79e57dc
   QuantStack/Wan2.2-T2V-A14B-GGUF: 73eafba53a1a8f29254e4c77f92e74ea27d7cd6f
+  lightx2v/Wan2.2-Distill-Loras: 570044187a5219776ef30a5c60c6f76428a3a10a
   Qwen/Qwen3-VL-4B-Instruct: ebb281ec70b05090aa6165b016eac8ec08e71b17
 
 licenses:
@@ -331,6 +332,14 @@ files:
     repo: Comfy-Org/Wan_2.2_ComfyUI_Repackaged
     path: split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors
     category: loras
+  wan-i2v-lora-1022-high:
+    repo: lightx2v/Wan2.2-Distill-Loras
+    path: wan2.2_i2v_A14b_high_noise_lora_rank64_lightx2v_4step_1022.safetensors
+    category: loras
+  wan-i2v-lora-1022-low:
+    repo: lightx2v/Wan2.2-Distill-Loras
+    path: wan2.2_i2v_A14b_low_noise_lora_rank64_lightx2v_4step_1022.safetensors
+    category: loras
   wan-t2v-lora-high:
     repo: Comfy-Org/Wan_2.2_ComfyUI_Repackaged
     path: split_files/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors
@@ -428,6 +437,18 @@ models:
       - when: {backend: cuda}
         workflow: wan22
         files: [wan-i2v-high, wan-i2v-low, wan-i2v-lora-high, wan-i2v-lora-low, wan-umt5, wan-vae, film]
+
+  wan22-i2v-1022:
+    name: Wan 2.2 camera moves
+    kind: video
+    engine: comfy
+    license: apache-2.0
+    summary: Bigger camera moves that keep faces intact. A last frame sets where the move ends.
+    settings: {prompt_style: wan-i2v, mode: i2v, distill: "1022"}
+    variants:
+      - when: {backend: cuda}
+        workflow: wan22
+        files: [wan-i2v-high, wan-i2v-low, wan-i2v-lora-1022-high, wan-i2v-lora-1022-low, wan-umt5, wan-vae, film]
 
   wan22-t2v:
     name: Wan 2.2 from text

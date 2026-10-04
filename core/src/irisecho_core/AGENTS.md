@@ -124,7 +124,7 @@ Job `params` by kind of model:
 | image | `z-image-turbo`, `flux-schnell`, `qwen-image-fast`, `qwen-image`, `flux-dev`, `flux-krea` | `prompt`, `aspect`, `seed` |
 | edit | `qwen-edit-fast`, `qwen-edit`, `flux-kontext` | `prompt`, `image1` (and `image2`, `image3` for the Qwen models), `seed` |
 | upscale | `seedvr2` | `image1`, `scale` (2, 3 or 4), `retain` (true keeps the original size) |
-| video | `wan22-t2v`, `wan22-i2v` | `prompt`, `aspect`, `seconds` (2 to 5), `size` (`standard` or `large`), `smooth`, and for `wan22-i2v` a `start` and/or `end` frame |
+| video | `wan22-t2v`, `wan22-i2v`, `wan22-i2v-1022` | `prompt`, `aspect`, `seconds` (2 to 5), `size` (`standard`, `large`, or `720p` on a 12 GB card), `smooth`, and for the `i2v` models a `start` and/or `end` frame |
 | voice | `kokoro` | `text`, `voice`, `speed`, `clean` |
 | clone | `chatterbox-turbo`, `chatterbox` | `text`, `ref`, `consent` (must be `true`), `takes`, `seed`; `exaggeration` and `cfg` on `chatterbox` |
 | music | `ace-step` | `prompt` (style tags), `duration`, `bpm`, `lyrics`, `takes`, `loop`, `thinking`, `seed` |
@@ -134,6 +134,14 @@ Job `params` by kind of model:
 on this computer can skip the upload call: copy the file into the `uploads`
 folder inside the data folder under a new name of lowercase hex digits plus its
 extension (`3fa2b1c4.png`) and pass that name.
+
+For camera moves from a still, use `wan22-i2v-1022` with an `end` frame where
+the move should finish: for a push-in a centre crop of the start frame, for a
+pan an offset crop of a wider picture. The camera words name the direction and
+the end frame sets the distance ("slowly" is not followed). The last few frames
+snap to the end frame, so trim about 8. For a still camera on a face, prefer
+`wan22-i2v` at `large`: at `720p` both models invented expressions and skin
+texture on still faces.
 
 The FLUX image models (`flux-schnell`, `flux-dev`, `flux-krea`) also take an
 optional `image1` to redraw, with `denoise` (0.05 to 1, default 0.2) for how

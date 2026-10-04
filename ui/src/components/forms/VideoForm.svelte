@@ -9,15 +9,17 @@
 
   let { model, studio }: { model: Model; studio: Studio } = $props();
 
-  const fromPicture = $derived(model.id === "wan22-i2v");
+  const fromPicture = $derived(model.prompt_style === "wan-i2v");
   const ASPECTS = ["16:9", "9:16", "1:1", "4:3", "3:4"];
+  // 720p peaks at about 11.7 GB (graphs.VIDEO_720P_MIN_MB).
+  const fits720 = $derived((app.system?.hardware.vram_mb ?? 0) >= 12000);
 
   let start = $state<string | null>(null);
   let end = $state<string | null>(null);
   let prompt = $state("");
   let aspect = $state("16:9");
   let seconds = $state(3);
-  let size = $state<"standard" | "large">("standard");
+  let size = $state<"standard" | "large" | "720p">("standard");
   let smooth = $state(false);
   let sending = $state(false);
 
@@ -37,7 +39,8 @@
 
   const needsFrame = $derived(fromPicture && !start && !end);
   const estimate = $derived.by(() => {
-    const base = size === "large" ? 150 : 45;
+    // Seconds of work per second of video on a 12 GB card, smooth on.
+    const base = { standard: 45, large: 60, "720p": 100 }[size];
     const min = Math.round((base * seconds) / 60 + 0.4);
     return min <= 1 ? "about a minute" : `about ${min} minutes`;
   });
@@ -110,6 +113,9 @@
     <div class="chips">
       <button class="chip" aria-pressed={size === "standard"} onclick={() => (size = "standard")}>Standard</button>
       <button class="chip" aria-pressed={size === "large"} onclick={() => (size = "large")}>Large</button>
+      {#if fits720 || size === "720p"}
+        <button class="chip" aria-pressed={size === "720p"} onclick={() => (size = "720p")}>720p</button>
+      {/if}
     </div>
   </div>
 
