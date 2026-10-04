@@ -262,13 +262,13 @@ files:
     repo: nunchaku-ai/nunchaku-flux.1-krea-dev
     path: svdq-fp4_r32-flux.1-krea-dev.safetensors
     category: diffusion_models
-  qwen-image-int4:
+  qwen-image-8step-int4:
     repo: nunchaku-ai/nunchaku-qwen-image
-    path: svdq-int4_r32-qwen-image.safetensors
+    path: svdq-int4_r32-qwen-image-lightningv1.1-8steps.safetensors
     category: diffusion_models
-  qwen-image-fp4:
+  qwen-image-8step-fp4:
     repo: nunchaku-ai/nunchaku-qwen-image
-    path: svdq-fp4_r32-qwen-image.safetensors
+    path: svdq-fp4_r32-qwen-image-lightningv1.1-8steps.safetensors
     category: diffusion_models
   qwen-image-fast-int4:
     repo: nunchaku-ai/nunchaku-qwen-image
@@ -282,19 +282,19 @@ files:
   # Picture edits
   qwen-edit-fast-int4:
     repo: nunchaku-ai/nunchaku-qwen-image-edit-2509
-    path: svdq-int4_r128-qwen-image-edit-2509-lightningv2.0-4steps.safetensors
+    path: lightning-251115/svdq-int4_r128-qwen-image-edit-2509-lightning-4steps-251115.safetensors
     category: diffusion_models
   qwen-edit-fast-fp4:
     repo: nunchaku-ai/nunchaku-qwen-image-edit-2509
-    path: svdq-fp4_r128-qwen-image-edit-2509-lightningv2.0-4steps.safetensors
+    path: lightning-251115/svdq-fp4_r128-qwen-image-edit-2509-lightning-4steps-251115.safetensors
     category: diffusion_models
-  qwen-edit-int4:
+  qwen-edit-8step-int4:
     repo: nunchaku-ai/nunchaku-qwen-image-edit-2509
-    path: svdq-int4_r128-qwen-image-edit-2509.safetensors
+    path: lightning-251115/svdq-int4_r128-qwen-image-edit-2509-lightning-8steps-251115.safetensors
     category: diffusion_models
-  qwen-edit-fp4:
+  qwen-edit-8step-fp4:
     repo: nunchaku-ai/nunchaku-qwen-image-edit-2509
-    path: svdq-fp4_r128-qwen-image-edit-2509.safetensors
+    path: lightning-251115/svdq-fp4_r128-qwen-image-edit-2509-lightning-8steps-251115.safetensors
     category: diffusion_models
   kontext-int4:
     repo: nunchaku-ai/nunchaku-flux.1-kontext-dev
@@ -390,15 +390,15 @@ models:
     kind: edit
     engine: comfy
     license: apache-2.0
-    summary: The careful version. Twenty steps for finished work; combine up to three pictures.
-    settings: {prompt_style: qwen-edit, steps: 20, cfg: 2.5}
+    summary: The careful version. Eight steps for finished work; combine up to three pictures.
+    settings: {prompt_style: qwen-edit, steps: 8, cfg: 1.0}
     variants:
       - when: {backend: cuda, quant: int4}
         workflow: qwen-edit
-        files: [qwen-edit-int4, qwen25vl-fp8, qwen-image-vae]
+        files: [qwen-edit-8step-int4, qwen25vl-fp8, qwen-image-vae]
       - when: {backend: cuda, quant: fp4}
         workflow: qwen-edit
-        files: [qwen-edit-fp4, qwen25vl-fp8, qwen-image-vae]
+        files: [qwen-edit-8step-fp4, qwen25vl-fp8, qwen-image-vae]
 
   flux-kontext:
     name: FLUX.1 Kontext
@@ -406,7 +406,7 @@ models:
     engine: comfy
     license: flux-dev-nc
     summary: Restyle or retouch while keeping what matters. Say only what should change. Non-commercial.
-    settings: {prompt_style: kontext, steps: 8, guidance: 2.5}
+    settings: {prompt_style: kontext, steps: 20, guidance: 2.5}
     variants:
       - when: {backend: cuda, quant: int4}
         workflow: kontext
@@ -604,22 +604,22 @@ models:
     kind: image
     engine: comfy
     license: apache-2.0
-    summary: The one to use for words in pictures. Logos, signs, posters, labels. Twenty steps; slow.
-    settings: {prompt_style: qwen-image, steps: 20, cfg: 2.5, shift: 3.1}
+    summary: The one to use for words in pictures. Logos, signs, posters, labels. Eight steps.
+    settings: {prompt_style: qwen-image, steps: 8, cfg: 1.0, shift: 3.0}
     variants:
       - when: {backend: cuda, quant: int4}
         workflow: qwen-image-nunchaku
-        files: [qwen-image-int4, qwen25vl-fp8, qwen-image-vae]
+        files: [qwen-image-8step-int4, qwen25vl-fp8, qwen-image-vae]
       - when: {backend: cuda, quant: fp4}
         workflow: qwen-image-nunchaku
-        files: [qwen-image-fp4, qwen25vl-fp8, qwen-image-vae]
+        files: [qwen-image-8step-fp4, qwen25vl-fp8, qwen-image-vae]
 
   flux-dev:
     name: FLUX.1 dev
     kind: image
     engine: comfy
     license: flux-dev-nc
-    summary: Detailed, well-composed images in 8 steps. Non-commercial.
+    summary: Detailed, well-composed images in 20 steps. Non-commercial.
     variants:
       - when: {backend: cuda, quant: int4}
         workflow: flux-nunchaku
@@ -627,7 +627,7 @@ models:
       - when: {backend: cuda, quant: fp4}
         workflow: flux-nunchaku
         files: [flux-dev-fp4, t5xxl-fp8, clip-l, flux-ae]
-    settings: {prompt_style: flux, steps: 8, guidance: 3.5, shift: true}
+    settings: {prompt_style: flux, steps: 20, guidance: 3.5, shift: true}
 
   flux-krea:
     name: FLUX.1 Krea

@@ -218,3 +218,60 @@ def test_comfy_release_gives_up_after_a_while():
         return {"devices": [{"torch_vram_total": 8 << 30}]}
 
     assert not asyncio.run(until_released(stats, wait=0.01, every=0.001))
+
+
+# Step, guidance and cfg values per model. The Flux ones are Nunchaku's example scripts
+# (Krea runs its developers' 28 steps instead of 20). Qwen runs Nunchaku's Lightning
+# files, 4 or 8 steps at cfg 1, so the quantized models stay fast on a 12 GB card.
+NUNCHAKU_RECIPES = {
+    "flux-schnell": {"steps": 4},
+    "flux-dev": {"steps": 20, "guidance": 3.5},
+    "flux-krea": {"steps": 28, "guidance": 4.5},
+    "flux-kontext": {"steps": 20, "guidance": 2.5},
+    "qwen-image": {"steps": 8, "cfg": 1.0, "shift": 3.0},
+    "qwen-image-fast": {"steps": 4, "cfg": 1.0, "shift": 3.0},
+    "qwen-edit": {"steps": 8, "cfg": 1.0},
+    "qwen-edit-fast": {"steps": 4, "cfg": 1.0},
+}
+
+
+@pytest.mark.parametrize("model_id", NUNCHAKU_RECIPES)
+def test_registry_follows_the_nunchaku_recipes(model_id):
+    settings = registry.default().models[model_id].settings
+    for key, value in NUNCHAKU_RECIPES[model_id].items():
+        assert settings[key] == value
+
+
+def _dit_paths(model_id):
+    reg = registry.default()
+    return [reg.files[v.files[0]].path for v in reg.models[model_id].variants]
+
+
+@pytest.mark.parametrize(
+    "model_id, marker",
+    [
+        ("qwen-image", "lightningv1.1-8steps"),
+        ("qwen-image-fast", "lightningv1.0-4steps"),
+        ("qwen-edit", "lightning-8steps-251115"),
+        ("qwen-edit-fast", "lightning-4steps-251115"),
+    ],
+)
+def test_qwen_runs_nunchakus_lightning_files(model_id, marker):
+    assert all(marker in path for path in _dit_paths(model_id))
+
+
+def test_qwen_image_lightning_graph_has_no_negative_pass():
+    model = registry.default().models["qwen-image"]
+    names = {f: f"{f}.safetensors" for f in model.variants[0].files}
+    g = graphs.qwen_image(
+        prompt="a sign",
+        seed=1,
+        aspect="1:1",
+        names=names,
+        settings=model.settings,
+        hw=HW,
+        prefix="x",
+    )[0]
+    assert g["guider"]["class_type"] == "BasicGuider"
+    assert g["sigmas"]["inputs"]["steps"] == 8
+    assert g["shift"]["inputs"]["shift"] == 3.0
