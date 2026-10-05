@@ -144,6 +144,8 @@ class App:
             from irisecho_core.engines.kokoro import voice_options
 
             return {"voices": voice_options()}
+        if "video" in model.settings:
+            return {"video": model.settings["video"]}
         return {}
 
     def models(self) -> list[dict]:

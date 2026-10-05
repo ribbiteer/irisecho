@@ -31,7 +31,9 @@ STAGES = {
         "UNETLoader",
         "UnetLoaderGGUF",
         "CLIPLoader",
+        "CLIPVisionLoader",
         "DualCLIPLoader",
+        "DualCLIPLoaderGGUF",
         "VAELoader",
     },
     "sample": {"SamplerCustomAdvanced", "KSampler", "KSamplerAdvanced"},
@@ -45,6 +47,22 @@ def size_for(aspect: str, budget: int) -> tuple[int, int]:
     w = math.sqrt(budget * budget * rw / rh)
     h = w * rh / rw
     return max(16, round(w / 16) * 16), max(16, round(h / 16) * 16)
+
+
+def size_on_grid(aspect: str, budget: int, step: int) -> tuple[int, int]:
+    """The size on a step-pixel grid that best keeps both the aspect ratio and the
+    area (rounding each side alone can change the shape a lot)."""
+    rw, rh = ASPECTS.get(aspect, (1, 1))
+    target, area = rw / rh, budget * budget
+    best = None
+    for w in range(step, 4 * budget, step):
+        h = max(step, round(w / target / step) * step)
+        if abs(w * h - area) > area / 5:
+            continue
+        score = abs(w / h - target) / target + abs(w * h - area) / area / 2
+        if best is None or score < best[0]:
+            best = (score, (w, h))
+    return best[1] if best else size_for(aspect, budget)
 
 
 def stage_labels(graph: dict) -> dict[str, str]:
@@ -711,40 +729,41 @@ def wan22(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, 
     if size == "720p" and hw.vram_mb < VIDEO_720P_MIN_MB:
         raise ValueError("The 720p size needs a graphics card with 12 GB of memory.")
     w, h = size_for(aspect, VIDEO_TIERS[size])
-    # lightx2v's distill LoRA pair: Seko-V1 by default, or the later 1022 pair.
-    lora = f"wan-{mode}-lora-1022" if settings.get("distill") == "1022" else f"wan-{mode}-lora"
+    # lightx2v's distill: a LoRA pair (Seko-V1 by default, or a dated later pair),
+    # or experts with the distill merged in, which need no LoRA.
+    distill = settings.get("distill")
+    experts = settings.get("experts") or f"wan-{mode}"
     g: dict = {
         "unet_high": {
             "class_type": "UnetLoaderGGUF",
-            "inputs": {"unet_name": names[f"wan-{mode}-high"]},
+            "inputs": {"unet_name": names[f"{experts}-high"]},
         },
         "unet_low": {
             "class_type": "UnetLoaderGGUF",
-            "inputs": {"unet_name": names[f"wan-{mode}-low"]},
+            "inputs": {"unet_name": names[f"{experts}-low"]},
         },
-        "lora_high": {
-            "class_type": "LoraLoaderModelOnly",
-            "inputs": {
-                "model": ["unet_high", 0],
-                "lora_name": names[f"{lora}-high"],
-                "strength_model": 1.0,
-            },
-        },
-        "lora_low": {
-            "class_type": "LoraLoaderModelOnly",
-            "inputs": {
-                "model": ["unet_low", 0],
-                "lora_name": names[f"{lora}-low"],
-                "strength_model": 1.0,
-            },
-        },
+    }
+    model_high, model_low = ["unet_high", 0], ["unet_low", 0]
+    if distill != "merged":
+        lora = f"wan-{mode}-lora-{distill}" if distill else f"wan-{mode}-lora"
+        for part in ("high", "low"):
+            g[f"lora_{part}"] = {
+                "class_type": "LoraLoaderModelOnly",
+                "inputs": {
+                    "model": [f"unet_{part}", 0],
+                    "lora_name": names[f"{lora}-{part}"],
+                    "strength_model": 1.0,
+                },
+            }
+        model_high, model_low = ["lora_high", 0], ["lora_low", 0]
+    g |= {
         "shift_high": {
             "class_type": "ModelSamplingSD3",
-            "inputs": {"model": ["lora_high", 0], "shift": 5.0},
+            "inputs": {"model": model_high, "shift": 5.0},
         },
         "shift_low": {
             "class_type": "ModelSamplingSD3",
-            "inputs": {"model": ["lora_low", 0], "shift": 5.0},
+            "inputs": {"model": model_low, "shift": 5.0},
         },
         "clip": {
             "class_type": "CLIPLoader",
@@ -809,7 +828,358 @@ def wan22(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, 
         "class_type": "VAEDecode",
         "inputs": {"samples": ["sample", 0], "vae": ["vae", 0]},
     }
-    frames_out, fps = ["decode", 0], 16
+    _save_video(g, ["decode", 0], 16, params, names, prefix)
+    return g, "save"
+
+
+def hunyuan15(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, **_):
+    """HunyuanVideo 1.5: the 480p step-distilled image-to-video model, 8 steps at
+    cfg 1 and shift 7 (Tencent's table), at 24 fps. The 720p size adds Tencent's
+    480p-to-720p super-resolution model: shift 2, 6 steps."""
+    start = images.get("start")
+    if not start:
+        raise ValueError("Add a first frame.")
+    seconds = max(2, min(5, int(params.get("seconds") or 3)))
+    frames = round(seconds * 24 / 4) * 4 + 1
+    size = params.get("size") or "standard"
+    if size not in ("standard", "720p"):
+        raise ValueError("Choose a size: standard or 720p.")
+    if size == "720p" and hw.vram_mb < VIDEO_720P_MIN_MB:
+        raise ValueError("The 720p size needs a graphics card with 12 GB of memory.")
+    w, h = size_for(aspect, VIDEO_TIERS["standard"])
+    g: dict = {
+        "unet": {
+            "class_type": "UNETLoader",
+            "inputs": {"unet_name": names["hy15-i2v-480-distill"], "weight_dtype": "default"},
+        },
+        "shift": {"class_type": "ModelSamplingSD3", "inputs": {"model": ["unet", 0], "shift": 7.0}},
+        "clip": {
+            "class_type": "DualCLIPLoader",
+            "inputs": {
+                "clip_name1": names["qwen25vl-fp8"],
+                "clip_name2": names["hy15-byt5"],
+                "type": "hunyuan_video_15",
+                "device": "default",
+            },
+        },
+        "text": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["clip", 0], "text": prompt}},
+        "negative": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["clip", 0], "text": ""}},
+        "vae": {"class_type": "VAELoader", "inputs": {"vae_name": names["hy15-vae"]}},
+        "start": {"class_type": "LoadImage", "inputs": {"image": start}},
+        "vision": {"class_type": "CLIPVisionLoader", "inputs": {"clip_name": names["sigclip-384"]}},
+        "seen": {
+            "class_type": "CLIPVisionEncode",
+            "inputs": {"clip_vision": ["vision", 0], "image": ["start", 0], "crop": "center"},
+        },
+        "frames": {
+            "class_type": "HunyuanVideo15ImageToVideo",
+            "inputs": {
+                "positive": ["text", 0],
+                "negative": ["negative", 0],
+                "vae": ["vae", 0],
+                "width": w,
+                "height": h,
+                "length": frames,
+                "batch_size": 1,
+                "start_image": ["start", 0],
+                "clip_vision_output": ["seen", 0],
+            },
+        },
+        "sample": {
+            "class_type": "KSampler",
+            "inputs": {
+                "model": ["shift", 0],
+                "seed": seed,
+                "steps": 8,
+                "cfg": 1.0,
+                "sampler_name": "euler",
+                "scheduler": "simple",
+                "positive": ["frames", 0],
+                "negative": ["frames", 1],
+                "latent_image": ["frames", 2],
+                "denoise": 1.0,
+            },
+        },
+    }
+    latent = ["sample", 0]
+    if size == "720p":
+        w2, h2 = size_for(aspect, VIDEO_TIERS["720p"])
+        g |= {
+            "sr_unet": {
+                "class_type": "UNETLoader",
+                "inputs": {"unet_name": names["hy15-sr-720"], "weight_dtype": "default"},
+            },
+            "sr_shift": {
+                "class_type": "ModelSamplingSD3",
+                "inputs": {"model": ["sr_unet", 0], "shift": 2.0},
+            },
+            "upsampler": {
+                "class_type": "LatentUpscaleModelLoader",
+                "inputs": {"model_name": names["hy15-upsampler-720"]},
+            },
+            "upscaled": {
+                "class_type": "HunyuanVideo15LatentUpscaleWithModel",
+                "inputs": {
+                    "model": ["upsampler", 0],
+                    "samples": ["sample", 0],
+                    "upscale_method": "bilinear",
+                    "width": w2,
+                    "height": h2,
+                    "crop": "disabled",
+                },
+            },
+            "sr": {
+                "class_type": "HunyuanVideo15SuperResolution",
+                "inputs": {
+                    "positive": ["text", 0],
+                    "negative": ["negative", 0],
+                    "vae": ["vae", 0],
+                    "latent": ["upscaled", 0],
+                    "start_image": ["start", 0],
+                    "clip_vision_output": ["seen", 0],
+                    "noise_augmentation": 0.7,
+                },
+            },
+            "sample_sr": {
+                "class_type": "KSampler",
+                "inputs": {
+                    "model": ["sr_shift", 0],
+                    "seed": seed,
+                    "steps": 6,
+                    "cfg": 1.0,
+                    "sampler_name": "euler",
+                    "scheduler": "simple",
+                    "positive": ["sr", 0],
+                    "negative": ["sr", 1],
+                    "latent_image": ["sr", 2],
+                    "denoise": 1.0,
+                },
+            },
+        }
+        latent = ["sample_sr", 0]
+    g["decode"] = {
+        "class_type": "VAEDecodeTiled",
+        "inputs": {
+            "samples": latent,
+            "vae": ["vae", 0],
+            "tile_size": 512,
+            "overlap": 64,
+            "temporal_size": 64,
+            "temporal_overlap": 8,
+        },
+    }
+    _save_video(g, ["decode", 0], 24, params, names, prefix)
+    return g, "save"
+
+
+LTX_STAGE1_SIGMAS = "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
+LTX_STAGE2_SIGMAS = "0.85, 0.7250, 0.4219, 0.0"
+
+
+def ltx(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, **_):
+    """LTX-2.x distilled: picture and sound in one pass, as in ComfyUI's LTX-2.5
+    templates. Eight steps at half size, a 2x latent upscale, three refining
+    steps, 24 fps. A first frame is written into the latent; a last frame is a
+    guide that is cropped off again before the upscale."""
+    start, end = images.get("start"), images.get("end")
+    seconds = max(2, min(int(settings.get("max_seconds", 5)), int(params.get("seconds") or 3)))
+    frames = seconds * 24 + 1  # LTX needs 8n + 1 frames
+    size = params.get("size") or "standard"
+    if size not in VIDEO_TIERS:
+        raise ValueError("Choose a size: standard, large or 720p.")
+    if size == "720p" and hw.vram_mb < VIDEO_720P_MIN_MB:
+        raise ValueError("The 720p size needs a graphics card with 12 GB of memory.")
+    # Half size must be a multiple of 32, so the clip is a multiple of 64.
+    w, h = size_on_grid(aspect, VIDEO_TIERS[size], 64)
+    part = {role: names[fid] for role, fid in settings["parts"].items()}
+    if settings.get("gguf"):
+        unet = {"class_type": "UnetLoaderGGUF", "inputs": {"unet_name": part["unet"]}}
+    else:
+        unet = {
+            "class_type": "UNETLoader",
+            "inputs": {"unet_name": part["unet"], "weight_dtype": "default"},
+        }
+    if "connectors" in part:  # a GGUF Gemma plus LTX's own connector weights
+        clip = {
+            "class_type": "DualCLIPLoaderGGUF",
+            "inputs": {
+                "clip_name1": part["text_encoder"],
+                "clip_name2": part["connectors"],
+                "type": "ltxv",
+            },
+        }
+    else:
+        clip = {
+            "class_type": "CLIPLoader",
+            "inputs": {"clip_name": part["text_encoder"], "type": "ltxv", "device": "default"},
+        }
+    sampler = settings.get("sampler", "euler")
+    g: dict = {
+        "unet": unet,
+        "clip": clip,
+        "vae": {"class_type": "VAELoader", "inputs": {"vae_name": part["vae"]}},
+        "audio_vae": {"class_type": "VAELoader", "inputs": {"vae_name": part["audio_vae"]}},
+        "text": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["clip", 0], "text": prompt}},
+        "negative": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["clip", 0], "text": ""}},
+        "cond": {
+            "class_type": "LTXVConditioning",
+            "inputs": {"positive": ["text", 0], "negative": ["negative", 0], "frame_rate": 24.0},
+        },
+        "empty": {
+            "class_type": "EmptyLTXVLatentVideo",
+            "inputs": {"width": w // 2, "height": h // 2, "length": frames, "batch_size": 1},
+        },
+        "empty_audio": {
+            "class_type": "LTXVEmptyLatentAudio",
+            "inputs": {
+                "audio_vae": ["audio_vae", 0],
+                "frames_number": frames,
+                "frame_rate": 24,
+                "batch_size": 1,
+            },
+        },
+        "sampler1": {"class_type": "KSamplerSelect", "inputs": {"sampler_name": sampler}},
+        "sampler2": {"class_type": "KSamplerSelect", "inputs": {"sampler_name": sampler}},
+        "sigmas1": {"class_type": "ManualSigmas", "inputs": {"sigmas": LTX_STAGE1_SIGMAS}},
+        "sigmas2": {"class_type": "ManualSigmas", "inputs": {"sigmas": LTX_STAGE2_SIGMAS}},
+        "noise1": {"class_type": "RandomNoise", "inputs": {"noise_seed": seed}},
+        "noise2": {"class_type": "RandomNoise", "inputs": {"noise_seed": seed + 1}},
+        "upscaler": {
+            "class_type": "LatentUpscaleModelLoader",
+            "inputs": {"model_name": part["upscaler"]},
+        },
+    }
+
+    def frame(key: str, image: str) -> list:
+        """A picture cropped to the clip's shape and given LTX's compression."""
+        g[f"{key}_load"] = {"class_type": "LoadImage", "inputs": {"image": image}}
+        g[f"{key}_fit"] = {
+            "class_type": "ImageScale",
+            "inputs": {
+                "image": [f"{key}_load", 0],
+                "upscale_method": "lanczos",
+                "width": w,
+                "height": h,
+                "crop": "center",
+            },
+        }
+        g[key] = {
+            "class_type": "LTXVPreprocess",
+            "inputs": {"image": [f"{key}_fit", 0], "img_compression": 18},
+        }
+        return [key, 0]
+
+    positive, negative, latent = ["cond", 0], ["cond", 1], ["empty", 0]
+    first = frame("first", start) if start else None
+    if first:
+        g["first_in"] = {
+            "class_type": "LTXVImgToVideoInplace",
+            "inputs": {
+                "vae": ["vae", 0],
+                "image": first,
+                "latent": latent,
+                "strength": 0.7,
+                "bypass": False,
+            },
+        }
+        latent = ["first_in", 0]
+    if end:
+        g["last_in"] = {
+            "class_type": "LTXVAddGuide",
+            "inputs": {
+                "positive": positive,
+                "negative": negative,
+                "vae": ["vae", 0],
+                "latent": latent,
+                "image": frame("last", end),
+                "frame_idx": -1,
+                "strength": 0.7,
+            },
+        }
+        positive, negative, latent = ["last_in", 0], ["last_in", 1], ["last_in", 2]
+    g["av1"] = {
+        "class_type": "LTXVConcatAVLatent",
+        "inputs": {"video_latent": latent, "audio_latent": ["empty_audio", 0]},
+    }
+    g["guider1"] = {
+        "class_type": "CFGGuider",
+        "inputs": {"model": ["unet", 0], "positive": positive, "negative": negative, "cfg": 1.0},
+    }
+    g["sample1"] = {
+        "class_type": "SamplerCustomAdvanced",
+        "inputs": {
+            "noise": ["noise1", 0],
+            "guider": ["guider1", 0],
+            "sampler": ["sampler1", 0],
+            "sigmas": ["sigmas1", 0],
+            "latent_image": ["av1", 0],
+        },
+    }
+    g["split1"] = {"class_type": "LTXVSeparateAVLatent", "inputs": {"av_latent": ["sample1", 0]}}
+    video = ["split1", 0]
+    if end:
+        g["crop1"] = {
+            "class_type": "LTXVCropGuides",
+            "inputs": {"positive": positive, "negative": negative, "latent": video},
+        }
+        positive, negative, video = ["crop1", 0], ["crop1", 1], ["crop1", 2]
+    g["upscaled"] = {
+        "class_type": "LTXVLatentUpsampler",
+        "inputs": {"samples": video, "upscale_model": ["upscaler", 0], "vae": ["vae", 0]},
+    }
+    video = ["upscaled", 0]
+    if first:
+        g["first_in2"] = {
+            "class_type": "LTXVImgToVideoInplace",
+            "inputs": {
+                "vae": ["vae", 0],
+                "image": first,
+                "latent": video,
+                "strength": 1.0,
+                "bypass": False,
+            },
+        }
+        video = ["first_in2", 0]
+    g["av2"] = {
+        "class_type": "LTXVConcatAVLatent",
+        "inputs": {"video_latent": video, "audio_latent": ["split1", 1]},
+    }
+    g["guider2"] = {
+        "class_type": "CFGGuider",
+        "inputs": {"model": ["unet", 0], "positive": positive, "negative": negative, "cfg": 1.0},
+    }
+    g["sample"] = {
+        "class_type": "SamplerCustomAdvanced",
+        "inputs": {
+            "noise": ["noise2", 0],
+            "guider": ["guider2", 0],
+            "sampler": ["sampler2", 0],
+            "sigmas": ["sigmas2", 0],
+            "latent_image": ["av2", 0],
+        },
+    }
+    g["split2"] = {"class_type": "LTXVSeparateAVLatent", "inputs": {"av_latent": ["sample", 0]}}
+    g["decode"] = {
+        "class_type": "VAEDecodeTiled",
+        "inputs": {
+            "samples": ["split2", 0],
+            "vae": ["vae", 0],
+            "tile_size": 512,
+            "overlap": 64,
+            "temporal_size": 64,
+            "temporal_overlap": 16,
+        },
+    }
+    g["sound"] = {
+        "class_type": "LTXVAudioVAEDecode",
+        "inputs": {"samples": ["split2", 1], "audio_vae": ["audio_vae", 0]},
+    }
+    _save_video(g, ["decode", 0], 24, params, names, prefix, audio=["sound", 0])
+    return g, "save"
+
+
+def _save_video(g: dict, frames, fps: int, params: dict, names: dict, prefix: str, audio=None):
+    """Optional 2x FILM interpolation, then the clip (with its sound, if any)."""
     if params.get("smooth"):
         g["interp_model"] = {
             "class_type": "FrameInterpolationModelLoader",
@@ -817,14 +1187,12 @@ def wan22(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, 
         }
         g["interp"] = {
             "class_type": "FrameInterpolate",
-            "inputs": {
-                "interp_model": ["interp_model", 0],
-                "images": ["decode", 0],
-                "multiplier": 2,
-            },
+            "inputs": {"interp_model": ["interp_model", 0], "images": frames, "multiplier": 2},
         }
-        frames_out, fps = ["interp", 0], 32
-    g["video"] = {"class_type": "CreateVideo", "inputs": {"images": frames_out, "fps": fps}}
+        frames, fps = ["interp", 0], fps * 2
+    g["video"] = {"class_type": "CreateVideo", "inputs": {"images": frames, "fps": fps}}
+    if audio:
+        g["video"]["inputs"]["audio"] = audio
     g["save"] = {
         "class_type": "SaveVideo",
         "inputs": {
@@ -834,7 +1202,6 @@ def wan22(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, 
             "codec": "auto",
         },
     }
-    return g, "save"
 
 
 BUILDERS = {
@@ -848,6 +1215,8 @@ BUILDERS = {
     "seedvr2": seedvr2,
     "seedvr2-video": seedvr2_video,
     "wan22": wan22,
+    "hunyuan15": hunyuan15,
+    "ltx": ltx,
 }
 
 # The uploaded pictures (and clips) each workflow reads, by parameter name.
@@ -858,8 +1227,12 @@ IMAGE_INPUTS = {
     "seedvr2": ("image1",),
     "seedvr2-video": ("video",),
     "wan22": ("start", "end"),
+    "hunyuan15": ("start",),
+    "ltx": ("start", "end"),
 }
 PROMPT_OPTIONAL = {"seedvr2", "seedvr2-video"}
+# Run with ComfyUI's dynamic VRAM (see ComfyEngine.ensure_running).
+DYNAMIC_VRAM = {"wan22", "hunyuan15", "ltx"}
 
 
 def describe_error(data: dict) -> str:

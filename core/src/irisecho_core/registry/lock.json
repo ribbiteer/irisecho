@@ -99,6 +99,26 @@
   "size": 8057520008,
   "sha256": "f16df7a51f632d0743fb5402d47609ec0572a0fbcda9a4a2bf971f177bde101f"
  },
+ "Comfy-Org/HunyuanVideo_1.5_repackaged@1405a2b738c29b890cf6d03fc038d8d3e92eeed7:split_files/diffusion_models/hunyuanvideo1.5_480p_i2v_step_distilled_fp8_scaled.safetensors": {
+  "size": 8335127098,
+  "sha256": "302636263ad01e2659a18b78e96e95f44433b92def7cae1dab29b5105eeb63b1"
+ },
+ "Comfy-Org/HunyuanVideo_1.5_repackaged@1405a2b738c29b890cf6d03fc038d8d3e92eeed7:split_files/diffusion_models/hunyuanvideo1.5_720p_sr_distilled_fp8_scaled.safetensors": {
+  "size": 8335262258,
+  "sha256": "7827c90058bb91d35e6ad2205c22c88682aa7d684fa237ef2260bd5e5c822475"
+ },
+ "Comfy-Org/HunyuanVideo_1.5_repackaged@1405a2b738c29b890cf6d03fc038d8d3e92eeed7:split_files/latent_upscale_models/hunyuanvideo15_latent_upsampler_720p.safetensors": {
+  "size": 85854616,
+  "sha256": "9f04d9306f4f2159bd6351f069c0d0e7e0b8c1dc047eb7fd3954f0d357f85203"
+ },
+ "Comfy-Org/HunyuanVideo_1.5_repackaged@1405a2b738c29b890cf6d03fc038d8d3e92eeed7:split_files/text_encoders/byt5_small_glyphxl_fp16.safetensors": {
+  "size": 438643184,
+  "sha256": "516910bb4c9b225370290e40585d1b0e6c8cd3583690f7eec2f7fb593990fb48"
+ },
+ "Comfy-Org/HunyuanVideo_1.5_repackaged@1405a2b738c29b890cf6d03fc038d8d3e92eeed7:split_files/vae/hunyuanvideo15_vae_fp16.safetensors": {
+  "size": 2521292758,
+  "sha256": "e7c3091949c27e2d55ae6d5df917b99dadfebbf308e5a50d0ade0d16c90297ae"
+ },
  "Comfy-Org/Krea-2@eb1eddd3983a54678545a9b2c178c5853b30f7be:text_encoders/qwen3vl_4b_fp8_scaled.safetensors": {
   "size": 5242467968,
   "sha256": "54bd5144df0bbc25dd6ccadfcb826b521445a1b06ae5a42570bdd2974ca87094"
@@ -147,6 +167,10 @@
   "size": 68882302,
   "sha256": "f226e51375dc839d4b40e5c3d63da560dd1ea1c962364ec78f5adf2d05db05c0"
  },
+ "Comfy-Org/sigclip_vision_384@5421dab31229df19801c8e3af446b5a8bc71a3bc:sigclip_vision_patch14_384.safetensors": {
+  "size": 856505640,
+  "sha256": "1fee501deabac72f0ed17610307d7131e3e9d1e838d0363aa3c2b97a6e03fb33"
+ },
  "Comfy-Org/z_image_turbo@6fc90a3b1b653e935a0d175e260736de25b84df5:split_files/diffusion_models/z_image_turbo_bf16.safetensors": {
   "size": 12309866400,
   "sha256": "2407613050b809ffdff18a4ac99af83ea6b95443ecebdf80e064a79c825574a6"
@@ -158,6 +182,30 @@
  "Comfy-Org/z_image_turbo@6fc90a3b1b653e935a0d175e260736de25b84df5:split_files/vae/ae.safetensors": {
   "size": 335304388,
   "sha256": "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38"
+ },
+ "Lightricks/LTX-2.3@3c6a4e66e5d0a684231950b9c74dd4ded7b6fadc:ltx-2.3-spatial-upscaler-x2-1.1.safetensors": {
+  "size": 995743560,
+  "sha256": "5f416311fa8172b65af67530758964708d29a317b830d689a51143b7f91913ed"
+ },
+ "Lightricks/LTX-2.5@2356ce76915d6c48d313d7e8b25900e1dd3abaa8:diffusion_models/ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors": {
+  "size": 21504034224,
+  "sha256": "c4279eeff115cbeaca494bd2183e7d768c38fe85a184dc6afbb7159157c44334"
+ },
+ "Lightricks/LTX-2.5@2356ce76915d6c48d313d7e8b25900e1dd3abaa8:latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors": {
+  "size": 995778752,
+  "sha256": "eb5a71fe4068ee87ccdb1c3aa635e547ca76bd2d30ae20ae889f2c325c0677e8"
+ },
+ "Lightricks/LTX-2.5@2356ce76915d6c48d313d7e8b25900e1dd3abaa8:text_encoders/gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors": {
+  "size": 15372969374,
+  "sha256": "6ce688a0aa98a5fa36a9f1e6c3f42152a498cc2b53ee8c15674c64244f91487f"
+ },
+ "Lightricks/LTX-2.5@2356ce76915d6c48d313d7e8b25900e1dd3abaa8:vae/ltx-2.5-audio-vae-bf16.safetensors": {
+  "size": 364866540,
+  "sha256": "c52733d37f6a7fb7949c3dc0fb468c6cb2169e4d836983a73babb9f0d54837a5"
+ },
+ "Lightricks/LTX-2.5@2356ce76915d6c48d313d7e8b25900e1dd3abaa8:vae/ltx-2.5-video-vae-bf16.safetensors": {
+  "size": 1472223346,
+  "sha256": "847e14ca7f3355debca0cea4eaa24ac0fbcdf0061da054ac89ca638a869ddba3"
  },
  "QuantStack/Wan2.2-I2V-A14B-GGUF@6c6717459277b9cd1f72579d78a0fd62a79e57dc:HighNoise/Wan2.2-I2V-A14B-HighNoise-Q4_K_M.gguf": {
   "size": 9651728896,
@@ -411,6 +459,14 @@
   "size": 523425,
   "sha256": "b5204750dcba01029d2ac9cec17aec3b20a6d64073c579d694a23cb40effbd0e"
  },
+ "jayn7/WAN2.2-I2V_A14B-DISTILL-LIGHTX2V-4STEP-GGUF@338fb8eedd8f485c9188cf1b1de541721fc81d66:high_noise_260412/wan2.2_i2v_A14b_high_noise_lightx2v_4step_720p_260412-Q4_K_M.gguf": {
+  "size": 9661569664,
+  "sha256": "18fe5780b0eb4ecb7ee88194ce10d78c375295eabadc110f9fd2961f7914cb14"
+ },
+ "jayn7/WAN2.2-I2V_A14B-DISTILL-LIGHTX2V-4STEP-GGUF@338fb8eedd8f485c9188cf1b1de541721fc81d66:low_noise_260412/wan2.2_i2v_A14b_low_noise_lightx2v_4step_720p_260412-Q4_K_M.gguf": {
+  "size": 9661569664,
+  "sha256": "583d458354129099d5d49e524a857b272007a0cb0ef12dc731f84968521be845"
+ },
  "lightx2v/Wan2.2-Distill-Loras@570044187a5219776ef30a5c60c6f76428a3a10a:wan2.2_i2v_A14b_high_noise_lora_rank64_lightx2v_4step_1022.safetensors": {
   "size": 634645944,
   "sha256": "887c3bdeb74e83859c920438e16ca31f39ab18ce189abc5f0e36f8348c5bbb19"
@@ -418,6 +474,14 @@
  "lightx2v/Wan2.2-Distill-Loras@570044187a5219776ef30a5c60c6f76428a3a10a:wan2.2_i2v_A14b_low_noise_lora_rank64_lightx2v_4step_1022.safetensors": {
   "size": 739472104,
   "sha256": "8833bd4fd7c8eabebf0bc8ee5cfaf47f4f310ce116928a02c1adf8941dd4b0f1"
+ },
+ "lightx2v/Wan2.2-Distill-Loras@570044187a5219776ef30a5c60c6f76428a3a10a:wan2.2_t2v_A14b_high_noise_lora_rank64_lightx2v_4step_1217.safetensors": {
+  "size": 613518320,
+  "sha256": "89003385f8a9d53ba58fd6ede647fdc90292e8568a54683fcfe6db5556a31769"
+ },
+ "lightx2v/Wan2.2-Distill-Loras@570044187a5219776ef30a5c60c6f76428a3a10a:wan2.2_t2v_A14b_low_noise_lora_rank64_lightx2v_4step_1217.safetensors": {
+  "size": 613518320,
+  "sha256": "4df7c206f3189472da2f92c0a42dcf308f04433d9c14302d08d56e99a3f51322"
  },
  "nunchaku-ai/nunchaku-flux.1-dev@1a3d3f78b545e33a0897da2101150292ebbd158a:svdq-fp4_r32-flux.1-dev.safetensors": {
   "size": 7038706888,
@@ -491,6 +555,10 @@
   "size": 4011374152,
   "sha256": "dbf5aba0f7370d1fe88e52823d3d7b9ceb6fa006707f075baf9cfdaf362ea745"
  },
+ "realrebelai/LTX-2.5_GGUFs@112436f97aaf99ce13ecb7b7eca7e2f6c128d3ec:LTX-2.5-Distilled-Q4_K_S.gguf": {
+  "size": 13853724672,
+  "sha256": "f347c129516c6411e635bb6655a89025accf077c734c473639c370fd06946dac"
+ },
  "stabilityai/stable-audio-3-small-sfx@ae12755283df9d62ca39a9b050a39a0b607b8c20:model.safetensors": {
   "size": 2270384940,
   "sha256": "ed9cf1b6172f1a8c2921a9560c21109ff3239524563ced9dce6dcdef41e2f515"
@@ -526,5 +594,25 @@
  "stabilityai/stable-audio-3-small-sfx@ae12755283df9d62ca39a9b050a39a0b607b8c20:t5gemma-b-b-ul2/tokenizer_config.json": {
   "size": 46437,
   "git_sha1": "4d625a54ce31c6629f25dadcc7d878e771b40ef7"
+ },
+ "unsloth/LTX-2.3-GGUF@96e8ed4925ead3db9ff4d0084f165ef6a74f28d0:distilled-1.1/ltx-2.3-22b-distilled-1.1-Q4_K_S.gguf": {
+  "size": 12961578016,
+  "sha256": "f9e2b72221a9b9bc0a3ade678ddda102b14af7a4f83476b7319e3ec38423cd80"
+ },
+ "unsloth/LTX-2.3-GGUF@96e8ed4925ead3db9ff4d0084f165ef6a74f28d0:text_encoders/ltx-2.3-22b-dev_embeddings_connectors.safetensors": {
+  "size": 2312144712,
+  "sha256": "a5c5148788d8d9d5d1e650e4cbf3502a46a2f7f975ce70c59082732c8905a8ae"
+ },
+ "unsloth/LTX-2.3-GGUF@96e8ed4925ead3db9ff4d0084f165ef6a74f28d0:vae/ltx-2.3-22b-dev_audio_vae.safetensors": {
+  "size": 364853140,
+  "sha256": "d7711812d9387ce940c2cd5d65a4f5a1e57bf6087cf618d89b56dd3c722c4dea"
+ },
+ "unsloth/LTX-2.3-GGUF@96e8ed4925ead3db9ff4d0084f165ef6a74f28d0:vae/ltx-2.3-22b-dev_video_vae.safetensors": {
+  "size": 1452256522,
+  "sha256": "8732bb70cf4343541815f45c9f90f5ff0519d679bd63483afc27bf79a08d3f4e"
+ },
+ "unsloth/gemma-3-12b-it-qat-GGUF@858acec7ec0541a46c39985c95d3b52d8f3ab183:gemma-3-12b-it-qat-UD-Q4_K_XL.gguf": {
+  "size": 7432229248,
+  "sha256": "da98f81c86916ed1c76b3eeda56b25cb7b8352b01093e2edb8028110fe2cb53b"
  }
 }

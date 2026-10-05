@@ -167,7 +167,7 @@
         <div><dt>Upscale</dt><dd class="mono">{job.params.scale}×{job.params.retain ? " (kept size)" : ""}</dd></div>
       {/if}
       {#if job.params.seconds}
-        <div><dt>Length</dt><dd class="mono">{job.params.seconds} s{job.params.smooth ? " · 32 fps" : ""}</dd></div>
+        <div><dt>Length</dt><dd class="mono">{job.params.seconds} s{job.params.smooth ? " · smooth motion" : ""}</dd></div>
       {/if}
       {#if job.params.seed != null}
         <div><dt>Seed</dt><dd class="mono">{job.params.seed}</dd></div>

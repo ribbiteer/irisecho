@@ -32,7 +32,7 @@ from irisecho_core.engines.base import Engine, EngineStartError, RunContext
 from irisecho_core.engines.comfy import graphs
 
 # Versions proven together. Bump install_version when changing any of them.
-COMFY = ("Comfy-Org/ComfyUI", "700821e1364eaab0e8f21c538a2131719fec57bf")  # v0.28.0
+COMFY = ("Comfy-Org/ComfyUI", "6b747c0428c343e1417219641db93a4fb7cb69ae")  # v0.38.0
 CUSTOM_NODES = {
     "ComfyUI-nunchaku": (
         "nunchaku-ai/ComfyUI-nunchaku",
@@ -73,6 +73,37 @@ NUNCHAKU_NODE_DEPS = [
     "accelerate>=1.10",
     "timm",
 ]
+# ComfyUI-nunchaku has not followed ComfyUI since v0.28: from v0.3x, ModelPatcher.clone
+# passes fast_disk to the subclass, and the Z-Image patcher does not take it.
+# (file, text to find, replacement); install fails if the text is gone.
+NUNCHAKU_PATCHES = [
+    (
+        "model_patcher/zimage.py",
+        "def __init__(self, model, load_device, offload_device, size=0, "
+        "weight_inplace_update=False):",
+        "def __init__(self, model, load_device, offload_device, size=0, "
+        "weight_inplace_update=False, fast_disk=False):",
+    ),
+    (
+        "model_patcher/zimage.py",
+        "super().__init__(model, load_device, offload_device, size, weight_inplace_update=False)",
+        "super().__init__(\n"
+        "            model, load_device, offload_device, size, weight_inplace_update=False,"
+        " fast_disk=fast_disk\n"
+        "        )",
+    ),
+]
+
+
+def patch_sources(root: Path, patches: list[tuple[str, str, str]]) -> None:
+    for rel, old, new in patches:
+        path = root / rel
+        text = path.read_text(encoding="utf-8")
+        if old not in text:
+            raise RuntimeError(f"Cannot patch {rel}: the code it fixes has changed.")
+        path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
 # A cold start is normally well under a minute; the first one after installing is slower.
 START_TIMEOUT = 300
 CATEGORIES = (
@@ -82,6 +113,8 @@ CATEGORIES = (
     "loras",
     "upscale_models",
     "frame_interpolation",
+    "clip_vision",
+    "latent_upscale_models",
 )
 
 
@@ -181,6 +214,8 @@ class ComfyEngine(Engine):
             if name == "ComfyUI-nunchaku" and self.hw.backend != "cuda":
                 continue
             await self._fetch_source(repo, sha, self.src / "custom_nodes" / name, log)
+            if name == "ComfyUI-nunchaku":
+                patch_sources(self.src / "custom_nodes" / name, NUNCHAKU_PATCHES)
 
         await uvenv.create_venv(self.venv, self.python_version, log)
         packages = [
@@ -220,10 +255,18 @@ class ComfyEngine(Engine):
     def alive(self) -> bool:
         return self.proc is not None and self.proc.returncode is None
 
-    async def ensure_running(self, report, cancelled: asyncio.Event | None = None) -> None:
+    async def ensure_running(
+        self, report, cancelled: asyncio.Event | None = None, dynamic_vram: bool = False
+    ) -> None:
+        """Start ComfyUI, or restart it when the model folders or the memory mode changed.
+
+        Dynamic VRAM (weights streamed from their files) is for the video workflows
+        only: it keeps a 31 GB machine out of swap there, but Nunchaku's Z-Image
+        loader reads weights that it has not loaded yet."""
         async with self._start_lock:
             yaml_text = self._model_paths_yaml()
-            if self.alive and yaml_text == self.paths_key:
+            key = f"{yaml_text}dynamic={dynamic_vram}"
+            if self.alive and key == self.paths_key:
                 return
             if self.alive:
                 await self.stop()
@@ -236,7 +279,7 @@ class ComfyEngine(Engine):
             shutil.copyfile(Path(__file__).parent / "watchdog_node.py", watchdog / "__init__.py")
             cfg = self.home / "extra_model_paths.yaml"
             cfg.write_text(yaml_text, encoding="utf-8")
-            self.paths_key = yaml_text
+            self.paths_key = key
             self.port = _free_port()
             args = [
                 str(uvenv.venv_python(self.venv)),
@@ -248,7 +291,6 @@ class ComfyEngine(Engine):
                 str(self.port),
                 "--disable-auto-launch",
                 "--disable-metadata",
-                "--disable-dynamic-vram",
                 "--extra-model-paths-config",
                 str(cfg),
                 "--input-directory",
@@ -262,6 +304,8 @@ class ComfyEngine(Engine):
                 "--database-url",
                 f"sqlite:///{(self.io / 'comfyui.db').as_posix()}",
             ]
+            if not dynamic_vram:
+                args.append("--disable-dynamic-vram")
             env = os.environ.copy()
             env.update(
                 {
@@ -376,7 +420,7 @@ class ComfyEngine(Engine):
                 images={k: p.name for k, p in staged.items()},
                 params=ctx.params,
             )
-            await self.ensure_running(ctx.report, ctx.cancelled)
+            await self.ensure_running(ctx.report, ctx.cancelled, workflow in graphs.DYNAMIC_VRAM)
             self.state = "busy"
             try:
                 files = await self._execute(ctx, graph, save_node)

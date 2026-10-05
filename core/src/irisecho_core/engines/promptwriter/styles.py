@@ -257,6 +257,41 @@ STYLES: dict[str, Style] = {
                 "they make the camera push harder and the clip darken. One action per clip."
             ),
         ),
+        Style(
+            "ltx",
+            "LTX video",
+            edit=False,
+            video=True,
+            # After the captions LTX was trained on, as its developers' rewriter
+            # (ComfyUI's TextGenerateLTX2Prompt) asks for them: long, objective,
+            # chronological, with the shot, the camera and the sound written in.
+            guide=(
+                "Target: LTX-2, which makes a clip of a few seconds with its sound, from "
+                "captions written in one style. Write one continuous paragraph of 120 to "
+                "200 words. Begin with the action or a visual detail, never with 'The "
+                "scene opens' or 'We see'. Describe only what can be seen and heard: the "
+                "place with its materials, light and colors, each person's visible look "
+                "and clothing, and where things are. Name the shot size once and say how "
+                "the camera moves, or that it stays static, and from which side it sees "
+                "the subject. Tell every action the draft names, each one, in the order "
+                "it happens with 'Initially', 'A moment later' and 'Simultaneously'. "
+                "Write the sound into the same prose: spoken words in double quotes with "
+                "the tone of voice, any music, and the sounds of the place."
+            ),
+            guide_with_image=(
+                "Target: LTX-2 from a first frame: the attached picture is the clip's "
+                "opening frame. Write one continuous paragraph of 120 to 200 words. First "
+                "describe that frame as it is: the subjects, their look and clothing, the "
+                "place, the light and the framing. Then tell every action the draft "
+                "names, each one, in the order it happens, with 'Initially', 'A moment "
+                "later' and 'Simultaneously'; keep the subject moving. Name the shot "
+                "size, how the camera moves or that it stays static, and from which side "
+                "it sees the subject, matching the picture at the start. Describe only "
+                "what can be seen and heard. Write "
+                "the sound into the same prose: spoken words in double quotes with the "
+                "tone of voice, any music, and the sounds of the place."
+            ),
+        ),
     ]
 }
 

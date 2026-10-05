@@ -30,6 +30,12 @@ EXTRA = {
     ],
     "wan22": [("720p, 5 s", (), {"size": "720p", "seconds": 5})],
     "seedvr2-video": [("720", (), {"short_side": 720})],
+    "hunyuan15": [("720p, 5 s", (), {"size": "720p", "seconds": 5})],
+    "ltx": [
+        ("text only", ("start", "end"), {}),
+        ("last frame only", ("start",), {}),
+        ("first frame, 720p", ("end",), {"size": "720p"}),
+    ],
 }
 
 
@@ -54,6 +60,8 @@ def check(graph: dict, info: dict) -> list[str]:
                 problems.append(f"{nid} {cls}: undeclared input {name}")
                 continue
             kind = declared[name][0]
+            if cls == "LoadImage" and name == "image":
+                continue  # the choices are whatever sits in ComfyUI's input folder
             if isinstance(kind, list) and not isinstance(value, list) and value not in kind:
                 # File choices depend on what is on disk; only flag fixed enums.
                 if not any(str(k).endswith((".safetensors", ".gguf")) for k in kind) and kind:

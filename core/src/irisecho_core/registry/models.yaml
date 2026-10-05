@@ -34,6 +34,14 @@ repos:
   Qwen/Qwen3-VL-4B-Instruct: ebb281ec70b05090aa6165b016eac8ec08e71b17
   Comfy-Org/Krea-2: eb1eddd3983a54678545a9b2c178c5853b30f7be
   AlperKTS/Krea-2-SVDQuant-ComfyUI: 54c7da132d95ae2031fbb051c7528f5f77da0e50
+  jayn7/WAN2.2-I2V_A14B-DISTILL-LIGHTX2V-4STEP-GGUF: 338fb8eedd8f485c9188cf1b1de541721fc81d66
+  Comfy-Org/HunyuanVideo_1.5_repackaged: 1405a2b738c29b890cf6d03fc038d8d3e92eeed7
+  Comfy-Org/sigclip_vision_384: 5421dab31229df19801c8e3af446b5a8bc71a3bc
+  unsloth/LTX-2.3-GGUF: 96e8ed4925ead3db9ff4d0084f165ef6a74f28d0
+  unsloth/gemma-3-12b-it-qat-GGUF: 858acec7ec0541a46c39985c95d3b52d8f3ab183
+  Lightricks/LTX-2.3: 3c6a4e66e5d0a684231950b9c74dd4ded7b6fadc
+  Lightricks/LTX-2.5: 2356ce76915d6c48d313d7e8b25900e1dd3abaa8
+  realrebelai/LTX-2.5_GGUFs: 112436f97aaf99ce13ecb7b7eca7e2f6c128d3ec
 
 licenses:
   apache-2.0:
@@ -76,6 +84,41 @@ licenses:
       appropriate to how you use it and to follow Krea's acceptable use policy;
       you own what you generate and answer for it. Krea can end the license on
       30 days' notice.
+  tencent-hunyuan-community:
+    name: Tencent Hunyuan Community License
+    url: https://huggingface.co/tencent/HunyuanVideo-1.5/blob/main/LICENSE
+    commercial: true
+    condition: Not licensed in the EU, UK or South Korea
+    accept: true
+    summary: >-
+      Free for personal and commercial use, except in the European Union, the
+      United Kingdom and South Korea, where neither the model nor what it makes
+      is licensed. Products with over 100 million monthly users need Tencent's
+      permission. Its outputs may not be used to improve other AI models.
+  ltx-2-community:
+    name: LTX-2 Community License
+    url: https://github.com/Lightricks/LTX-2/blob/main/LICENSE-2
+    commercial: true
+    condition: Free under $10M annual revenue
+    accept: true
+    summary: >-
+      Free for personal use, research, and commercial use by people and
+      companies earning under $10M a year; above that, Lightricks asks for a
+      paid license. Its use restrictions apply to what you make. Its text
+      encoder is also covered by Google's Gemma Terms of Use.
+  ltx-2x-community:
+    name: LTX-2.x Community License
+    url: https://github.com/Lightricks/LTX-2/blob/main/LICENSE-2_x
+    commercial: true
+    condition: Free under $10M annual revenue
+    accept: true
+    gated: true
+    summary: >-
+      Free for personal use, research, and commercial use by people and
+      companies earning under $10M a year; above that, Lightricks asks for a
+      paid license. Its use restrictions apply to what you make, and any
+      watermark or provenance marks it adds must stay. Lightricks asks you to
+      accept the terms on Hugging Face before downloading.
 
 files:
   # Kokoro
@@ -387,6 +430,98 @@ files:
     repo: QuantStack/Wan2.2-T2V-A14B-GGUF
     path: LowNoise/Wan2.2-T2V-A14B-LowNoise-Q4_K_M.gguf
     category: diffusion_models
+  wan-i2v-260412-high:
+    repo: jayn7/WAN2.2-I2V_A14B-DISTILL-LIGHTX2V-4STEP-GGUF
+    path: high_noise_260412/wan2.2_i2v_A14b_high_noise_lightx2v_4step_720p_260412-Q4_K_M.gguf
+    category: diffusion_models
+  wan-i2v-260412-low:
+    repo: jayn7/WAN2.2-I2V_A14B-DISTILL-LIGHTX2V-4STEP-GGUF
+    path: low_noise_260412/wan2.2_i2v_A14b_low_noise_lightx2v_4step_720p_260412-Q4_K_M.gguf
+    category: diffusion_models
+  wan-t2v-lora-1217-high:
+    repo: lightx2v/Wan2.2-Distill-Loras
+    path: wan2.2_t2v_A14b_high_noise_lora_rank64_lightx2v_4step_1217.safetensors
+    category: loras
+  wan-t2v-lora-1217-low:
+    repo: lightx2v/Wan2.2-Distill-Loras
+    path: wan2.2_t2v_A14b_low_noise_lora_rank64_lightx2v_4step_1217.safetensors
+    category: loras
+
+  # HunyuanVideo 1.5 (shares the Qwen2.5-VL encoder with Qwen Edit)
+  hy15-i2v-480-distill:
+    repo: Comfy-Org/HunyuanVideo_1.5_repackaged
+    path: split_files/diffusion_models/hunyuanvideo1.5_480p_i2v_step_distilled_fp8_scaled.safetensors
+    category: diffusion_models
+  hy15-sr-720:
+    repo: Comfy-Org/HunyuanVideo_1.5_repackaged
+    path: split_files/diffusion_models/hunyuanvideo1.5_720p_sr_distilled_fp8_scaled.safetensors
+    category: diffusion_models
+  hy15-upsampler-720:
+    repo: Comfy-Org/HunyuanVideo_1.5_repackaged
+    path: split_files/latent_upscale_models/hunyuanvideo15_latent_upsampler_720p.safetensors
+    category: latent_upscale_models
+  hy15-byt5:
+    repo: Comfy-Org/HunyuanVideo_1.5_repackaged
+    path: split_files/text_encoders/byt5_small_glyphxl_fp16.safetensors
+    category: text_encoders
+  hy15-vae:
+    repo: Comfy-Org/HunyuanVideo_1.5_repackaged
+    path: split_files/vae/hunyuanvideo15_vae_fp16.safetensors
+    category: vae
+  sigclip-384:
+    repo: Comfy-Org/sigclip_vision_384
+    path: sigclip_vision_patch14_384.safetensors
+    category: clip_vision
+  # LTX-2.3 (picture and sound), as GGUF
+  ltx23-unet-q4:
+    repo: unsloth/LTX-2.3-GGUF
+    path: distilled-1.1/ltx-2.3-22b-distilled-1.1-Q4_K_S.gguf
+    category: diffusion_models
+  ltx23-connectors:
+    repo: unsloth/LTX-2.3-GGUF
+    path: text_encoders/ltx-2.3-22b-dev_embeddings_connectors.safetensors
+    category: text_encoders
+  ltx23-vae:
+    repo: unsloth/LTX-2.3-GGUF
+    path: vae/ltx-2.3-22b-dev_video_vae.safetensors
+    category: vae
+  ltx23-audio-vae:
+    repo: unsloth/LTX-2.3-GGUF
+    path: vae/ltx-2.3-22b-dev_audio_vae.safetensors
+    category: vae
+  ltx23-upscaler:
+    repo: Lightricks/LTX-2.3
+    path: ltx-2.3-spatial-upscaler-x2-1.1.safetensors
+    category: latent_upscale_models
+  # LTX-2.5 (picture and sound). Gated: needs a Hugging Face token.
+  ltx25-unet-q4:
+    repo: realrebelai/LTX-2.5_GGUFs
+    path: LTX-2.5-Distilled-Q4_K_S.gguf
+    category: diffusion_models
+  ltx25-unet-int8:
+    repo: Lightricks/LTX-2.5
+    path: diffusion_models/ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors
+    category: diffusion_models
+  ltx25-text-encoder:
+    repo: Lightricks/LTX-2.5
+    path: text_encoders/gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors
+    category: text_encoders
+  ltx25-vae:
+    repo: Lightricks/LTX-2.5
+    path: vae/ltx-2.5-video-vae-bf16.safetensors
+    category: vae
+  ltx25-audio-vae:
+    repo: Lightricks/LTX-2.5
+    path: vae/ltx-2.5-audio-vae-bf16.safetensors
+    category: vae
+  ltx25-upscaler:
+    repo: Lightricks/LTX-2.5
+    path: latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors
+    category: latent_upscale_models
+  gemma3-12b-q4:
+    repo: unsloth/gemma-3-12b-it-qat-GGUF
+    path: gemma-3-12b-it-qat-UD-Q4_K_XL.gguf
+    category: text_encoders
   film:
     repo: Comfy-Org/frame_interpolation
     path: frame_interpolation/film_net_fp16.safetensors
@@ -466,7 +601,10 @@ models:
     engine: comfy
     license: apache-2.0
     summary: Brings a still to life. Give a first frame, a last frame, or both.
-    settings: {prompt_style: wan-i2v, mode: i2v}
+    settings:
+      prompt_style: wan-i2v
+      mode: i2v
+      video: {frames: [start, end], needs_frame: true, sizes: [standard, large, 720p], fps: 16, sound: false, pace: {standard: 45, large: 60, 720p: 100}}
     variants:
       - when: {backend: cuda}
         workflow: wan22
@@ -478,7 +616,11 @@ models:
     engine: comfy
     license: apache-2.0
     summary: Bigger camera moves that keep faces intact. A last frame sets where the move ends.
-    settings: {prompt_style: wan-i2v, mode: i2v, distill: "1022"}
+    settings:
+      prompt_style: wan-i2v
+      mode: i2v
+      distill: "1022"
+      video: {frames: [start, end], needs_frame: true, sizes: [standard, large, 720p], fps: 16, sound: false, pace: {standard: 45, large: 60, 720p: 100}}
     variants:
       - when: {backend: cuda}
         workflow: wan22
@@ -490,11 +632,127 @@ models:
     engine: comfy
     license: apache-2.0
     summary: A short clip from a description alone.
-    settings: {prompt_style: wan-t2v, mode: t2v}
+    settings:
+      prompt_style: wan-t2v
+      mode: t2v
+      video: {frames: [], sizes: [standard, large, 720p], fps: 16, sound: false, pace: {standard: 45, large: 60, 720p: 100}}
     variants:
       - when: {backend: cuda}
         workflow: wan22
         files: [wan-t2v-high, wan-t2v-low, wan-t2v-lora-high, wan-t2v-lora-low, wan-umt5, wan-vae, film]
+
+  wan22-i2v-260412:
+    name: Wan 2.2 from a picture (2026 distill)
+    kind: video
+    engine: comfy
+    license: apache-2.0
+    summary: Test entry. lightx2v's April 2026 four-step distill, tuned for 720p.
+    settings:
+      prompt_style: wan-i2v
+      mode: i2v
+      experts: wan-i2v-260412
+      distill: merged
+      video: {frames: [start, end], needs_frame: true, sizes: [standard, large, 720p], fps: 16, sound: false, pace: {standard: 45, large: 60, 720p: 100}}
+    variants:
+      - when: {backend: cuda}
+        workflow: wan22
+        files: [wan-i2v-260412-high, wan-i2v-260412-low, wan-umt5, wan-vae, film]
+
+  wan22-t2v-1217:
+    name: Wan 2.2 from text (1217 distill)
+    kind: video
+    engine: comfy
+    license: apache-2.0
+    summary: Test entry. lightx2v's December four-step LoRAs for text to video.
+    settings:
+      prompt_style: wan-t2v
+      mode: t2v
+      distill: "1217"
+      video: {frames: [], sizes: [standard, large, 720p], fps: 16, sound: false, pace: {standard: 45, large: 60, 720p: 100}}
+    variants:
+      - when: {backend: cuda}
+        workflow: wan22
+        files: [wan-t2v-high, wan-t2v-low, wan-t2v-lora-1217-high, wan-t2v-lora-1217-low, wan-umt5, wan-vae, film]
+
+  hunyuan15-i2v:
+    name: HunyuanVideo 1.5 from a picture
+    kind: video
+    engine: comfy
+    license: tencent-hunyuan-community
+    summary: Test entry. Brings a still to life in eight steps.
+    settings:
+      prompt_style: wan-i2v
+      mode: i2v
+      video: {frames: [start], needs_frame: true, sizes: [standard, 720p], fps: 24, sound: false, pace: {standard: 45, 720p: 100}}
+    variants:
+      - when: {backend: cuda}
+        workflow: hunyuan15
+        files: [hy15-i2v-480-distill, hy15-sr-720, hy15-upsampler-720, qwen25vl-fp8, hy15-byt5, hy15-vae, sigclip-384, film]
+
+  ltx23:
+    name: LTX-2.3
+    kind: video
+    engine: comfy
+    license: ltx-2-community
+    summary: Test entry. Picture and sound together, from text, a first frame, a last frame or both.
+    settings:
+      prompt_style: ltx
+      gguf: true
+      video: {frames: [start, end], sizes: [standard, large, 720p], fps: 24, sound: true, pace: {standard: 45, large: 60, 720p: 100}}
+      parts:
+        unet: ltx23-unet-q4
+        text_encoder: gemma3-12b-q4
+        connectors: ltx23-connectors
+        vae: ltx23-vae
+        audio_vae: ltx23-audio-vae
+        upscaler: ltx23-upscaler
+    variants:
+      - when: {backend: cuda}
+        workflow: ltx
+        files: [ltx23-unet-q4, gemma3-12b-q4, ltx23-connectors, ltx23-vae, ltx23-audio-vae, ltx23-upscaler, film]
+
+  ltx25:
+    name: LTX-2.5
+    kind: video
+    engine: comfy
+    license: ltx-2x-community
+    summary: Test entry. Picture and sound together, from text, a first frame, a last frame or both.
+    settings:
+      prompt_style: ltx
+      gguf: true
+      sampler: euler_ancestral
+      video: {frames: [start, end], sizes: [standard, large, 720p], fps: 24, sound: true, pace: {standard: 45, large: 60, 720p: 100}}
+      parts:
+        unet: ltx25-unet-q4
+        text_encoder: ltx25-text-encoder
+        vae: ltx25-vae
+        audio_vae: ltx25-audio-vae
+        upscaler: ltx25-upscaler
+    variants:
+      - when: {backend: cuda}
+        workflow: ltx
+        files: [ltx25-unet-q4, ltx25-text-encoder, ltx25-vae, ltx25-audio-vae, ltx25-upscaler, film]
+
+  ltx25-int8:
+    name: LTX-2.5 (int8)
+    kind: video
+    engine: comfy
+    license: ltx-2x-community
+    summary: Test entry. Lightricks' own int8 build of LTX-2.5.
+    settings:
+      prompt_style: ltx
+      sampler: euler_ancestral
+      video: {frames: [start, end], sizes: [standard, large, 720p], fps: 24, sound: true, pace: {standard: 45, large: 60, 720p: 100}}
+      parts:
+        unet: ltx25-unet-int8
+        text_encoder: ltx25-text-encoder
+        vae: ltx25-vae
+        audio_vae: ltx25-audio-vae
+        upscaler: ltx25-upscaler
+    variants:
+      - when: {backend: cuda}
+        workflow: ltx
+        files: [ltx25-unet-int8, ltx25-text-encoder, ltx25-vae, ltx25-audio-vae, ltx25-upscaler, film]
 
   ace-step:
     name: ACE-Step 1.5

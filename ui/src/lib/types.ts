@@ -57,7 +57,20 @@ export interface Model {
   files: FileStatus[];
   downloads: Download[];
   installing: boolean;
-  options: { voices?: VoiceOption[]; [key: string]: unknown };
+  options: { voices?: VoiceOption[]; video?: VideoOptions; [key: string]: unknown };
+}
+
+export type VideoSize = "standard" | "large" | "720p";
+
+/** What a video model takes and makes (registry settings.video). */
+export interface VideoOptions {
+  frames: ("start" | "end")[];
+  needs_frame?: boolean;
+  sizes: VideoSize[];
+  fps: number;
+  sound: boolean;
+  /** Seconds of work per second of video on a 12 GB card, by size. */
+  pace: Partial<Record<VideoSize, number>>;
 }
 
 export interface Engine {
