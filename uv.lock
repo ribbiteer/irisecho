@@ -283,7 +283,7 @@ wheels = [
 
 [[package]]
 name = "irisecho-core"
-version = "0.1.7"
+version = "0.1.8"
 source = { editable = "core" }
 dependencies = [
     { name = "fastapi" },
