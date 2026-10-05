@@ -129,7 +129,7 @@ Job `params` by kind of model:
 | image | `z-image-turbo`, `flux-schnell`, `qwen-image-fast`, `qwen-image`, `flux-dev`, `flux-krea`, `krea-2` | `prompt`, `aspect`, `seed` |
 | edit | `qwen-edit-fast`, `qwen-edit`, `flux-kontext` | `prompt`, `image1` (and `image2`, `image3` for the Qwen models), `seed` |
 | upscale | `seedvr2` | `image1`, `scale` (2, 3 or 4), `retain` (true keeps the original size) |
-| video | `wan22-t2v`, `wan22-i2v`, `wan22-i2v-1022` | `prompt`, `aspect`, `seconds` (2 to 5), `size` (`standard`, `large`, or `720p` on a 12 GB card), `smooth`, and for the `i2v` models a `start` and/or `end` frame |
+| video | `ltx25`, `wan22-t2v`, `wan22-i2v`, `wan22-i2v-1022`, `hunyuan15-i2v` | `prompt`, `aspect`, `seconds` (2 to 5), `size` (`standard`, `large`, or `720p` on a 12 GB card; `hunyuan15-i2v` has no `large`), `smooth`, and a `start` and/or `end` frame: required for the `i2v` models (`hunyuan15-i2v` takes `start` only), optional for `ltx25` |
 | voice | `kokoro` | `text`, `voice`, `speed`, `clean` |
 | clone | `chatterbox-turbo`, `chatterbox` | `text`, `ref`, `consent` (must be `true`), `takes`, `seed`; `exaggeration` and `cfg` on `chatterbox` |
 | music | `ace-step` | `prompt` (style tags), `duration`, `bpm`, `lyrics`, `takes`, `loop`, `thinking`, `seed` |
@@ -145,6 +145,16 @@ plus its extension (`3fa2b1c4.png`) and pass that name.
 generated clips it made faces look plastic, and on a close-up of objects it added
 grit and flicker. Compare its result with a plain resize before using it. A 4 s
 720p clip takes about 7 minutes and nearly all of a 12 GB card.
+
+`ltx25` (LTX-2.5) makes the clip's sound with it, from text alone or from a
+first and/or last frame, and is the fastest video model (a 4 s clip in one to
+two minutes, 720p included). Write it a long prompt, 120 to 200 words in one
+paragraph: what the frame shows, every action in order, the shot and camera
+move, and what is heard, with spoken words in quotes. Short motion-only prompts
+like Wan's drop actions and get directions wrong. `irisecho write --for ltx25`
+writes that kind of prompt. `hunyuan15-i2v` gives the most natural faces and
+hands from a first frame but is silent and about twice as slow; its `720p` adds
+an upscaling pass that takes about 11 minutes for 4 s.
 
 For camera moves from a still, use `wan22-i2v-1022` with an `end` frame where
 the move should finish: for a push-in a centre crop of the start frame, for a

@@ -102,10 +102,30 @@ def wan_graph(model_id="wan22-i2v", hw=HW, **params):
     )[0]
 
 
-def test_wan_keeps_the_v1_distill_by_default():
+def test_wan_from_a_picture_uses_the_merged_distill_without_loras():
     g = wan_graph()
-    assert g["lora_high"]["inputs"]["lora_name"] == "wan-i2v-lora-high.bin"
-    assert g["lora_low"]["inputs"]["lora_name"] == "wan-i2v-lora-low.bin"
+    assert "lora_high" not in g and "lora_low" not in g
+    assert g["unet_high"]["class_type"] == "UNETLoader"
+    assert g["unet_high"]["inputs"]["unet_name"] == "wan-i2v-distilled-high.bin"
+    assert g["shift_low"]["inputs"]["model"] == ["unet_low", 0]
+
+
+def test_wan_from_text_uses_the_1217_distill():
+    model = registry.default().models["wan22-t2v"]
+    names = {f: f"{f}.gguf" for f in model.variants[0].files}
+    g = graphs.wan22(
+        prompt="A paper boat.",
+        seed=1,
+        aspect="16:9",
+        names=names,
+        settings=model.settings,
+        hw=HW,
+        prefix="x",
+        images={},
+        params={"seconds": 4},
+    )[0]
+    assert g["unet_high"]["class_type"] == "UnetLoaderGGUF"
+    assert g["lora_high"]["inputs"]["lora_name"] == "wan-t2v-lora-1217-high.gguf"
 
 
 def test_wan_camera_moves_model_uses_the_1022_distill():

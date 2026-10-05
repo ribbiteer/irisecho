@@ -30,13 +30,11 @@ repos:
   Comfy-Org/Wan_2.2_ComfyUI_Repackaged: ee6f4a40737a995bf5818954cfce6d59443b0f04
   QuantStack/Wan2.2-I2V-A14B-GGUF: 6c6717459277b9cd1f72579d78a0fd62a79e57dc
   QuantStack/Wan2.2-T2V-A14B-GGUF: 73eafba53a1a8f29254e4c77f92e74ea27d7cd6f
-  Comfy-Org/MiniMax-H3: e5eb578a89295337b8ff433a035929ce0279e0b6
   lightx2v/Wan2.2-Distill-Models: db93455b9e85c4d8a3ff9297fcfa189d213cfe29
   lightx2v/Wan2.2-Distill-Loras: 570044187a5219776ef30a5c60c6f76428a3a10a
   Qwen/Qwen3-VL-4B-Instruct: ebb281ec70b05090aa6165b016eac8ec08e71b17
   Comfy-Org/Krea-2: eb1eddd3983a54678545a9b2c178c5853b30f7be
   AlperKTS/Krea-2-SVDQuant-ComfyUI: 54c7da132d95ae2031fbb051c7528f5f77da0e50
-  jayn7/WAN2.2-I2V_A14B-DISTILL-LIGHTX2V-4STEP-GGUF: 338fb8eedd8f485c9188cf1b1de541721fc81d66
   Comfy-Org/HunyuanVideo_1.5_repackaged: 1405a2b738c29b890cf6d03fc038d8d3e92eeed7
   Comfy-Org/sigclip_vision_384: 5421dab31229df19801c8e3af446b5a8bc71a3bc
   Lightricks/LTX-2.5: 2356ce76915d6c48d313d7e8b25900e1dd3abaa8
@@ -106,17 +104,6 @@ licenses:
       paid license. Its use restrictions apply to what you make, and any
       watermark or provenance marks it adds must stay. Lightricks asks you to
       accept the terms on Hugging Face before downloading.
-  minimax-h3-community:
-    name: MiniMax H3 Community License
-    url: https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE
-    commercial: true
-    condition: Not licensed in the US, EU, UK or South Korea
-    accept: true
-    summary: >-
-      Not licensed in the United States, the European Union, the United Kingdom
-      or South Korea, for the model or for what it makes; elsewhere free for
-      personal use and for companies earning under $20M a year. Products built
-      on it must say "Powered by MiniMax H3" and run safeguards against misuse.
 
 files:
   # Kokoro
@@ -388,14 +375,6 @@ files:
     repo: Comfy-Org/Wan_2.2_ComfyUI_Repackaged
     path: split_files/vae/wan_2.1_vae.safetensors
     category: vae
-  wan-i2v-lora-high:
-    repo: Comfy-Org/Wan_2.2_ComfyUI_Repackaged
-    path: split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors
-    category: loras
-  wan-i2v-lora-low:
-    repo: Comfy-Org/Wan_2.2_ComfyUI_Repackaged
-    path: split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors
-    category: loras
   wan-i2v-lora-1022-high:
     repo: lightx2v/Wan2.2-Distill-Loras
     path: wan2.2_i2v_A14b_high_noise_lora_rank64_lightx2v_4step_1022.safetensors
@@ -403,14 +382,6 @@ files:
   wan-i2v-lora-1022-low:
     repo: lightx2v/Wan2.2-Distill-Loras
     path: wan2.2_i2v_A14b_low_noise_lora_rank64_lightx2v_4step_1022.safetensors
-    category: loras
-  wan-t2v-lora-high:
-    repo: Comfy-Org/Wan_2.2_ComfyUI_Repackaged
-    path: split_files/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors
-    category: loras
-  wan-t2v-lora-low:
-    repo: Comfy-Org/Wan_2.2_ComfyUI_Repackaged
-    path: split_files/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors
     category: loras
   wan-i2v-high:
     repo: QuantStack/Wan2.2-I2V-A14B-GGUF
@@ -428,19 +399,11 @@ files:
     repo: QuantStack/Wan2.2-T2V-A14B-GGUF
     path: LowNoise/Wan2.2-T2V-A14B-LowNoise-Q4_K_M.gguf
     category: diffusion_models
-  wan-i2v-260412-high:
-    repo: jayn7/WAN2.2-I2V_A14B-DISTILL-LIGHTX2V-4STEP-GGUF
-    path: high_noise_260412/wan2.2_i2v_A14b_high_noise_lightx2v_4step_720p_260412-Q4_K_M.gguf
-    category: diffusion_models
-  wan-i2v-260412-low:
-    repo: jayn7/WAN2.2-I2V_A14B-DISTILL-LIGHTX2V-4STEP-GGUF
-    path: low_noise_260412/wan2.2_i2v_A14b_low_noise_lightx2v_4step_720p_260412-Q4_K_M.gguf
-    category: diffusion_models
-  wan-i2v-1030fp8-high:
+  wan-i2v-distilled-high:
     repo: lightx2v/Wan2.2-Distill-Models
     path: wan2.2_i2v_A14b_high_noise_scaled_fp8_e4m3_lightx2v_4step_comfyui_1030.safetensors
     category: diffusion_models
-  wan-i2v-1030fp8-low:
+  wan-i2v-distilled-low:
     repo: lightx2v/Wan2.2-Distill-Models
     path: wan2.2_i2v_A14b_low_noise_scaled_fp8_e4m3_lightx2v_4step_comfyui.safetensors
     category: diffusion_models
@@ -499,27 +462,6 @@ files:
     repo: Lightricks/LTX-2.5
     path: latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors
     category: latent_upscale_models
-  # MiniMax H3 (picture and sound), ComfyUI's int8 builds
-  h3-fl2va-int8:
-    repo: Comfy-Org/MiniMax-H3
-    path: diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors
-    category: diffusion_models
-  h3-text-encoder:
-    repo: Comfy-Org/MiniMax-H3
-    path: text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors
-    category: text_encoders
-  h3-vae:
-    repo: Comfy-Org/MiniMax-H3
-    path: vae/minimax_h3_video_vae_int8_convrot.safetensors
-    category: vae
-  h3-audio-vae:
-    repo: Comfy-Org/MiniMax-H3
-    path: vae/minimax_h3_audio_vae_fp32.safetensors
-    category: vae
-  h3-turbo-8step:
-    repo: Comfy-Org/MiniMax-H3
-    path: loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors
-    category: loras
   film:
     repo: Comfy-Org/frame_interpolation
     path: frame_interpolation/film_net_fp16.safetensors
@@ -593,6 +535,27 @@ models:
         workflow: seedvr2-video
         files: [seedvr2-3b, seedvr2-vae]
 
+  ltx25:
+    name: LTX-2.5
+    kind: video
+    engine: comfy
+    license: ltx-2x-community
+    summary: Picture and sound in one take, from a description, a first frame, a last frame or both. The fastest; best with a long, detailed prompt.
+    settings:
+      prompt_style: ltx
+      sampler: euler_ancestral
+      video: {frames: [start, end], sizes: [standard, large, 720p], fps: 24, sound: true, pace: {standard: 20, large: 22, 720p: 25}}
+      parts:
+        unet: ltx25-unet-int8
+        text_encoder: ltx25-text-encoder
+        vae: ltx25-vae
+        audio_vae: ltx25-audio-vae
+        upscaler: ltx25-upscaler
+    variants:
+      - when: {backend: cuda}
+        workflow: ltx
+        files: [ltx25-unet-int8, ltx25-text-encoder, ltx25-vae, ltx25-audio-vae, ltx25-upscaler, film]
+
   wan22-i2v:
     name: Wan 2.2 from a picture
     kind: video
@@ -602,11 +565,13 @@ models:
     settings:
       prompt_style: wan-i2v
       mode: i2v
-      video: {frames: [start, end], needs_frame: true, sizes: [standard, large, 720p], fps: 16, sound: false, pace: {standard: 45, large: 60, 720p: 100}}
+      experts: wan-i2v-distilled
+      distill: merged
+      video: {frames: [start, end], needs_frame: true, sizes: [standard, large, 720p], fps: 16, sound: false, pace: {standard: 25, large: 40, 720p: 75}}
     variants:
       - when: {backend: cuda}
         workflow: wan22
-        files: [wan-i2v-high, wan-i2v-low, wan-i2v-lora-high, wan-i2v-lora-low, wan-umt5, wan-vae, film]
+        files: [wan-i2v-distilled-high, wan-i2v-distilled-low, wan-umt5, wan-vae, film]
 
   wan22-i2v-1022:
     name: Wan 2.2 camera moves
@@ -618,7 +583,7 @@ models:
       prompt_style: wan-i2v
       mode: i2v
       distill: "1022"
-      video: {frames: [start, end], needs_frame: true, sizes: [standard, large, 720p], fps: 16, sound: false, pace: {standard: 45, large: 60, 720p: 100}}
+      video: {frames: [start, end], needs_frame: true, sizes: [standard, large, 720p], fps: 16, sound: false, pace: {standard: 35, large: 50, 720p: 95}}
     variants:
       - when: {backend: cuda}
         workflow: wan22
@@ -633,57 +598,8 @@ models:
     settings:
       prompt_style: wan-t2v
       mode: t2v
-      video: {frames: [], sizes: [standard, large, 720p], fps: 16, sound: false, pace: {standard: 45, large: 60, 720p: 100}}
-    variants:
-      - when: {backend: cuda}
-        workflow: wan22
-        files: [wan-t2v-high, wan-t2v-low, wan-t2v-lora-high, wan-t2v-lora-low, wan-umt5, wan-vae, film]
-
-  wan22-i2v-260412:
-    name: Wan 2.2 from a picture (2026 distill)
-    kind: video
-    engine: comfy
-    license: apache-2.0
-    summary: Test entry. lightx2v's April 2026 four-step distill, tuned for 720p.
-    settings:
-      prompt_style: wan-i2v
-      mode: i2v
-      experts: wan-i2v-260412
-      distill: merged
-      video: {frames: [start, end], needs_frame: true, sizes: [standard, large, 720p], fps: 16, sound: false, pace: {standard: 45, large: 60, 720p: 100}}
-    variants:
-      - when: {backend: cuda}
-        workflow: wan22
-        files: [wan-i2v-260412-high, wan-i2v-260412-low, wan-umt5, wan-vae, film]
-
-  wan22-i2v-fp8:
-    name: Wan 2.2 from a picture (fp8 test)
-    kind: video
-    engine: comfy
-    license: apache-2.0
-    summary: Test entry. lightx2v's merged October distill as ComfyUI fp8.
-    settings:
-      prompt_style: wan-i2v
-      mode: i2v
-      experts: wan-i2v-1030fp8
-      distill: merged
-      video: {frames: [start, end], needs_frame: true, sizes: [standard, large, 720p], fps: 16, sound: false, pace: {standard: 45, large: 60, 720p: 100}}
-    variants:
-      - when: {backend: cuda}
-        workflow: wan22
-        files: [wan-i2v-1030fp8-high, wan-i2v-1030fp8-low, wan-umt5, wan-vae, film]
-
-  wan22-t2v-1217:
-    name: Wan 2.2 from text (1217 distill)
-    kind: video
-    engine: comfy
-    license: apache-2.0
-    summary: Test entry. lightx2v's December four-step LoRAs for text to video.
-    settings:
-      prompt_style: wan-t2v
-      mode: t2v
       distill: "1217"
-      video: {frames: [], sizes: [standard, large, 720p], fps: 16, sound: false, pace: {standard: 45, large: 60, 720p: 100}}
+      video: {frames: [], sizes: [standard, large, 720p], fps: 16, sound: false, pace: {standard: 30, large: 45, 720p: 90}}
     variants:
       - when: {backend: cuda}
         workflow: wan22
@@ -698,53 +614,11 @@ models:
     settings:
       prompt_style: wan-i2v
       mode: i2v
-      video: {frames: [start], needs_frame: true, sizes: [standard, 720p], fps: 24, sound: false, pace: {standard: 45, 720p: 100}}
+      video: {frames: [start], needs_frame: true, sizes: [standard, 720p], fps: 24, sound: false, pace: {standard: 45, 720p: 165}}
     variants:
       - when: {backend: cuda}
         workflow: hunyuan15
         files: [hy15-i2v-480-distill, hy15-sr-720, hy15-upsampler-720, qwen25vl-fp8, hy15-byt5, hy15-vae, sigclip-384, film]
-
-  ltx25:
-    name: LTX-2.5
-    kind: video
-    engine: comfy
-    license: ltx-2x-community
-    summary: Picture and sound in one take, from a description, a first frame, a last frame or both. Fast, and best with a long, detailed prompt.
-    settings:
-      prompt_style: ltx
-      sampler: euler_ancestral
-      video: {frames: [start, end], sizes: [standard, large, 720p], fps: 24, sound: true, pace: {standard: 45, large: 60, 720p: 100}}
-      parts:
-        unet: ltx25-unet-int8
-        text_encoder: ltx25-text-encoder
-        vae: ltx25-vae
-        audio_vae: ltx25-audio-vae
-        upscaler: ltx25-upscaler
-    variants:
-      - when: {backend: cuda}
-        workflow: ltx
-        files: [ltx25-unet-int8, ltx25-text-encoder, ltx25-vae, ltx25-audio-vae, ltx25-upscaler, film]
-
-  minimax-h3:
-    name: MiniMax H3
-    kind: video
-    engine: comfy
-    license: minimax-h3-community
-    summary: Test entry. Picture and sound in one take, from a description, a first frame, a last frame or both.
-    settings:
-      prompt_style: ltx
-      steps: 6
-      video: {frames: [start, end], sizes: [standard, large, 720p], fps: 24, sound: true, pace: {standard: 45, large: 60, 720p: 100}}
-      parts:
-        unet: h3-fl2va-int8
-        turbo: h3-turbo-8step
-        text_encoder: h3-text-encoder
-        vae: h3-vae
-        audio_vae: h3-audio-vae
-    variants:
-      - when: {backend: cuda}
-        workflow: minimax-h3
-        files: [h3-fl2va-int8, h3-turbo-8step, h3-text-encoder, h3-vae, h3-audio-vae, film]
 
   ace-step:
     name: ACE-Step 1.5
