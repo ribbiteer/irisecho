@@ -126,3 +126,13 @@ def test_clock_rule_reaches_the_writer_only_for_drafts_with_a_clock():
     assert "baton markers" not in plain
     watch = system_prompt(STYLES["flux"], "improve", 0, "a man holding a pocket watch")
     assert "baton markers" in watch
+
+
+def test_multi_picture_edit_keeps_named_objects_and_names_what_picture_1_shows():
+    multi = system_prompt(
+        STYLES["qwen-edit"], "improve_image", 2, "the family from picture 2 on a bench"
+    )
+    assert "Keep every object the draft names" in multi
+    assert "most distinctive things you can see" in multi
+    single = system_prompt(STYLES["qwen-edit"], "improve", 0, "make the sky red")
+    assert "most distinctive things" not in single

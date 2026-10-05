@@ -69,10 +69,13 @@ EDIT_ONE = (
 # In tests, any keep-list in a multi-picture edit stopped the action.
 EDIT_MANY = (
     "Write one sentence that describes the finished picture: '[who or what] from Picture 2 "
-    "[does what] [where] in Picture 1.' Only if the draft uses Picture 3, add ', [holding "
-    "or wearing] [what] from Picture 3'. Write 'Picture 1', 'Picture 2' and 'Picture 3' "
-    "exactly. End the sentence there: write no 'keep' or 'keeping' clause and no list of "
-    "what stays the same, because such lists stop the action."
+    "[does what] [where] in Picture 1.' Keep every object the draft names, even when a "
+    "picture shows something else in its place. Look at Picture 1 and, in [where], name the "
+    "two or three most distinctive things you can see there, such as its backdrop, props or "
+    "colors, in place of a general word for the place. Only if the draft uses Picture 3, "
+    "add ', [holding or wearing] [what] from Picture 3'. Write 'Picture 1', 'Picture 2' and "
+    "'Picture 3' exactly. End the sentence there: write no 'keep' or 'keeping' clause and "
+    "no list of what stays the same, because such lists stop the action."
 )
 # A draft that names a second or third picture is a multi-picture edit.
 MULTI = re.compile(r"\b(picture|image|pic|photo)\s*[23]\b", re.IGNORECASE)
