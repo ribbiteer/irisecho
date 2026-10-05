@@ -733,16 +733,17 @@ def wan22(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, 
     # or experts with the distill merged in, which need no LoRA.
     distill = settings.get("distill")
     experts = settings.get("experts") or f"wan-{mode}"
-    g: dict = {
-        "unet_high": {
-            "class_type": "UnetLoaderGGUF",
-            "inputs": {"unet_name": names[f"{experts}-high"]},
-        },
-        "unet_low": {
-            "class_type": "UnetLoaderGGUF",
-            "inputs": {"unet_name": names[f"{experts}-low"]},
-        },
-    }
+
+    def expert(part: str) -> dict:
+        name = names[f"{experts}-{part}"]
+        if name.endswith(".gguf"):
+            return {"class_type": "UnetLoaderGGUF", "inputs": {"unet_name": name}}
+        return {
+            "class_type": "UNETLoader",
+            "inputs": {"unet_name": name, "weight_dtype": "default"},
+        }
+
+    g: dict = {"unet_high": expert("high"), "unet_low": expert("low")}
     model_high, model_low = ["unet_high", 0], ["unet_low", 0]
     if distill != "merged":
         lora = f"wan-{mode}-lora-{distill}" if distill else f"wan-{mode}-lora"
@@ -1178,6 +1179,98 @@ def ltx(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, **
     return g, "save"
 
 
+def minimax_h3(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, **_):
+    """MiniMax H3 (first/last frame model) with lightx2v's 8-step Turbo LoRA, as in
+    ComfyUI's template: res_multistep, no negative prompt, 24 fps, sound included.
+    Clip lengths sit on the model's 17k + 5 frame grid."""
+    start, end = images.get("start"), images.get("end")
+    seconds = max(2, min(int(settings.get("max_seconds", 5)), int(params.get("seconds") or 3)))
+    frames = max(1, round((seconds * 24 - 5) / 17)) * 17 + 5
+    size = params.get("size") or "standard"
+    if size not in VIDEO_TIERS:
+        raise ValueError("Choose a size: standard, large or 720p.")
+    if size == "720p" and hw.vram_mb < VIDEO_720P_MIN_MB:
+        raise ValueError("The 720p size needs a graphics card with 12 GB of memory.")
+    w, h = size_on_grid(aspect, VIDEO_TIERS[size], 32)
+    part = {role: names[fid] for role, fid in settings["parts"].items()}
+    g: dict = {
+        "unet": {
+            "class_type": "UNETLoader",
+            "inputs": {"unet_name": part["unet"], "weight_dtype": "default"},
+        },
+        "turbo": {
+            "class_type": "LoraLoaderModelOnly",
+            "inputs": {"model": ["unet", 0], "lora_name": part["turbo"], "strength_model": 1.0},
+        },
+        "clip": {
+            "class_type": "CLIPLoader",
+            "inputs": {"clip_name": part["text_encoder"], "type": "minimax", "device": "default"},
+        },
+        "vae": {"class_type": "VAELoader", "inputs": {"vae_name": part["vae"]}},
+        "audio_vae": {"class_type": "VAELoader", "inputs": {"vae_name": part["audio_vae"]}},
+        "cond": {
+            "class_type": "MiniMaxH3ImageToVideo",
+            "inputs": {
+                "clip": ["clip", 0],
+                "vae": ["vae", 0],
+                "prompt": prompt,
+                "width": w,
+                "height": h,
+                "length": frames,
+            },
+        },
+        "guider": {
+            "class_type": "BasicGuider",
+            "inputs": {"model": ["turbo", 0], "conditioning": ["cond", 0]},
+        },
+        "noise": {"class_type": "RandomNoise", "inputs": {"noise_seed": seed}},
+        "sampler": {"class_type": "KSamplerSelect", "inputs": {"sampler_name": "res_multistep"}},
+        "sigmas": {
+            "class_type": "BasicScheduler",
+            "inputs": {
+                "model": ["turbo", 0],
+                "scheduler": "simple",
+                "steps": int(settings.get("steps", 6)),
+                "denoise": 1.0,
+            },
+        },
+        "sample": {
+            "class_type": "SamplerCustomAdvanced",
+            "inputs": {
+                "noise": ["noise", 0],
+                "guider": ["guider", 0],
+                "sampler": ["sampler", 0],
+                "sigmas": ["sigmas", 0],
+                "latent_image": ["cond", 1],
+            },
+        },
+        "decode": {
+            "class_type": "VAEDecode",
+            "inputs": {"samples": ["sample", 0], "vae": ["vae", 0]},
+        },
+        "sound": {
+            "class_type": "VAEDecodeAudio",
+            "inputs": {"samples": ["sample", 0], "vae": ["audio_vae", 0]},
+        },
+    }
+    for key, image in (("first_frame", start), ("last_frame", end)):
+        if image:
+            g[key] = {"class_type": "LoadImage", "inputs": {"image": image}}
+            g[f"{key}_fit"] = {
+                "class_type": "ImageScale",
+                "inputs": {
+                    "image": [key, 0],
+                    "upscale_method": "lanczos",
+                    "width": w,
+                    "height": h,
+                    "crop": "center",
+                },
+            }
+            g["cond"]["inputs"][key] = [f"{key}_fit", 0]
+    _save_video(g, ["decode", 0], 24, params, names, prefix, audio=["sound", 0])
+    return g, "save"
+
+
 def _save_video(g: dict, frames, fps: int, params: dict, names: dict, prefix: str, audio=None):
     """Optional 2x FILM interpolation, then the clip (with its sound, if any)."""
     if params.get("smooth"):
@@ -1217,6 +1310,7 @@ BUILDERS = {
     "wan22": wan22,
     "hunyuan15": hunyuan15,
     "ltx": ltx,
+    "minimax-h3": minimax_h3,
 }
 
 # The uploaded pictures (and clips) each workflow reads, by parameter name.
@@ -1229,10 +1323,11 @@ IMAGE_INPUTS = {
     "wan22": ("start", "end"),
     "hunyuan15": ("start",),
     "ltx": ("start", "end"),
+    "minimax-h3": ("start", "end"),
 }
 PROMPT_OPTIONAL = {"seedvr2", "seedvr2-video"}
 # Run with ComfyUI's dynamic VRAM (see ComfyEngine.ensure_running).
-DYNAMIC_VRAM = {"wan22", "hunyuan15", "ltx"}
+DYNAMIC_VRAM = {"wan22", "hunyuan15", "ltx", "minimax-h3"}
 
 
 def describe_error(data: dict) -> str:

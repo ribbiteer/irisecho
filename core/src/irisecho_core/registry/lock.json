@@ -123,6 +123,26 @@
   "size": 5242467968,
   "sha256": "54bd5144df0bbc25dd6ccadfcb826b521445a1b06ae5a42570bdd2974ca87094"
  },
+ "Comfy-Org/MiniMax-H3@e5eb578a89295337b8ff433a035929ce0279e0b6:diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors": {
+  "size": 20970379616,
+  "sha256": "e889202c41dafb67b10d67b97f0d8541508036a6090af23425a5c2615d03c47a"
+ },
+ "Comfy-Org/MiniMax-H3@e5eb578a89295337b8ff433a035929ce0279e0b6:loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors": {
+  "size": 1956193000,
+  "sha256": "2339acdf19bfe123f46b971ea35d367a84adb85de43627e1eceafa5a5b2b111e"
+ },
+ "Comfy-Org/MiniMax-H3@e5eb578a89295337b8ff433a035929ce0279e0b6:text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors": {
+  "size": 27141342152,
+  "sha256": "bc2ced0fbea64757fa9acddccfc0b3f4819d1dcf1da6c124d690d368be283923"
+ },
+ "Comfy-Org/MiniMax-H3@e5eb578a89295337b8ff433a035929ce0279e0b6:vae/minimax_h3_audio_vae_fp32.safetensors": {
+  "size": 605254808,
+  "sha256": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48"
+ },
+ "Comfy-Org/MiniMax-H3@e5eb578a89295337b8ff433a035929ce0279e0b6:vae/minimax_h3_video_vae_int8_convrot.safetensors": {
+  "size": 2811065184,
+  "sha256": "52a2c8c73583c86e4f41cdcce3a6ad0ea562987bc0bf3d60a0cef5f5c8e60c0e"
+ },
  "Comfy-Org/Qwen-Image_ComfyUI@1f12b17be14c89b026c51a91d67c32f84bb047bc:split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors": {
   "size": 9384670680,
   "sha256": "cb5636d852a0ea6a9075ab1bef496c0db7aef13c02350571e388aea959c5c0b4"
@@ -182,10 +202,6 @@
  "Comfy-Org/z_image_turbo@6fc90a3b1b653e935a0d175e260736de25b84df5:split_files/vae/ae.safetensors": {
   "size": 335304388,
   "sha256": "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38"
- },
- "Lightricks/LTX-2.3@3c6a4e66e5d0a684231950b9c74dd4ded7b6fadc:ltx-2.3-spatial-upscaler-x2-1.1.safetensors": {
-  "size": 995743560,
-  "sha256": "5f416311fa8172b65af67530758964708d29a317b830d689a51143b7f91913ed"
  },
  "Lightricks/LTX-2.5@2356ce76915d6c48d313d7e8b25900e1dd3abaa8:diffusion_models/ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors": {
   "size": 21504034224,
@@ -483,6 +499,14 @@
   "size": 613518320,
   "sha256": "4df7c206f3189472da2f92c0a42dcf308f04433d9c14302d08d56e99a3f51322"
  },
+ "lightx2v/Wan2.2-Distill-Models@db93455b9e85c4d8a3ff9297fcfa189d213cfe29:wan2.2_i2v_A14b_high_noise_scaled_fp8_e4m3_lightx2v_4step_comfyui_1030.safetensors": {
+  "size": 15003000250,
+  "sha256": "15ff1e8624cde29c5ccc79fd54e7c4b2b95c63437f7294a8494c2b9ef0cf617d"
+ },
+ "lightx2v/Wan2.2-Distill-Models@db93455b9e85c4d8a3ff9297fcfa189d213cfe29:wan2.2_i2v_A14b_low_noise_scaled_fp8_e4m3_lightx2v_4step_comfyui.safetensors": {
+  "size": 15003000250,
+  "sha256": "90444bc6fb98d693b8afc18a13a7a5c35f751c2b71252d73438ed0649633057b"
+ },
  "nunchaku-ai/nunchaku-flux.1-dev@1a3d3f78b545e33a0897da2101150292ebbd158a:svdq-fp4_r32-flux.1-dev.safetensors": {
   "size": 7038706888,
   "sha256": "47188bd6b236c72203ac43219d5ee285baf699d06877fc4ecec217631a57cb2f"
@@ -555,10 +579,6 @@
   "size": 4011374152,
   "sha256": "dbf5aba0f7370d1fe88e52823d3d7b9ceb6fa006707f075baf9cfdaf362ea745"
  },
- "realrebelai/LTX-2.5_GGUFs@112436f97aaf99ce13ecb7b7eca7e2f6c128d3ec:LTX-2.5-Distilled-Q4_K_S.gguf": {
-  "size": 13853724672,
-  "sha256": "f347c129516c6411e635bb6655a89025accf077c734c473639c370fd06946dac"
- },
  "stabilityai/stable-audio-3-small-sfx@ae12755283df9d62ca39a9b050a39a0b607b8c20:model.safetensors": {
   "size": 2270384940,
   "sha256": "ed9cf1b6172f1a8c2921a9560c21109ff3239524563ced9dce6dcdef41e2f515"
@@ -594,25 +614,5 @@
  "stabilityai/stable-audio-3-small-sfx@ae12755283df9d62ca39a9b050a39a0b607b8c20:t5gemma-b-b-ul2/tokenizer_config.json": {
   "size": 46437,
   "git_sha1": "4d625a54ce31c6629f25dadcc7d878e771b40ef7"
- },
- "unsloth/LTX-2.3-GGUF@96e8ed4925ead3db9ff4d0084f165ef6a74f28d0:distilled-1.1/ltx-2.3-22b-distilled-1.1-Q4_K_S.gguf": {
-  "size": 12961578016,
-  "sha256": "f9e2b72221a9b9bc0a3ade678ddda102b14af7a4f83476b7319e3ec38423cd80"
- },
- "unsloth/LTX-2.3-GGUF@96e8ed4925ead3db9ff4d0084f165ef6a74f28d0:text_encoders/ltx-2.3-22b-dev_embeddings_connectors.safetensors": {
-  "size": 2312144712,
-  "sha256": "a5c5148788d8d9d5d1e650e4cbf3502a46a2f7f975ce70c59082732c8905a8ae"
- },
- "unsloth/LTX-2.3-GGUF@96e8ed4925ead3db9ff4d0084f165ef6a74f28d0:vae/ltx-2.3-22b-dev_audio_vae.safetensors": {
-  "size": 364853140,
-  "sha256": "d7711812d9387ce940c2cd5d65a4f5a1e57bf6087cf618d89b56dd3c722c4dea"
- },
- "unsloth/LTX-2.3-GGUF@96e8ed4925ead3db9ff4d0084f165ef6a74f28d0:vae/ltx-2.3-22b-dev_video_vae.safetensors": {
-  "size": 1452256522,
-  "sha256": "8732bb70cf4343541815f45c9f90f5ff0519d679bd63483afc27bf79a08d3f4e"
- },
- "unsloth/gemma-3-12b-it-qat-GGUF@858acec7ec0541a46c39985c95d3b52d8f3ab183:gemma-3-12b-it-qat-UD-Q4_K_XL.gguf": {
-  "size": 7432229248,
-  "sha256": "da98f81c86916ed1c76b3eeda56b25cb7b8352b01093e2edb8028110fe2cb53b"
  }
 }
