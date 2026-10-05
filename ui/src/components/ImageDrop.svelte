@@ -1,8 +1,47 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later
-  A picture slot: drop, paste or choose an image; shows it once added. -->
+  A picture slot: choose or paste an image; shows it once added.
+
+  Paste works three ways. Ctrl+V anywhere on the page fills the slot under the pointer, or
+  the first empty one. The Paste button reads the clipboard where the browser allows it.
+  Where it does not (a phone on plain HTTP, or iOS), the button opens a small pad: hold it,
+  choose Paste, and the browser hands over the picture. -->
+<script lang="ts" module>
+  // Every empty slot on screen, so a paste can find the right one.
+  type Slot = { el: () => HTMLElement | undefined; take: (file: File) => void };
+  const slots = new Set<Slot>();
+
+  const imageIn = (data: DataTransfer | null | undefined) =>
+    [...(data?.files ?? [])].find((f) => f.type.startsWith("image/"));
+
+  function onDocumentPaste(e: ClipboardEvent) {
+    const file = imageIn(e.clipboardData);
+    // Text on the clipboard stays text: a prompt box keeps pasting words.
+    if (!file || e.clipboardData?.getData("text/plain")?.trim()) return;
+    const open = [...slots].filter((s) => s.el()?.offsetParent);
+    if (!open.length) return;
+    open.sort((a, b) =>
+      a.el()!.compareDocumentPosition(b.el()!) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1,
+    );
+    const under = open.find((s) => s.el()!.matches(":hover, :focus-within"));
+    e.preventDefault();
+    (under ?? open[0]).take(file);
+  }
+
+  function join(slot: Slot) {
+    if (!slots.size) document.addEventListener("paste", onDocumentPaste);
+    slots.add(slot);
+    return () => {
+      slots.delete(slot);
+      if (!slots.size) document.removeEventListener("paste", onDocumentPaste);
+    };
+  }
+</script>
+
 <script lang="ts">
+  import ClipboardPaste from "@lucide/svelte/icons/clipboard-paste";
   import ImagePlus from "@lucide/svelte/icons/image-plus";
   import X from "@lucide/svelte/icons/x";
+  import { tick } from "svelte";
   import { api, uploadUrl } from "../lib/api";
   import { fail } from "../lib/state.svelte";
 
@@ -14,7 +53,9 @@
   }: { value: string | null; label: string; hint?: string; compact?: boolean } = $props();
 
   let busy = $state(false);
-  let dragging = $state(false);
+  let pad = $state(false);
+  let box = $state<HTMLElement>();
+  let padEl = $state<HTMLElement>();
 
   async function upload(file: File) {
     if (!file.type.startsWith("image/")) {
@@ -27,6 +68,7 @@
       form.append("file", file);
       const r = await api<{ id: string }>("/uploads", { form });
       value = r.id;
+      pad = false;
     } catch (e) {
       fail(e);
     } finally {
@@ -34,12 +76,40 @@
     }
   }
 
-  function onPaste(e: ClipboardEvent) {
-    const file = [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith("image/"));
-    if (file) {
-      e.preventDefault();
-      upload(file);
+  // While the slot is empty, it takes part in page-wide Ctrl+V.
+  $effect(() => {
+    if (value) return;
+    return join({ el: () => box, take: upload });
+  });
+
+  const canRead = typeof navigator !== "undefined" && typeof navigator.clipboard?.read === "function";
+
+  async function paste() {
+    if (canRead) {
+      try {
+        for (const item of await navigator.clipboard.read()) {
+          const type = item.types.find((t) => t.startsWith("image/"));
+          if (type) {
+            await upload(new File([await item.getType(type)], "pasted", { type }));
+            return;
+          }
+        }
+        fail("There is no picture on the clipboard. Copy one, then try again.");
+        return;
+      } catch {
+        /* the browser refused to share the clipboard: use the pad */
+      }
     }
+    pad = true;
+    await tick();
+    padEl?.focus();
+  }
+
+  function onPadPaste(e: ClipboardEvent) {
+    e.preventDefault();
+    const file = imageIn(e.clipboardData);
+    if (file) upload(file);
+    else fail("There is no picture on the clipboard. Copy one, then try again.");
   }
 </script>
 
@@ -50,37 +120,40 @@
     <button class="btn sm icon glass" title="Remove" onclick={() => (value = null)}><X size={14} /></button>
   </div>
 {:else}
-  <label
-    class="drop"
-    class:compact
-    class:dragging
-    tabindex="-1"
-    onpaste={onPaste}
-    ondragover={(e) => {
-      e.preventDefault();
-      dragging = true;
-    }}
-    ondragleave={() => (dragging = false)}
-    ondrop={(e) => {
-      e.preventDefault();
-      dragging = false;
-      const f = e.dataTransfer?.files?.[0];
-      if (f) upload(f);
-    }}
-  >
-    <input
-      type="file"
-      accept="image/png,image/jpeg,image/webp"
-      class="sr-only"
-      onchange={(e) => {
-        const f = (e.currentTarget as HTMLInputElement).files?.[0];
-        if (f) upload(f);
-      }}
-    />
-    <ImagePlus size={compact ? 18 : 22} />
-    <strong>{busy ? "Adding…" : label}</strong>
-    {#if hint && !compact}<small>{hint}</small>{/if}
-  </label>
+  <div class="drop" class:compact bind:this={box}>
+    <label class="choose">
+      <input
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        class="sr-only"
+        onchange={(e) => {
+          const f = (e.currentTarget as HTMLInputElement).files?.[0];
+          if (f) upload(f);
+        }}
+      />
+      <ImagePlus size={compact ? 18 : 22} />
+      <strong>{busy ? "Adding…" : label}</strong>
+      {#if hint && !compact}<small>{hint}</small>{/if}
+    </label>
+    {#if pad}
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+      <div
+        class="pad"
+        bind:this={padEl}
+        contenteditable="true"
+        inputmode="none"
+        role="textbox"
+        tabindex="0"
+        aria-label="Paste a picture here"
+        onpaste={onPadPaste}
+        onbeforeinput={(e) => e.preventDefault()}
+      >
+        Hold here and choose Paste, or press Ctrl+V
+      </div>
+    {:else}
+      <button class="btn sm ghost" onclick={paste} disabled={busy}><ClipboardPaste size={14} /> Paste</button>
+    {/if}
+  </div>
 {/if}
 
 <style>
@@ -89,22 +162,29 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: 8px;
     min-height: 132px;
-    padding: 16px;
+    padding: 14px 16px;
     border-radius: var(--r-3);
     border: 1.5px dashed var(--line-3);
     background: var(--surface-2);
     text-align: center;
     color: var(--accent-ink);
-    cursor: pointer;
     transition:
       border-color 0.15s,
       background 0.15s;
   }
   .drop.compact {
     min-height: 92px;
-    padding: 10px;
+    padding: 8px 10px;
+    gap: 4px;
+  }
+  .choose {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
   }
   .drop strong {
     color: var(--text);
@@ -117,9 +197,20 @@
     max-width: 260px;
   }
   .drop:hover,
-  .drop.dragging {
+  .drop:focus-within {
     border-color: var(--accent);
     background: color-mix(in oklab, var(--accent) 10%, var(--surface-2));
+  }
+  .pad {
+    padding: 8px 12px;
+    border-radius: var(--r-2);
+    border: 1px solid var(--accent);
+    background: var(--surface);
+    color: var(--text-2);
+    font-size: 12.5px;
+    cursor: text;
+    caret-color: transparent;
+    outline: none;
   }
   .filled {
     position: relative;

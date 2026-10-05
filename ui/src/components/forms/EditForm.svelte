@@ -54,7 +54,7 @@
 <div class="form" onkeydown={onKey} role="presentation">
   <div class="field">
     <span class="label">Picture to change</span>
-    <ImageDrop bind:value={image1} label={multi ? "Picture 1" : "Add a picture"} hint="Drop, paste or choose a PNG, JPEG or WebP." />
+    <ImageDrop bind:value={image1} label={multi ? "Picture 1" : "Add a picture"} hint="Choose a PNG, JPEG or WebP, or paste one." />
   </div>
 
   {#if multi}
