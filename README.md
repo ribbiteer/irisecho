@@ -94,12 +94,31 @@ With IrisEcho it can also make the art, the voice-over, the music and the sound
 effects for it**, on your own GPU: no API keys, no per-image bill, nothing
 uploaded.
 
-https://github.com/user-attachments/assets/77f22b92-c779-4ca7-b212-7782e8fbafd4
+https://github.com/user-attachments/assets/bb63625f-fc7a-4c5d-8a83-ac39d2a30891
 
-<sub>One prompt to Claude Code on a fresh install: four pictures of a game boss
-with Qwen-Image Fast, the agent picks one, animates it with Wan 2.2 and adds a
-roar and a score. The waits are sped up, and the sound comes in at the end; it
-all ran on one RTX 4070 SUPER.</sub>
+<sub>One brief to Claude Code, no models named. The agent read the guide,
+chose Qwen-Image for four keyframes and LTX-2.5 to animate them with their own
+sound, redid a still and a clip it judged weak, added an ACE-Step score and a
+Stable Audio boom, and cut a 17-second teaser with ffmpeg. The waits are sped
+up; the teaser plays at the end, with sound.</sub>
+
+To try it yourself: Claude Code with Sonnet 5.5, IrisEcho 0.1.9 with the models
+already downloaded, on Windows 11 with an RTX 4070 SUPER (12 GB), a Ryzen 7
+7800X3D and 32 GB of RAM. Paste the note from Settings, then send this, word for
+word:
+
+> I'm pitching an indie game called Lanternfall: a small, battered brass robot
+> carrying a lantern through a drowned, moonlit city. I want a short teaser
+> trailer with sound that I can show people.
+>
+> Before generating anything, read the IrisEcho guide and check which models are
+> installed here. Work out what each one is good at, then choose the best route
+> to a polished teaser and tell me in a few lines why you picked it. Then make
+> it: generate, look at your results, redo anything weak, and finish with one
+> MP4 in this folder.
+
+From that message to the finished MP4 took 13 minutes 37 seconds of wall-clock
+time. Your agent will choose its own route, so your teaser will differ.
 
 IrisEcho ships with its own instructions for agents. Open Settings → Scripts
 and coding agents, press **Copy a note for your assistant**, and paste it to
