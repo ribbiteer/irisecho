@@ -29,13 +29,13 @@ coding agent: [give your agents generation capabilities](#give-your-agents-gener
 | **Image** | Describe a picture; get photos, illustration, lettering that reads | Z-Image Turbo, FLUX.1 schnell, Qwen-Image, FLUX.1 dev / Krea\*, Krea 2\* |
 | **Edit** | Say what should change in a picture; combine up to three | Qwen Edit (fast and careful), FLUX.1 Kontext\* |
 | **Upscale** | Enlarge 2-4× and restore detail, no prompt needed | SeedVR2 |
-| **Video** | 2-5 s clips from text, a first frame, a last frame, or both | Wan 2.2 |
+| **Video** | 2-5 s clips from text, a first frame, a last frame, or both; LTX-2.5 makes the sound too | LTX-2.5\*, Wan 2.2, HunyuanVideo 1.5\* |
 | **Voice** | Narration in 28 preset voices, a whole script at once | Kokoro |
 | **Clone** | A voice you have the right to use, from a 5-15 s sample, with performed laughs and sighs | Chatterbox, Chatterbox Turbo |
 | **Music** | Beds, jingles and stingers from a few tags; seamless loops on the bar | ACE-Step 1.5 |
 | **Sound** | One-shot effects: foley, UI sounds, impacts, ambience | Stable Audio 3 SFX\* |
 
-<sub>\* Opt-in: non-commercial (FLUX.1 dev family), free for commercial use only under $1M a year (Krea 2), or gated (Stable Audio: accept the publisher's terms on Hugging Face and add a read token). IrisEcho shows each license and walks you through it.</sub>
+<sub>\* Opt-in: non-commercial (FLUX.1 dev family), free for commercial use only under $1M a year (Krea 2) or $10M a year (LTX-2.5), not licensed in the EU, UK or South Korea (HunyuanVideo 1.5), or gated (Stable Audio and LTX-2.5: accept the publisher's terms on Hugging Face and add a read token). IrisEcho shows each license and walks you through it.</sub>
 
 **Improve** sits under every picture and video prompt: a small local model
 (Qwen3-VL) rewrites a rough idea the way the chosen model likes it, or describes

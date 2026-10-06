@@ -9,8 +9,8 @@ versions shown when a model that needs them is first set up.
 
 | Component | Version | License | Upstream |
 |---|---|---|---|
-| ComfyUI | v0.28.0 (`700821e1`) | GPL-3.0 | https://github.com/Comfy-Org/ComfyUI |
-| ComfyUI-nunchaku | `c71cc259` | Apache-2.0 | https://github.com/nunchaku-ai/ComfyUI-nunchaku |
+| ComfyUI | v0.38.0 (`6b747c04`) | GPL-3.0 | https://github.com/Comfy-Org/ComfyUI |
+| ComfyUI-nunchaku | `c71cc259`, one file patched at install for ComfyUI v0.38 | Apache-2.0 | https://github.com/nunchaku-ai/ComfyUI-nunchaku |
 | nunchaku | 1.2.1 | Apache-2.0 | https://github.com/nunchux-ai/nunchaku |
 | ComfyUI-GGUF | `6ea2651e` | Apache-2.0 | https://github.com/city96/ComfyUI-GGUF |
 | PyTorch | 2.11 / 2.7 | BSD-3-Clause | https://pytorch.org |
