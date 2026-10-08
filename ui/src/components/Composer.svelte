@@ -4,6 +4,7 @@
   import CloneForm from "./forms/CloneForm.svelte";
   import EditForm from "./forms/EditForm.svelte";
   import ImageForm from "./forms/ImageForm.svelte";
+  import Model3dForm from "./forms/Model3dForm.svelte";
   import MusicForm from "./forms/MusicForm.svelte";
   import SfxForm from "./forms/SfxForm.svelte";
   import UpscaleForm from "./forms/UpscaleForm.svelte";
@@ -35,8 +36,13 @@
         </p>
       </div>
     {:else}
-      <ModelPicker kind={studio.kind} {models} selected={model} />
-      {#if studio.kind === "image"}
+      {#if studio.kind !== "model3d"}
+        <!-- 3D picks its model from the pictures it gets (Model3dForm) -->
+        <ModelPicker kind={studio.kind} {models} selected={model} />
+      {/if}
+      {#if studio.kind === "model3d"}
+        <Model3dForm {model} {studio} />
+      {:else if studio.kind === "image"}
         <ImageForm {model} {studio} />
       {:else if studio.kind === "edit"}
         <EditForm {model} {studio} />

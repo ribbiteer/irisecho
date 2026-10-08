@@ -38,6 +38,9 @@ repos:
   Comfy-Org/HunyuanVideo_1.5_repackaged: 1405a2b738c29b890cf6d03fc038d8d3e92eeed7
   Comfy-Org/sigclip_vision_384: 5421dab31229df19801c8e3af446b5a8bc71a3bc
   Lightricks/LTX-2.5: 2356ce76915d6c48d313d7e8b25900e1dd3abaa8
+  Comfy-Org/TRELLIS.2: 430a9d09b2416687018c8fe8edced2ad4858a439
+  Comfy-Org/Pixal3D: f37641be376725d324c56626007cc477f1249a69
+  Comfy-Org/BiRefNet: 25511f8787e51912e1480706b4e47b8f467fbf72
 
 licenses:
   apache-2.0:
@@ -104,6 +107,28 @@ licenses:
       paid license. Its use restrictions apply to what you make, and any
       watermark or provenance marks it adds must stay. Lightricks asks you to
       accept the terms on Hugging Face before downloading.
+  trellis2-dinov3:
+    name: MIT License and DINOv3 License
+    url: https://ai.meta.com/resources/models-and-libraries/dinov3-license/
+    commercial: true
+    accept: true
+    summary: >-
+      TRELLIS.2 itself is under the MIT License. It reads pictures with Meta's
+      DINOv3, whose license allows personal and commercial use but not military,
+      nuclear, espionage or weapons uses, and asks you to follow trade controls
+      and to credit DINOv3 in research you publish.
+  pixal3d-dinov3:
+    name: MIT License and DINOv3 License
+    url: https://ai.meta.com/resources/models-and-libraries/dinov3-license/
+    commercial: true
+    condition: Tencent does not offer it in the EU
+    accept: true
+    summary: >-
+      Pixal3D itself is under the MIT License; Tencent does not offer its own
+      download in the European Union. It reads pictures with Meta's DINOv3,
+      whose license allows personal and commercial use but not military,
+      nuclear, espionage or weapons uses, and asks you to follow trade controls
+      and to credit DINOv3 in research you publish.
 
 files:
   # Kokoro
@@ -458,6 +483,32 @@ files:
     repo: Lightricks/LTX-2.5
     path: vae/ltx-2.5-audio-vae-bf16.safetensors
     category: vae
+
+  # 3D: TRELLIS.2 and Pixal3D share their decoders and picture encoder
+  trellis2-int8:
+    repo: Comfy-Org/TRELLIS.2
+    path: diffusion_models/trellis_2_int8_convrot.safetensors
+    category: diffusion_models
+  pixal3d-mv-int8:
+    repo: Comfy-Org/Pixal3D
+    path: diffusion_models/pixal3d_multiview_int8_convrot.safetensors
+    category: diffusion_models
+  trellis2-shape-vae:
+    repo: Comfy-Org/TRELLIS.2
+    path: vae/trellis_2_shape_vae_bf16.safetensors
+    category: vae
+  trellis2-texture-vae:
+    repo: Comfy-Org/TRELLIS.2
+    path: vae/trellis_2_texture_vae_bf16.safetensors
+    category: vae
+  dinov3-naf:
+    repo: Comfy-Org/Pixal3D
+    path: clip_vision/dino_v3_L_naf_fp32.safetensors
+    category: clip_vision
+  birefnet:
+    repo: Comfy-Org/BiRefNet
+    path: background_removal/birefnet.safetensors
+    category: background_removal
   ltx25-upscaler:
     repo: Lightricks/LTX-2.5
     path: latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors
@@ -534,6 +585,46 @@ models:
       - when: {backend: cuda}
         workflow: seedvr2-video
         files: [seedvr2-3b, seedvr2-vae]
+
+  pixal3d:
+    name: Pixal3D
+    kind: model3d
+    engine: comfy
+    license: pixal3d-dinov3
+    summary: Builds a 3D model from a front and a back picture taken at eye level; IrisEcho can make the back for you. The most complete shapes and the truest backs.
+    settings:
+      model3d: {views: [front, back], pace: {standard: 160, high: 230}}
+    variants:
+      - when: {backend: cuda}
+        workflow: pixal3d-mv
+        files: [pixal3d-mv-int8, trellis2-shape-vae, trellis2-texture-vae, dinov3-naf, birefnet]
+
+  trellis2:
+    name: TRELLIS.2
+    kind: model3d
+    engine: comfy
+    license: trellis2-dinov3
+    summary: Builds a 3D model from one picture taken from any angle. Keeps your object's details and stands it upright; the back is guessed.
+    settings:
+      model3d: {views: [front], pace: {standard: 170, high: 240}}
+    variants:
+      - when: {backend: cuda}
+        workflow: trellis2
+        files: [trellis2-int8, trellis2-shape-vae, trellis2-texture-vae, dinov3-naf, birefnet]
+
+  object-views:
+    name: View Maker
+    kind: views3d  # a helper for the 3D studio, not a studio of its own
+    engine: comfy
+    license: apache-2.0
+    summary: Makes the eye-level front and the matching back view that Pixal3D builds from, and checks that they fit together. Uses the same files as Qwen Edit.
+    variants:
+      - when: {backend: cuda, quant: int4}
+        workflow: views3d
+        files: [qwen-edit-8step-int4, qwen25vl-fp8, qwen-image-vae, birefnet]
+      - when: {backend: cuda, quant: fp4}
+        workflow: views3d
+        files: [qwen-edit-8step-fp4, qwen25vl-fp8, qwen-image-vae, birefnet]
 
   ltx25:
     name: LTX-2.5

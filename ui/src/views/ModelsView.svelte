@@ -25,7 +25,11 @@
   const HELPERS = { kind: "prompt", label: "Helpers", verb: "", hint: "", sound: false } as const;
   const groups = $derived(
     [...STUDIOS, HELPERS]
-      .map((s) => ({ studio: s, models: app.models.filter((m) => m.kind === s.kind) }))
+      .map((s) => ({
+        studio: s,
+        // the 3D studio's view maker is listed with the other helpers
+        models: app.models.filter((m) => m.kind === s.kind || (s.kind === "prompt" && m.kind === "views3d")),
+      }))
       .filter((g) => g.models.length),
   );
   const onDisk = $derived(

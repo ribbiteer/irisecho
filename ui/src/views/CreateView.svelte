@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
   import AudioLines from "@lucide/svelte/icons/audio-lines";
+  import Box from "@lucide/svelte/icons/box";
   import Clapperboard from "@lucide/svelte/icons/clapperboard";
   import ImageIcon from "@lucide/svelte/icons/image";
   import Maximize from "@lucide/svelte/icons/maximize-2";
@@ -19,6 +20,7 @@
     edit: Wand,
     video: Clapperboard,
     upscale: Maximize,
+    model3d: Box,
     voice: AudioLines,
     clone: MicVocal,
     music: Music,

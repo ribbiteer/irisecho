@@ -53,6 +53,22 @@ export const outputUrl = (job: Job, n = 0, download = false) =>
 
 export const uploadUrl = (id: string) => `/api/uploads/${id}`;
 
+export const previewUrl = (job: Job, n = 0) => `/api/jobs/${job.id}/outputs/${n}/preview`;
+
+export const exportUrl = (job: Job, n: number, format: string, heightMm?: number) =>
+  `/api/jobs/${job.id}/outputs/${n}/export?format=${format}${heightMm ? `&height_mm=${heightMm}` : ""}`;
+
+/** A job's output as a new upload, so another job can use it. */
+export async function outputToUpload(job: Job, n = 0): Promise<string> {
+  const res = await fetch(outputUrl(job, n), { credentials: "same-origin" });
+  if (!res.ok) throw new Error("That picture is no longer available.");
+  const blob = await res.blob();
+  const form = new FormData();
+  form.append("file", new File([blob], "picture.png", { type: blob.type || "image/png" }));
+  const up = await api<{ id: string }>("/uploads", { form });
+  return up.id;
+}
+
 export function connectEvents(
   onEvent: (e: { type: string; data: any }) => void,
   onStatus: (connected: boolean) => void,

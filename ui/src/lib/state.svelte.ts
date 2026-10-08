@@ -114,7 +114,8 @@ async function refreshEngines() {
 const RANK: Record<Job["status"], number> = { queued: 0, running: 1, done: 2, failed: 2, cancelled: 2, interrupted: 2 };
 
 function upsertJob(job: Job) {
-  if ((job.kind as string) === "prompt") return; // working jobs never appear in the feed or library
+  // Working jobs (prompt writing, views for 3D) never appear in the feed or library.
+  if ((job.kind as string) === "prompt" || (job.kind as string) === "views3d") return;
   const i = app.jobs.findIndex((j) => j.id === job.id);
   if (i >= 0 && RANK[app.jobs[i].status] > RANK[job.status]) return;
   if (i >= 0) app.jobs[i] = job;
@@ -276,6 +277,18 @@ export async function submit(model: Model, params: Record<string, unknown>): Pro
   } catch (e) {
     fail(e);
     return null;
+  }
+}
+
+/** Follow a job that is not shown in the feed until it ends; resolves with the finished job. */
+export async function followJob(job: Job, onStatus: (message: string, progress: number | null) => void): Promise<Job> {
+  for (;;) {
+    if (job.status === "done") return job;
+    if (job.status === "failed") throw new Error(job.error ?? "That did not work.");
+    if (job.status === "cancelled" || job.status === "interrupted") throw new Error("Cancelled.");
+    onStatus(job.status === "queued" ? "Waiting for the graphics card" : (job.message ?? "Working"), job.progress);
+    await new Promise((r) => setTimeout(r, 400));
+    job = await api<Job>(`/jobs/${job.id}`);
   }
 }
 

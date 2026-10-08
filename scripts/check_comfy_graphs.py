@@ -36,7 +36,23 @@ EXTRA = {
         ("last frame only", ("start",), {}),
         ("first frame, 720p", ("end",), {"size": "720p"}),
     ],
+    "trellis2": [
+        ("no textures", (), {"textures": False}),
+        ("high, openings kept", (), {"detail": "high", "openings": "keep"}),
+    ],
+    "pixal3d-mv": [("no textures", (), {"textures": False})],
 }
+
+
+def views_graphs(names: dict) -> list[tuple[str, dict]]:
+    """The views helper runs several graphs (ComfyEngine._run_views)."""
+    out = [("level", graphs.views_level(names=names, image="check.png", seed=1, prefix="check"))]
+    for attempt in range(len(graphs.BACK_PROMPTS)):
+        graph = graphs.views_back(
+            names=names, image="check.png", attempt=attempt, seed=1, prefix="check"
+        )
+        out.append((f"back {attempt}", graph))
+    return out
 
 
 def check(graph: dict, info: dict) -> list[str]:
@@ -87,23 +103,28 @@ async def main() -> int:
             if model.engine != "comfy":
                 continue
             for variant in model.variants:
-                builder = graphs.BUILDERS[variant.workflow]
                 names = {f.id: f.filename for f in app.registry.expand(variant.files)}
-                inputs = graphs.IMAGE_INPUTS.get(variant.workflow, ())
-                cases = [("", (), {})] + EXTRA.get(variant.workflow, [])
-                for case, leave_out, params in cases:
-                    images = {k: "check.png" for k in inputs if k not in leave_out}
-                    graph, _ = builder(
-                        prompt="test",
-                        seed=1,
-                        aspect="16:9",
-                        names=names,
-                        settings=model.settings,
-                        hw=app.hw,
-                        prefix="check",
-                        images=images,
-                        params={**BASE, **params},
-                    )
+                if variant.workflow == "views3d":
+                    built = views_graphs(names)
+                else:
+                    builder = graphs.BUILDERS[variant.workflow]
+                    inputs = graphs.IMAGE_INPUTS.get(variant.workflow, ())
+                    built = []
+                    for case, leave_out, params in [("", (), {})] + EXTRA.get(variant.workflow, []):
+                        images = {k: "check.png" for k in inputs if k not in leave_out}
+                        graph, _ = builder(
+                            prompt="test",
+                            seed=1,
+                            aspect="16:9",
+                            names=names,
+                            settings=model.settings,
+                            hw=app.hw,
+                            prefix="check",
+                            images=images,
+                            params={**BASE, **params},
+                        )
+                        built.append((case, graph))
+                for case, graph in built:
                     problems = check(graph, info)
                     label = f"{model.id} [{variant.workflow}, {variant.when or 'any'}]"
                     label += f" {case}" if case else ""

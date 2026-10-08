@@ -34,7 +34,7 @@ from fastapi import FastAPI, HTTPException, Request, UploadFile, WebSocket, WebS
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from irisecho_core import __version__, credentials, guide, hardware, lan, paths, settings
+from irisecho_core import __version__, credentials, guide, hardware, lan, mesh3d, paths, settings
 from irisecho_core.app import App, Busy, NotReady
 
 WEB = Path(__file__).parent / "web"
@@ -52,6 +52,15 @@ UPLOAD_TYPES = {
     "audio/ogg": ".ogg",
 }
 MAX_UPLOAD = 64 << 20
+# What the standard library may not know (Windows answers from the registry).
+MEDIA_TYPES = {".glb": "model/gltf-binary"}
+EXPORT_TYPES = {
+    "glb": "model/gltf-binary",
+    "stl": "model/stl",
+    "3mf": "model/3mf",
+    "ply": "application/octet-stream",
+    "zip": "application/zip",
+}
 
 
 class Guard(BaseHTTPMiddleware):
@@ -344,8 +353,39 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
         return FileResponse(
             path,
             filename=path.name if download else None,
+            media_type=MEDIA_TYPES.get(path.suffix.lower()),
             headers={"Cache-Control": "private, max-age=31536000, immutable"},
         )
+
+    @api.get("/api/jobs/{job_id}/outputs/{n}/export")
+    async def output_export(job_id: str, n: int, format: str = "glb", height_mm: float = 0):
+        """A 3D model in another format; printing formats are scaled to height_mm."""
+        path = output_path(job_id, n)
+        if path.suffix.lower() != ".glb":
+            raise HTTPException(400, "only 3D models can be exported")
+        if height_mm and not 1 <= height_mm <= 2000:
+            raise HTTPException(400, "height_mm must be between 1 and 2000")
+        try:
+            data, ext = await asyncio.to_thread(mesh3d.export, path, format, height_mm or None)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        name = f"{path.stem}.{ext}"
+        return Response(
+            data,
+            media_type=EXPORT_TYPES.get(ext, "application/octet-stream"),
+            headers={"Content-Disposition": f'attachment; filename="{name}"'},
+        )
+
+    @api.get("/api/jobs/{job_id}/outputs/{n}/preview")
+    def output_preview(job_id: str, n: int):
+        """The still picture shown for a 3D model in the library."""
+        found = core.db.get(job_id)
+        if not found or n >= len(found["outputs"]) or not found["outputs"][n].get("preview"):
+            raise HTTPException(404, "no preview")
+        path = Path(found["outputs"][n]["preview"])
+        if not path.is_file():
+            raise HTTPException(410, "the file has been moved or deleted")
+        return FileResponse(path, headers={"Cache-Control": "private, max-age=31536000, immutable"})
 
     @api.post("/api/jobs/{job_id}/outputs/{n}/reveal")
     def reveal(job_id: str, n: int):

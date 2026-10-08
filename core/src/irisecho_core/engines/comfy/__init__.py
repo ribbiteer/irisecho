@@ -26,10 +26,10 @@ from pathlib import Path
 
 import httpx
 
-from irisecho_core import paths
+from irisecho_core import mesh3d, paths
 from irisecho_core.engines import uvenv
 from irisecho_core.engines.base import Engine, EngineStartError, RunContext
-from irisecho_core.engines.comfy import graphs
+from irisecho_core.engines.comfy import graphs, sourcepatch
 
 # Versions proven together. Bump install_version when changing any of them.
 COMFY = ("Comfy-Org/ComfyUI", "6b747c0428c343e1417219641db93a4fb7cb69ae")  # v0.38.0
@@ -95,6 +95,30 @@ NUNCHAKU_PATCHES = [
 ]
 
 
+# Upstream ComfyUI changes not yet in a release, as git diffs (patches/). Each is
+# applied strictly: the files must be the pinned release's, and come out as the
+# change's own versions (see sourcepatch).
+#
+# PR 16805 (Comfy-Org/ComfyUI, head 22e5e90f): a "solid" remesh that leaves one
+# closed shell instead of an outer surface plus an inverted inner copy, so 3D
+# models print as solids. Its faster kernels (comfy-kitchen) are optional.
+COMFY_PATCHES = ("comfyui-pr16805-remesh.diff",)
+PATCH_DIR = Path(__file__).parent / "patches"
+
+# IrisEcho's own nodes, copied into ComfyUI's custom_nodes on every start.
+OWN_NODES = {"irisecho_watchdog": "watchdog_node.py", "irisecho_3d": "threed_nodes.py"}
+
+
+def patch_comfy(src: Path) -> None:
+    if not (src / "comfy").is_dir():
+        return  # not a ComfyUI tree (a stand-in in the tests): nothing to patch
+    for name in COMFY_PATCHES:
+        try:
+            sourcepatch.apply(src, (PATCH_DIR / name).read_text(encoding="utf-8"))
+        except sourcepatch.PatchError as e:
+            raise RuntimeError(f"Cannot apply {name} to ComfyUI: {e}") from e
+
+
 def patch_sources(root: Path, patches: list[tuple[str, str, str]]) -> None:
     for rel, old, new in patches:
         path = root / rel
@@ -115,6 +139,7 @@ CATEGORIES = (
     "frame_interpolation",
     "clip_vision",
     "latent_upscale_models",
+    "background_removal",
 )
 
 
@@ -150,6 +175,19 @@ async def until_released(stats, wait: float = 15.0, every: float = 0.25) -> bool
             return True
         await asyncio.sleep(every)
     return False
+
+
+def out_of_memory(e: BaseException) -> bool:
+    text = str(e).lower()
+    return "out of memory" in text or "would exceed allowed memory" in text
+
+
+def ui_value(outputs: dict, node: str, key: str) -> float | None:
+    """A number an IrisEcho node reported, e.g. the mirror check's score."""
+    for item in (outputs.get(node) or {}).get("irisecho") or []:
+        if key in item:
+            return float(item[key])
+    return None
 
 
 def png_size(path: Path) -> tuple[int, int] | None:
@@ -210,6 +248,7 @@ class ComfyEngine(Engine):
     async def install(self, log) -> None:
         self.home.mkdir(parents=True, exist_ok=True)
         await self._fetch_source(*COMFY, self.src, log)
+        patch_comfy(self.src)
         for name, (repo, sha) in CUSTOM_NODES.items():
             if name == "ComfyUI-nunchaku" and self.hw.backend != "cuda":
                 continue
@@ -274,9 +313,16 @@ class ComfyEngine(Engine):
             self.state = "starting"
             for sub in ("input", "output", "temp", "user"):
                 (self.io / sub).mkdir(parents=True, exist_ok=True)
-            watchdog = self.src / "custom_nodes" / "irisecho_watchdog"
-            watchdog.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(Path(__file__).parent / "watchdog_node.py", watchdog / "__init__.py")
+            for folder, source in OWN_NODES.items():
+                dest = self.src / "custom_nodes" / folder
+                dest.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(Path(__file__).parent / source, dest / "__init__.py")
+            try:
+                # Installs from before a patch was added get it here, without a reinstall.
+                patch_comfy(self.src)
+            except RuntimeError as e:
+                self.state = "error"
+                raise EngineStartError(str(e)) from e
             cfg = self.home / "extra_model_paths.yaml"
             cfg.write_text(yaml_text, encoding="utf-8")
             self.paths_key = key
@@ -396,10 +442,12 @@ class ComfyEngine(Engine):
     # --- jobs --------------------------------------------------------------
 
     async def run(self, ctx: RunContext) -> list[dict]:
-        builder = graphs.BUILDERS.get(ctx.variant.workflow)
-        if builder is None:
-            raise RuntimeError(f"no workflow {ctx.variant.workflow!r}")
         workflow = ctx.variant.workflow
+        if workflow == "views3d":
+            return await self._run_views(ctx)
+        builder = graphs.BUILDERS.get(workflow)
+        if builder is None:
+            raise RuntimeError(f"no workflow {workflow!r}")
         prompt = (ctx.params.get("prompt") or "").strip()
         if not prompt and workflow not in graphs.PROMPT_OPTIONAL:
             raise ValueError("Describe what you want first.")
@@ -408,27 +456,36 @@ class ComfyEngine(Engine):
             seed = random.randrange(2**50)
         names = {fid: path.name for fid, path in ctx.files.items()}
         staged = self._stage_inputs(ctx, workflow)
-        try:
-            graph, save_node = builder(
+
+        def build(params: dict) -> tuple[dict, str]:
+            return builder(
                 prompt=prompt,
                 seed=int(seed),
-                aspect=ctx.params.get("aspect", "1:1"),
+                aspect=params.get("aspect", "1:1"),
                 names=names,
                 settings=ctx.model.settings,
                 hw=self.hw,
                 prefix=f"irisecho/{ctx.job_id}",
                 images={k: p.name for k, p in staged.items()},
-                params=ctx.params,
+                params=params,
             )
+
+        try:
+            graph, save_node = build(ctx.params)
             await self.ensure_running(ctx.report, ctx.cancelled, workflow in graphs.DYNAMIC_VRAM)
             self.state = "busy"
             try:
-                files = await self._execute(ctx, graph, save_node)
+                if workflow in graphs.MODEL3D:
+                    return await self._run_model3d(ctx, build, int(seed))
+                found = await self._execute(ctx, graph)
             finally:
                 self.state = "ready" if self.alive else "idle"
         finally:
             for p in staged.values():
                 p.unlink(missing_ok=True)
+        files = self._saved(found, save_node)
+        if not files:
+            raise RuntimeError("The image engine finished without an image.")
         outputs = []
         for i, src in enumerate(files):
             ext = src.suffix.lstrip(".").lower() or "png"
@@ -437,18 +494,154 @@ class ComfyEngine(Engine):
             if ext in ("mp4", "webm", "mov"):
                 outputs.append({"path": str(dest), "type": "video", "seed": int(seed)})
                 continue
-            size = png_size(dest)
-            outputs.append(
-                {
-                    "path": str(dest),
-                    "type": "image",
-                    "width": size[0] if size else None,
-                    "height": size[1] if size else None,
-                    "seed": int(seed),
-                }
-            )
+            outputs.append(self._image_out(dest, int(seed)))
         ctx.params["seed"] = int(seed)
         return outputs
+
+    async def _run_model3d(self, ctx: RunContext, build, seed: int) -> list[dict]:
+        """Build a 3D model. When High detail does not fit in graphics memory, step
+        down (upstream lowers the resolution the same way when a shape is too large)."""
+        wanted = graphs.DETAIL.get(ctx.params.get("detail", "standard"), 1024)
+        tries = list(dict.fromkeys(r for r in (wanted, 1280, 1024) if r <= wanted))
+        for n, res in enumerate(tries):
+            graph, save_node = build({**ctx.params, "resolution": res})
+            try:
+                found = await self._execute(ctx, graph, graphs.MODEL3D_PROGRESS)
+                break
+            except RuntimeError as e:
+                if not out_of_memory(e) or n == len(tries) - 1:
+                    raise
+                ctx.report(0.02, f"Not enough graphics memory at {res}; trying {tries[n + 1]}")
+                await self.release()
+        model = self._saved(found, save_node)
+        if not model:
+            raise RuntimeError("The image engine finished without a model.")
+        dest = ctx.output(0, "glb")
+        shutil.move(str(model[0]), dest)
+        out = {"path": str(dest), "type": "model3d", "seed": seed, "resolution": res}
+        ctx.report(0.99, "Checking the model")
+        try:
+            out["mesh"] = await asyncio.to_thread(mesh3d.inspect, dest)
+        except Exception as e:  # a model that cannot be measured is still a model
+            out["mesh"] = {"error": str(e) or type(e).__name__}
+        thumb = self._saved(found, "thumb")
+        if thumb:
+            preview = ctx.out_dir / f"{ctx.stem}.preview.png"
+            shutil.move(str(thumb[0]), preview)
+            out["preview"] = str(preview)
+        ctx.params["seed"] = seed
+        return [out]
+
+    async def _run_views(self, ctx: RunContext) -> list[dict]:
+        """Front and back views for Pixal3D, made from one picture with Qwen Edit.
+
+        level "auto": if an eye-level edit barely changes the picture, it already is
+        level and becomes the front; otherwise the eye-level version comes back on
+        its own (role "level") for the person to choose. "best" goes on with the
+        eye-level version in that case; "keep" uses the picture as the front as it is,
+        without checking. The back is drawn up to three times, until it passes the
+        mirror check."""
+        mode = ctx.params.get("level", "auto")
+        if mode not in ("auto", "best", "keep"):
+            raise ValueError("level must be auto, best or keep.")
+        seed = ctx.params.get("seed")
+        seed = int(seed) if seed is not None else random.randrange(2**50)
+        names = {fid: path.name for fid, path in ctx.files.items()}
+        staged = self._stage_inputs(ctx, "views3d")
+        if "image1" not in staged:
+            raise ValueError("Add a picture of the object.")
+        made: Path | None = None
+        outputs: list[dict] = []
+        try:
+            await self.ensure_running(ctx.report, ctx.cancelled, True)
+            self.state = "busy"
+            front, source, similarity = staged["image1"].name, "yours", None
+            if mode in ("auto", "best"):
+                graph = graphs.views_level(
+                    names=names, image=front, seed=seed, prefix=f"irisecho/{ctx.job_id}-level"
+                )
+                found = await self._execute(
+                    ctx, graph, {"sample": (0.05, 0.3, "Checking the camera angle")}
+                )
+                level_file = self._saved(found, "save")[0]
+                similarity = ui_value(found, "same", "similarity")
+                angled = similarity is not None and similarity < graphs.LEVEL_SAME
+                if mode == "auto" and angled:
+                    dest = ctx.output(0, "png")
+                    shutil.move(str(level_file), dest)
+                    ctx.params["seed"] = seed
+                    return [self._image_out(dest, seed, role="level", similarity=similarity)]
+                if angled:
+                    made = self.io / "input" / f"irisecho_{ctx.job_id}_level.png"
+                    shutil.move(str(level_file), made)
+                    front, source = made.name, "made"
+                else:
+                    level_file.unlink(missing_ok=True)
+            best: tuple[float, list[Path]] | None = None
+            for attempt in range(3):
+                lo = 0.3 + attempt * 0.23
+                graph = graphs.views_back(
+                    names=names,
+                    image=front,
+                    attempt=attempt,
+                    seed=seed + attempt,
+                    prefix=f"irisecho/{ctx.job_id}-{attempt}",
+                )
+                found = await self._execute(
+                    ctx, graph, {"sample": (lo, lo + 0.2, "Drawing the back")}
+                )
+                score = ui_value(found, "check", "mirror_iou") or 0.0
+                files = self._saved(found, "save_front") + self._saved(found, "save_back")
+                if best is None or score > best[0]:
+                    for f in best[1] if best else []:
+                        f.unlink(missing_ok=True)
+                    best = (score, files)
+                else:
+                    for f in files:
+                        f.unlink(missing_ok=True)
+                if score >= graphs.MIRROR_OK:
+                    break
+                ctx.report(None, "The back did not match the front; drawing it again")
+            assert best is not None
+            score, (front_file, back_file) = best
+            for i, (src, role) in enumerate(((front_file, "front"), (back_file, "back"))):
+                dest = ctx.output(i, "png")
+                shutil.move(str(src), dest)
+                extra: dict = {"source": source} if role == "front" else {}
+                if role == "back":
+                    extra |= {"mirror_iou": score, "matched": score >= graphs.MIRROR_OK}
+                if similarity is not None:
+                    extra["similarity"] = similarity
+                outputs.append(self._image_out(dest, seed, role=role, **extra))
+        finally:
+            self.state = "ready" if self.alive else "idle"
+            for p in staged.values():
+                p.unlink(missing_ok=True)
+            if made:
+                made.unlink(missing_ok=True)
+        ctx.params["seed"] = seed
+        return outputs
+
+    @staticmethod
+    def _image_out(path: Path, seed: int, **extra) -> dict:
+        size = png_size(path)
+        return {
+            "path": str(path),
+            "type": "image",
+            "width": size[0] if size else None,
+            "height": size[1] if size else None,
+            "seed": seed,
+            **extra,
+        }
+
+    def _saved(self, outputs: dict, node: str) -> list[Path]:
+        """Files a save node wrote: pictures and clips under "images", models under "3d"."""
+        found = []
+        for key in ("images", "3d"):
+            for item in (outputs.get(node) or {}).get(key) or []:
+                base = self.io / item.get("type", "output")
+                found.append(base / item.get("subfolder", "") / item["filename"])
+        return found
 
     def _stage_inputs(self, ctx: RunContext, workflow: str) -> dict[str, Path]:
         """Copy the job's uploaded pictures into ComfyUI's private input folder."""
@@ -466,12 +659,23 @@ class ComfyEngine(Engine):
             staged[key] = dest
         return staged
 
-    async def _execute(self, ctx: RunContext, graph: dict, save_node: str) -> list[Path]:
+    async def _execute(self, ctx: RunContext, graph: dict, plan: dict | None = None) -> dict:
+        """Run one graph; returns its history outputs (node id -> what it saved or reported).
+
+        plan maps node ids to (start, end, message) for progress; without one, the
+        sampler's steps drive it."""
         import websockets
 
         client_id = uuid.uuid4().hex
         labels = graphs.stage_labels(graph)
         first_load = True
+        reached = 0.0  # a plan's progress never goes back, whatever order nodes run in
+
+        def advance(value: float, message: str) -> None:
+            nonlocal reached
+            reached = max(reached, value)
+            ctx.report(reached, message)
+
         async with websockets.connect(
             f"ws://127.0.0.1:{self.port}/ws?clientId={client_id}", max_size=None
         ) as ws:
@@ -499,18 +703,25 @@ class ComfyEngine(Engine):
                             if node is None:
                                 break
                             label = labels.get(node)
-                            if label == "load" and first_load:
-                                ctx.report(0.03, f"Loading {ctx.model.name}")
+                            if plan is not None and node in plan:
+                                advance(plan[node][0], plan[node][2])
+                            elif label == "load" and first_load:
+                                ctx.report(None if plan else 0.03, f"Loading {ctx.model.name}")
                                 first_load = False
-                            elif label == "sample":
+                            elif plan is None and label == "sample":
                                 ctx.report(0.1, "Drawing")
-                            elif label == "decode":
+                            elif plan is None and label == "decode":
                                 ctx.report(0.95, "Finishing")
-                        elif kind == "progress" and labels.get(str(d.get("node"))) == "sample":
+                        elif kind == "progress":
+                            node = str(d.get("node"))
                             value, total = d.get("value", 0), max(1, d.get("max", 1))
-                            ctx.report(
-                                0.1 + 0.85 * value / total, f"Drawing · step {value} of {total}"
-                            )
+                            if plan is not None and node in plan:
+                                lo, hi, message = plan[node]
+                                advance(lo + (hi - lo) * value / total, message)
+                            elif plan is None and labels.get(node) == "sample":
+                                ctx.report(
+                                    0.1 + 0.85 * value / total, f"Drawing · step {value} of {total}"
+                                )
                         elif kind == "execution_error":
                             raise RuntimeError(
                                 d.get("exception_message") or "The image engine failed."
@@ -530,16 +741,9 @@ class ComfyEngine(Engine):
                     status = entry.get("status") or {}
                     if status.get("status_str") == "error":
                         raise RuntimeError(graphs.history_error(status))
-                    images = ((entry.get("outputs") or {}).get(save_node) or {}).get("images") or []
-                    out = []
-                    for img in images:
-                        base = self.io / img.get("type", "output")
-                        out.append(base / img.get("subfolder", "") / img["filename"])
-                    if not out:
-                        raise RuntimeError("The image engine finished without an image.")
                     # Leave nothing behind in ComfyUI's own history.
                     await client.post(self.url("/history"), json={"delete": [prompt_id]})
-                    return out
+                    return entry.get("outputs") or {}
                 finally:
                     self.prompt_of.pop(ctx.job_id, None)
 

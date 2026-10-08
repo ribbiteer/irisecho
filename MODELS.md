@@ -77,6 +77,19 @@ encoders are counted once per model but downloaded once overall.
 |---|---|---|---|---|---|
 | Stable Audio 3 SFX | One-shot sound effects in seconds. Foley, UI sounds, impacts, ambience. | [Stability AI Community License](https://huggingface.co/stabilityai/stable-audio-3-small-sfx/blob/main/LICENSE.md) | Free under $1M annual revenue (sign-in required) | 3.3 GB | [stabilityai/stable-audio-3-small-sfx](https://huggingface.co/stabilityai/stable-audio-3-small-sfx) |
 
+## 3D models
+
+| Model | What it is for | License | Commercial use | Size | Source |
+|---|---|---|---|---|---|
+| Pixal3D | Builds a 3D model from a front and a back picture taken at eye level; IrisEcho can make the back for you. The most complete shapes and the truest backs. | [MIT License and DINOv3 License](https://ai.meta.com/resources/models-and-libraries/dinov3-license/) | Tencent does not offer it in the EU | 8.7 GB | [Comfy-Org/BiRefNet](https://huggingface.co/Comfy-Org/BiRefNet), [Comfy-Org/Pixal3D](https://huggingface.co/Comfy-Org/Pixal3D), [Comfy-Org/TRELLIS.2](https://huggingface.co/Comfy-Org/TRELLIS.2) |
+| TRELLIS.2 | Builds a 3D model from one picture taken from any angle. Keeps your object's details and stands it upright; the back is guessed. | [MIT License and DINOv3 License](https://ai.meta.com/resources/models-and-libraries/dinov3-license/) | Yes | 8.3 GB | [Comfy-Org/BiRefNet](https://huggingface.co/Comfy-Org/BiRefNet), [Comfy-Org/Pixal3D](https://huggingface.co/Comfy-Org/Pixal3D), [Comfy-Org/TRELLIS.2](https://huggingface.co/Comfy-Org/TRELLIS.2) |
+
+## 3D helper (front and back views for Pixal3D)
+
+| Model | What it is for | License | Commercial use | Size | Source |
+|---|---|---|---|---|---|
+| View Maker | Makes the eye-level front and the matching back view that Pixal3D builds from, and checks that they fit together. Uses the same files as Qwen Edit. | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) | Yes | 21.2 GB | [Comfy-Org/BiRefNet](https://huggingface.co/Comfy-Org/BiRefNet), [Comfy-Org/Qwen-Image_ComfyUI](https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI), [nunchaku-ai/nunchaku-qwen-image-edit-2509](https://huggingface.co/nunchaku-ai/nunchaku-qwen-image-edit-2509) |
+
 ## Helpers
 
 | Model | What it is for | License | Commercial use | Size | Source |
@@ -90,3 +103,6 @@ encoders are counted once per model but downloaded once overall.
 - Chatterbox output carries Resemble AI's inaudible Perth watermark. IrisEcho
   keeps it. Only clone voices you have permission to use.
 - Stable Audio 3's text encoder is also covered by Google's Gemma Terms of Use.
+- TRELLIS.2 and Pixal3D read pictures with Meta's DINOv3 (the file in
+  Comfy-Org/Pixal3D), which is under the DINOv3 License; IrisEcho asks you to
+  accept it before downloading.

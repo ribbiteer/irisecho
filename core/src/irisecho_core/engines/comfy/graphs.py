@@ -1205,6 +1205,509 @@ def _save_video(g: dict, frames, fps: int, params: dict, names: dict, prefix: st
     }
 
 
+# --- 3D ----------------------------------------------------------------------
+#
+# TRELLIS.2 and Pixal3D on ComfyUI's own nodes, set up as the upstream pipelines
+# run them (pipeline.json of microsoft/TRELLIS.2-4B and TencentARC/Pixal3D),
+# not as ComfyUI's template does. All stages use 12 Euler steps; guidance applies
+# only above sigma 0.6 (CFGOverride percent 0.667 at the models' shift 3); the
+# sparse structure stage samples at shift 5. Finishing uses the solid remesh of
+# ComfyUI PR 16805 (patches/), which leaves one closed shell.
+
+DETAIL = {"standard": 1024, "high": 1536}
+# Triangles in the finished model. Textures are unwrapped and baked after the
+# mesh is simplified, with the normal map taken from the full-detail surface, so
+# a light model keeps its fine detail in the normal map.
+FACES = (500_000, 100_000, 20_000)
+# Remesh "fill": the cost of closing an opening. 20 closes small holes and the
+# mouth of a cup or vase; 1000 keeps openings.
+FILL = {"close": 20.0, "keep": 1000.0}
+
+
+def _cutout(g: dict, key: str, image: str, bg_model: str) -> tuple[list, list]:
+    """The picture and its object mask (1 = object): its own transparency when it
+    has some, otherwise BiRefNet's cut-out."""
+    g[f"load_{key}"] = {"class_type": "LoadImage", "inputs": {"image": image}}
+    g[f"alpha_{key}"] = {"class_type": "InvertMask", "inputs": {"mask": [f"load_{key}", 1]}}
+    g[f"cut_{key}"] = {
+        "class_type": "RemoveBackground",
+        "inputs": {"bg_removal_model": [bg_model, 0], "image": [f"load_{key}", 0]},
+    }
+    g[f"mask_{key}"] = {
+        "class_type": "IrisEchoChooseMask",
+        "inputs": {"alpha": [f"alpha_{key}", 0], "cutout": [f"cut_{key}", 0]},
+    }
+    return [f"load_{key}", 0], [f"mask_{key}", 0]
+
+
+def _bg_model(g: dict, names: dict) -> str:
+    g["bg_model"] = {
+        "class_type": "LoadBackgroundRemovalModel",
+        "inputs": {"bg_removal_name": names["birefnet"]},
+    }
+    return "bg_model"
+
+
+def _trellis_core(g: dict, *, unet: str, cond, seed: int, names: dict, params: dict, prefix: str):
+    """Structure, shape and texture stages, then a solid printable mesh and a thumbnail."""
+    # "resolution" is set by the engine when it steps down from High after running out of memory
+    res = int(params.get("resolution") or DETAIL.get(params.get("detail", "standard"), 1024))
+    textures = params.get("textures", True)
+    faces = int(params.get("faces") or FACES[0])
+    if faces not in FACES:
+        raise ValueError(f"faces must be one of {', '.join(map(str, FACES))}.")
+    g["shape_vae"] = {
+        "class_type": "VAELoader",
+        "inputs": {"vae_name": names["trellis2-shape-vae"]},
+    }
+
+    def guided(name: str, model, rescale: float, shift: float | None):
+        g[f"{name}_window"] = {
+            "class_type": "CFGOverride",
+            "inputs": {"model": model, "cfg": 1.0, "start_percent": 0.667, "end_percent": 1.0},
+        }
+        g[f"{name}_rescale"] = {
+            "class_type": "RescaleCFG",
+            "inputs": {"model": [f"{name}_window", 0], "multiplier": rescale},
+        }
+        if shift is None:
+            return [f"{name}_rescale", 0]
+        g[f"{name}_shift"] = {
+            "class_type": "ModelSamplingSD3",
+            "inputs": {"model": [f"{name}_rescale", 0], "shift": shift},
+        }
+        return [f"{name}_shift", 0]
+
+    def ksampler(name: str, model, pos, neg, latent, cfg: float):
+        g[name] = {
+            "class_type": "KSampler",
+            "inputs": {
+                "model": model,
+                "seed": seed,
+                "steps": 12,
+                "cfg": cfg,
+                "sampler_name": "euler",
+                "scheduler": "normal",
+                "positive": pos,
+                "negative": neg,
+                "latent_image": latent,
+                "denoise": 1.0,
+            },
+        }
+
+    ss_model = guided("ss", [unet, 0], 0.7, 5.0)
+    shape_model = guided("shape", [unet, 0], 0.5, None)
+    g["empty"] = {"class_type": "EmptyTrellis2LatentStructure", "inputs": {"batch_size": 1}}
+    ksampler("sample_structure", ss_model, [cond, 0], [cond, 1], ["empty", 0], 7.5)
+    g["structure"] = {
+        "class_type": "VaeDecodeStructureTrellis2",
+        "inputs": {"samples": ["sample_structure", 0], "vae": ["shape_vae", 0], "resolution": "32"},
+    }
+    g["shape_stage"] = {
+        "class_type": "Trellis2ShapeStage",
+        "inputs": {"positive": [cond, 0], "negative": [cond, 1], "voxel": ["structure", 0]},
+    }
+    ksampler(
+        "sample_shape",
+        shape_model,
+        ["shape_stage", 0],
+        ["shape_stage", 1],
+        ["shape_stage", 2],
+        7.5,
+    )
+    g["upsample"] = {
+        "class_type": "Trellis2UpsampleStage",
+        "inputs": {
+            "positive": ["shape_stage", 0],
+            "negative": ["shape_stage", 1],
+            "shape_latent": ["sample_shape", 0],
+            "vae": ["shape_vae", 0],
+            "target_resolution": res,
+        },
+    }
+    ksampler("sample_detail", shape_model, ["upsample", 0], ["upsample", 1], ["upsample", 2], 7.5)
+    g["shape"] = {
+        "class_type": "VaeDecodeShapeTrellis",
+        "inputs": {"samples": ["sample_detail", 0], "vae": ["shape_vae", 0]},
+    }
+    fill = FILL.get(params.get("openings", "close"), FILL["close"])
+    g["remesh"] = {
+        "class_type": "RemeshMesh",
+        "inputs": {
+            "mesh": ["shape", 0],
+            "resolution": res,
+            "sign_mode": "solid",
+            "sign_mode.fill": fill,
+            "sign_mode.qef": False,
+            "band": 1.0,
+            "project_back": 0.0,
+            "fix_poles": False,
+            "smooth_iters": 3,
+            "drop_small_components": 0.01,
+            "precluster_max_verts": 20_000_000,
+        },
+    }
+    g["decimate"] = {
+        "class_type": "DecimateMesh",
+        "inputs": {
+            "mesh": ["remesh", 0],
+            "target_face_count": faces,
+            "placement_mode": "midpoint",
+        },
+    }
+    g["smooth"] = {
+        "class_type": "MeshSmoothNormals",
+        "inputs": {"mesh": ["decimate", 0], "crease_angle": 180.0},
+    }
+    final = ["smooth", 0]
+    if textures:
+        g["tex_vae"] = {
+            "class_type": "VAELoader",
+            "inputs": {"vae_name": names["trellis2-texture-vae"]},
+        }
+        g["texture_stage"] = {
+            "class_type": "Trellis2TextureStage",
+            "inputs": {
+                "positive": ["upsample", 0],
+                "negative": ["upsample", 1],
+                "shape_latent": ["sample_detail", 0],
+            },
+        }
+        ksampler(
+            "sample_texture",
+            [unet, 0],
+            ["texture_stage", 0],
+            ["texture_stage", 1],
+            ["texture_stage", 2],
+            1.0,
+        )
+        g["colors"] = {
+            "class_type": "VaeDecodeTextureTrellis",
+            "inputs": {
+                "samples": ["sample_texture", 0],
+                "vae": ["tex_vae", 0],
+                "shape_subdivides": ["shape", 1],
+            },
+        }
+        g["unwrap"] = {
+            "class_type": "UnwrapMesh",
+            "inputs": {
+                "mesh": final,
+                "segmenter": "pec",
+                "resolution": 2048,
+                "padding": 1,
+                "weld_distance": 0.0002,
+            },
+        }
+        g["bake"] = {
+            "class_type": "BakeTextureFromVoxel",
+            "inputs": {
+                "mesh": ["unwrap", 0],
+                "voxel_colors": ["colors", 0],
+                "texture_size": 2048,
+                "reference_mesh": ["shape", 0],
+            },
+        }
+        g["bake_normal"] = {
+            "class_type": "BakeNormalMapFromMesh",
+            "inputs": {
+                "low_poly": ["unwrap", 0],
+                "high_poly": ["remesh", 0],
+                "resolution": 2048,
+                "cage_distance": 0.05,
+                "ignore_backfaces": True,
+            },
+        }
+        g["bake_ao"] = {
+            "class_type": "BakeAmbientOcclusion",
+            "inputs": {
+                "low_poly": ["unwrap", 0],
+                "high_poly": ["remesh", 0],
+                "resolution": 1024,
+                "samples": 64,
+                "max_distance": 0.71,
+                "strength": 1.0,
+                "bias": 0.01,
+            },
+        }
+        g["textured"] = {
+            "class_type": "ApplyTextureToMesh",
+            "inputs": {
+                "mesh": ["unwrap", 0],
+                "base_color": ["bake", 0],
+                "metallic": ["bake", 1],
+                "roughness": ["bake", 2],
+                "occlusion": ["bake_ao", 0],
+                "normal_map": ["bake_normal", 0],
+            },
+        }
+        final = ["textured", 0]
+    g["save"] = {"class_type": "SaveGLB", "inputs": {"mesh": final, "filename_prefix": prefix}}
+    # Thumbnail: a three-quarter view from a little above. RenderMesh's texture mode
+    # is unlit, so it is lit with the shaded clay render of the same view.
+    g["camera"] = {
+        "class_type": "CreateCameraInfo",
+        "inputs": {
+            "mode": "orbit",
+            "mode.yaw": 35.0,
+            "mode.pitch": 20.0,
+            "mode.distance": 2.2,
+            "target_x": 0.0,
+            "target_y": 0.0,
+            "target_z": 0.0,
+            "roll": 0.0,
+            "fov": 35.0,
+            "zoom": 1.0,
+            "camera_type": "perspective",
+        },
+    }
+    view = {"width": 768, "height": 768, "background": "#000000", "camera_info": ["camera", 0]}
+    g["render"] = {"class_type": "RenderMesh", "inputs": {"mesh": final, "mode": "solid", **view}}
+    shaded = ["render", 0]
+    if textures:
+        g["render_color"] = {
+            "class_type": "RenderMesh",
+            "inputs": {"mesh": final, "mode": "texture", **view},
+        }
+        g["shade"] = {
+            "class_type": "IrisEchoShade",
+            "inputs": {"color": ["render_color", 0], "clay": ["render", 0]},
+        }
+        shaded = ["shade", 0]
+    g["thumb_rgba"] = {
+        "class_type": "IrisEchoRGBA",
+        "inputs": {"image": shaded, "mask": ["render", 1]},
+    }
+    g["thumb"] = {
+        "class_type": "SaveImage",
+        "inputs": {"images": ["thumb_rgba", 0], "filename_prefix": f"{prefix}-thumb"},
+    }
+    return "save"
+
+
+def trellis2(*, seed, names, prefix, images, params, **_):
+    """One picture, any angle; TRELLIS.2 builds in its own upright frame."""
+    if not images.get("front"):
+        raise ValueError("Add a picture of the object.")
+    g: dict = {}
+    bg = _bg_model(g, names)
+    image, mask = _cutout(g, "front", images["front"], bg)
+    g["crop"] = {
+        "class_type": "ImageCropToMask",
+        "inputs": {
+            "images": image,
+            "masks": mask,
+            "width": 1024,
+            "height": 1024,
+            "pad_factor": 1.0,  # TRELLIS.2 crops tight; Pixal3D pads 1.1
+            "grow_mask": 0,
+            "background": "#000000",
+        },
+    }
+    g["unet"] = {
+        "class_type": "UNETLoader",
+        "inputs": {"unet_name": names["trellis2-int8"], "weight_dtype": "default"},
+    }
+    g["dino"] = {"class_type": "CLIPVisionLoader", "inputs": {"clip_name": names["dinov3-naf"]}}
+    g["cond"] = {
+        "class_type": "Trellis2Conditioning",
+        "inputs": {"clip_vision_model": ["dino", 0], "image": ["crop", 0]},
+    }
+    save = _trellis_core(
+        g, unet="unet", cond="cond", seed=seed, names=names, params=params, prefix=prefix
+    )
+    return g, save
+
+
+def pixal3d_mv(*, seed, names, prefix, images, params, **_):
+    """A front and a back taken at eye level, framed as Pixal3D's rig expects."""
+    if not images.get("front") or not images.get("back"):
+        raise ValueError("Pixal3D needs a front and a back picture.")
+    g: dict = {}
+    bg = _bg_model(g, names)
+    front, front_mask = _cutout(g, "front", images["front"], bg)
+    back, back_mask = _cutout(g, "back", images["back"], bg)
+    g["frame"] = {
+        "class_type": "IrisEchoFrameViews",
+        "inputs": {"front": front, "front_mask": front_mask, "back": back, "back_mask": back_mask},
+    }
+    g["unet"] = {
+        "class_type": "UNETLoader",
+        "inputs": {"unet_name": names["pixal3d-mv-int8"], "weight_dtype": "default"},
+    }
+    g["dino"] = {"class_type": "CLIPVisionLoader", "inputs": {"clip_name": names["dinov3-naf"]}}
+    g["cond"] = {
+        "class_type": "Pixal3DMultiViewConditioning",
+        "inputs": {
+            "clip_vision_model": ["dino", 0],
+            "fov": 20.0,  # the upstream rig
+            "front": ["frame", 0],
+            "back": ["frame", 1],
+        },
+    }
+    save = _trellis_core(
+        g, unet="unet", cond="cond", seed=seed, names=names, params=params, prefix=prefix
+    )
+    return g, save
+
+
+# The views helper runs several of these in a row (ComfyEngine._run_views).
+# Asking for a straight-on front view returns a picture that already is one almost
+# unchanged, and changes one taken from above. (Asking only to "lower the camera"
+# also turned already level objects by 30-40 degrees, so it cannot tell them apart.)
+LEVEL_PROMPT = (
+    "Show this exact object from directly in front, with the camera at the object's mid-height "
+    "looking straight at it: a straight-on front view with no downward or sideways angle. Keep "
+    "exactly the same object with the same shape, proportions, colours and details. The whole "
+    "object is visible and centered with space around it, on the same plain light grey "
+    "background with soft even lighting."
+)
+# Two wordings: "behind" is read as the object's own back (wrong for a side view),
+# "half a circle" sometimes stops at a quarter (wrong for a front view). The
+# mirror check picks whichever really is the opposite side.
+BACK_PROMPTS = (
+    "Turn the camera around to the other side of this object and show it from directly behind, "
+    "exactly opposite to this view. Keep exactly the same object with the same colours and "
+    "details, the same size and position in the frame, the camera at the same eye level and "
+    "distance, the same soft lighting and the same plain light grey background.",
+    "Move the camera half a circle (180 degrees) around the object to the opposite side, so it "
+    "sees the side that is hidden in this picture. The camera stays at the same eye level and "
+    "the same distance. Keep exactly the same object with the same colours and details, the same "
+    "size and position in the frame, the same soft lighting and the same plain light grey "
+    "background.",
+)
+MIRROR_OK = 0.85  # correct opposite views scored 0.76-0.99, wrong ones 0.40-0.75
+# Similarity of a picture and its front-view edit: level pictures 0.955-0.99 (one seed
+# 0.77), pictures from above 0.54-0.91. A miss sends a level picture to TRELLIS.2, the safe side.
+LEVEL_SAME = 0.93
+
+
+def _qwen_edit_nodes(g: dict, names: dict, image, prompt: str, seed: int) -> list:
+    dit = names.get("qwen-edit-8step-int4") or names["qwen-edit-8step-fp4"]
+    g["q_unet"] = {
+        "class_type": "NunchakuQwenImageDiTLoader",
+        "inputs": {
+            "model_name": dit,
+            "cpu_offload": "enable",
+            "num_blocks_on_gpu": 20,
+            "use_pin_memory": "disable",
+        },
+    }
+    g["q_clip"] = {
+        "class_type": "CLIPLoader",
+        "inputs": {"clip_name": names["qwen25vl-fp8"], "type": "qwen_image", "device": "default"},
+    }
+    g["q_vae"] = {"class_type": "VAELoader", "inputs": {"vae_name": names["qwen-image-vae"]}}
+    g["q_shift"] = {
+        "class_type": "ModelSamplingAuraFlow",
+        "inputs": {"model": ["q_unet", 0], "shift": 3.0},
+    }
+    g["q_norm"] = {"class_type": "CFGNorm", "inputs": {"model": ["q_shift", 0], "strength": 1.0}}
+    g["q_scale"] = {
+        "class_type": "ImageScaleToTotalPixels",
+        "inputs": {
+            "image": image,
+            "upscale_method": "lanczos",
+            "megapixels": 1.0,
+            "resolution_steps": 1,
+        },
+    }
+    common = {"clip": ["q_clip", 0], "vae": ["q_vae", 0], "image1": ["q_scale", 0]}
+    g["q_text"] = {
+        "class_type": "TextEncodeQwenImageEditPlus",
+        "inputs": {**common, "prompt": prompt},
+    }
+    g["q_negative"] = {
+        "class_type": "TextEncodeQwenImageEditPlus",
+        "inputs": {**common, "prompt": ""},
+    }
+    g["q_encode"] = {
+        "class_type": "VAEEncode",
+        "inputs": {"pixels": ["q_scale", 0], "vae": ["q_vae", 0]},
+    }
+    g["sample"] = {
+        "class_type": "KSampler",
+        "inputs": {
+            "model": ["q_norm", 0],
+            "positive": ["q_text", 0],
+            "negative": ["q_negative", 0],
+            "latent_image": ["q_encode", 0],
+            "seed": seed,
+            "steps": 8,
+            "cfg": 1.0,
+            "sampler_name": "euler",
+            "scheduler": "simple",
+            "denoise": 1.0,
+        },
+    }
+    g["decode"] = {
+        "class_type": "VAEDecode",
+        "inputs": {"samples": ["sample", 0], "vae": ["q_vae", 0]},
+    }
+    return ["decode", 0]
+
+
+def views_level(*, names, image: str, seed: int, prefix: str):
+    """An eye-level version of the picture, and how much it differs from the original."""
+    g: dict = {"orig": {"class_type": "LoadImage", "inputs": {"image": image}}}
+    edited = _qwen_edit_nodes(g, names, ["orig", 0], LEVEL_PROMPT, seed)
+    g["same"] = {"class_type": "IrisEchoSimilarity", "inputs": {"a": ["q_scale", 0], "b": edited}}
+    g["save"] = {"class_type": "SaveImage", "inputs": {"images": edited, "filename_prefix": prefix}}
+    return g
+
+
+def views_back(*, names, image: str, attempt: int, seed: int, prefix: str):
+    """A back view for the front, the pair framed for Pixal3D, and the mirror check."""
+    g: dict = {}
+    bg = _bg_model(g, names)
+    front, front_mask = _cutout(g, "front", image, bg)
+    back = _qwen_edit_nodes(g, names, front, BACK_PROMPTS[attempt % len(BACK_PROMPTS)], seed)
+    g["mask_back"] = {
+        "class_type": "RemoveBackground",
+        "inputs": {"bg_removal_model": [bg, 0], "image": back},
+    }
+    g["check"] = {
+        "class_type": "IrisEchoViewCheck",
+        "inputs": {"front_mask": front_mask, "back_mask": ["mask_back", 0]},
+    }
+    g["frame"] = {
+        "class_type": "IrisEchoFrameViews",
+        "inputs": {
+            "front": front,
+            "front_mask": front_mask,
+            "back": back,
+            "back_mask": ["mask_back", 0],
+        },
+    }
+    g["save_front"] = {
+        "class_type": "SaveImage",
+        "inputs": {"images": ["frame", 0], "filename_prefix": f"{prefix}-front"},
+    }
+    g["save_back"] = {
+        "class_type": "SaveImage",
+        "inputs": {"images": ["frame", 1], "filename_prefix": f"{prefix}-back"},
+    }
+    return g
+
+
+# Progress for the 3D graphs: node -> (start, end, message), in the order ComfyUI
+# runs them (the mesh is finished before the texture is sampled). Measured on a
+# 12 GB card at 1024: shape ~40 s, solid remesh ~30-70 s, unwrap ~40 s, texture ~20 s.
+MODEL3D_PROGRESS = {
+    "sample_structure": (0.03, 0.08, "Finding the shape"),
+    "sample_shape": (0.08, 0.18, "Shaping"),
+    "sample_detail": (0.18, 0.34, "Adding detail"),
+    "shape": (0.34, 0.36, "Adding detail"),
+    "remesh": (0.36, 0.58, "Making it solid"),
+    "decimate": (0.58, 0.62, "Simplifying"),
+    "unwrap": (0.62, 0.74, "Unfolding the surface"),
+    "sample_texture": (0.74, 0.84, "Painting"),
+    "bake": (0.84, 0.94, "Baking textures"),
+    "save": (0.95, 0.96, "Saving"),
+    "render": (0.96, 0.99, "Saving"),
+}
+
+
 BUILDERS = {
     "z-image-nunchaku": z_image,
     "z-image-native": z_image_native,
@@ -1218,7 +1721,10 @@ BUILDERS = {
     "wan22": wan22,
     "hunyuan15": hunyuan15,
     "ltx": ltx,
+    "trellis2": trellis2,
+    "pixal3d-mv": pixal3d_mv,
 }
+MODEL3D = {"trellis2", "pixal3d-mv"}
 
 # The uploaded pictures (and clips) each workflow reads, by parameter name.
 IMAGE_INPUTS = {
@@ -1230,10 +1736,15 @@ IMAGE_INPUTS = {
     "wan22": ("start", "end"),
     "hunyuan15": ("start",),
     "ltx": ("start", "end"),
+    "trellis2": ("front",),
+    "pixal3d-mv": ("front", "back"),
+    "views3d": ("image1",),
 }
-PROMPT_OPTIONAL = {"seedvr2", "seedvr2-video"}
-# Run with ComfyUI's dynamic VRAM (see ComfyEngine.ensure_running).
-DYNAMIC_VRAM = {"wan22", "hunyuan15", "ltx"}
+PROMPT_OPTIONAL = {"seedvr2", "seedvr2-video", "trellis2", "pixal3d-mv", "views3d"}
+# Run with ComfyUI's dynamic VRAM (see ComfyEngine.ensure_running). The 3D
+# workflows were measured with it; the views helper shares it so that going from
+# views to a build does not restart ComfyUI (Nunchaku's Qwen loader is fine with it).
+DYNAMIC_VRAM = {"wan22", "hunyuan15", "ltx", "trellis2", "pixal3d-mv", "views3d"}
 
 
 def describe_error(data: dict) -> str:

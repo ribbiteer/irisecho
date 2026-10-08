@@ -21,7 +21,9 @@
   {:else if !jobs.length}
     <div class="empty">
       <Iris size={120} bars={56} />
-      <h3>{visual ? "Your pictures will show up here" : "Your recordings will show up here"}</h3>
+      <h3>
+        {studio.kind === "model3d" ? "Your 3D models will show up here" : visual ? "Your pictures will show up here" : "Your recordings will show up here"}
+      </h3>
       <p>{studio.hint}. Everything is made on this computer and saved to your library.</p>
     </div>
   {:else if visual}

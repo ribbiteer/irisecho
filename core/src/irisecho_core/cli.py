@@ -739,6 +739,117 @@ def cmd_image(args) -> int:
     return generate(args, args.model, params, args.accept_license)
 
 
+def stage_upload(path: Path) -> str:
+    """Put a picture where jobs read their inputs; returns its upload name."""
+    import uuid
+
+    if not path.is_file():
+        raise CliError(f"No such file: {path}")
+    name = f"{uuid.uuid4().hex}{path.suffix.lower()}"
+    shutil.copyfile(path, paths.sub("uploads") / name)
+    return name
+
+
+async def follow(backend, job: dict, label: str, notes) -> dict:
+    """Wait for a job, showing its progress on one line."""
+    while job["status"] not in ENDED:
+        await asyncio.sleep(0.25)
+        job = await backend.job(job["id"])
+        msg = job.get("message") or job["status"]
+        pct = f" {job['progress'] * 100:.0f}%" if job.get("progress") is not None else ""
+        print(f"\r{label}: {msg}{pct}".ljust(90), end="", flush=True, file=notes)
+    print("\r".ljust(91), end="\r", file=notes)
+    if job["status"] != "done":
+        raise CliError(f"{label}: {job.get('error') or job['status']}")
+    return job
+
+
+def cmd_3d(args) -> int:
+    """A 3D model from a picture, the way the 3D studio makes one."""
+    from irisecho_core import mesh3d
+
+    picture = Path(args.picture)
+    front = stage_upload(picture)
+    back = stage_upload(Path(args.back)) if args.back else None
+    build = {
+        "detail": args.detail,
+        "textures": not args.no_textures,
+        "openings": "keep" if args.keep_openings else "close",
+        "faces": args.faces,
+        "seed": args.seed,
+    }
+
+    async def go(backend):
+        notes = sys.stderr if args.json else sys.stdout
+        model, params = args.model, {**build, "front": front}
+        with contextlib.redirect_stdout(notes):
+            if back:
+                model, params["back"] = "pixal3d", back
+            elif model in ("auto", "pixal3d"):
+                # The View Maker checks the angle and draws the matching back.
+                if not await backend.wait_ready("object-views", args.accept_license):
+                    return 1
+                level = "auto" if model == "auto" else "best"
+                views = await backend.submit("object-views", {"image1": front, "level": level})
+                views = await follow(backend, views, "Views", notes)
+                roles = {o.get("role"): o for o in views["outputs"]}
+                if "back" not in roles:
+                    print("Taken from above or at an angle: building from the picture alone.")
+                    model = "trellis2"
+                elif not roles["back"].get("matched") and model == "auto":
+                    print("No back view matched the front: building from the picture alone.")
+                    model = "trellis2"
+                else:
+                    model = "pixal3d"
+                    params["front"] = stage_upload(Path(roles["front"]["path"]))
+                    params["back"] = stage_upload(Path(roles["back"]["path"]))
+            if not await backend.wait_ready(model, args.accept_license):
+                return 1
+            job = await backend.submit(model, params)
+            job = await follow(backend, job, "Building", notes)
+        out = job["outputs"][0]
+        src = Path(out["path"])
+        dest_dir = Path(args.out) if args.out else src.parent
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        data, ext = await asyncio.to_thread(mesh3d.export, src, args.format, args.height)
+        dest = dest_dir / f"{src.stem}.{ext}"
+        dest.write_bytes(data)
+        info = out.get("mesh") or {}
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "id": job["id"],
+                        "status": "done",
+                        "model": model,
+                        "outputs": [str(dest)],
+                        "glb": str(src),
+                        "seed": out.get("seed"),
+                        "printable": info.get("printable"),
+                        "reasons": info.get("reasons", []),
+                    }
+                ),
+                flush=True,
+            )
+        else:
+            print(f"{dest}  ({mesh3d_summary(info)})")
+        return 0
+
+    return with_backend(go)
+
+
+# mesh3d.FORMATS, without importing numpy and trimesh for every command
+MODEL3D_FORMATS = ("glb", "stl", "3mf", "obj", "ply")
+
+
+def mesh3d_summary(info: dict) -> str:
+    if not info or "error" in info:
+        return "not measured"
+    if info.get("printable"):
+        return f"{info['faces']:,} faces, ready to print"
+    return f"{info['faces']:,} faces; " + " ".join(info.get("reasons", []))
+
+
 def cmd_write(args) -> int:
     import uuid
 
@@ -788,7 +899,7 @@ def cmd_write(args) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="irisecho",
-        description="Local image, video, voice, music and sound-effect generation.",
+        description="Local image, video, voice, music, sound-effect and 3D model generation.",
     )
     parser.add_argument("--version", action="version", version=f"irisecho {__version__}")
     sub = parser.add_subparsers(dest="command")
@@ -872,6 +983,36 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", help="copy results into this folder")
     p.add_argument("--json", action="store_true", help="one JSON object per job on stdout")
     p.set_defaults(fn=cmd_image)
+
+    p = sub.add_parser("3d", help="make a 3D model from a picture")
+    p.add_argument("picture", help="the object, ideally whole and on a plain background")
+    p.add_argument("--back", help="a picture of the object from behind, at the same height")
+    p.add_argument(
+        "--model",
+        default="auto",
+        choices=["auto", "pixal3d", "trellis2"],
+        help="auto: a matching back view and Pixal3D when the picture is at eye level, "
+        "else TRELLIS.2 from the picture alone (default)",
+    )
+    p.add_argument("--detail", default="standard", choices=["standard", "high"])
+    p.add_argument("--no-textures", action="store_true", help="shape only, faster")
+    p.add_argument(
+        "--faces",
+        type=int,
+        default=500_000,
+        choices=[500_000, 100_000, 20_000],
+        help="triangles: 500000 for printing, 100000 or 20000 for 3D programs and games",
+    )
+    p.add_argument(
+        "--keep-openings", action="store_true", help="leave cups and vases open at the top"
+    )
+    p.add_argument("--format", default="glb", choices=MODEL3D_FORMATS)
+    p.add_argument("--height", type=float, help="printed height in mm for stl and 3mf (100)")
+    p.add_argument("--seed", type=int)
+    p.add_argument("--accept-license", action="store_true")
+    p.add_argument("--out", help="write the model into this folder")
+    p.add_argument("--json", action="store_true", help="one JSON object on stdout")
+    p.set_defaults(fn=cmd_3d)
 
     p = sub.add_parser("write", help="improve a prompt, or describe a picture as one")
     p.add_argument("draft", nargs="?", help="a rough idea to improve")

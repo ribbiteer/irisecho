@@ -37,7 +37,7 @@ SEARCH_KEYS = ("prompt", "text", "lyrics", "caption", "tags", "id")
 
 JSON_COLUMNS = ("params", "outputs")
 # Working jobs that are not things the person made: kept briefly, never listed.
-HIDDEN_KINDS = ("prompt",)
+HIDDEN_KINDS = ("prompt", "views3d")
 
 
 def search_text(model: str, params: dict) -> str:

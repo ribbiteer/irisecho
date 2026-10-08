@@ -1,7 +1,7 @@
 # Using IrisEcho from a script or a coding agent
 
-IrisEcho makes images, image edits, video, speech, cloned voices, music and
-sound effects on this computer's own GPU. Its command line and local API cover
+IrisEcho makes images, image edits, video, speech, cloned voices, music, sound
+effects and 3D models on this computer's own GPU. Its command line and local API cover
 what the window does, so a local agent (Claude Code, Codex, a shell script, a
 build step) can ask for an asset and get a file back.
 
@@ -20,6 +20,7 @@ irisecho models                       # what exists here and what is ready
 irisecho image "a lighthouse at blue hour" --aspect 16:9 --count 2 --out assets/
 irisecho say "Welcome back." --voice bm_george --out vo/
 irisecho music "synthwave, driving, analog synth" --bpm 110 --seconds 30 --loop --out music/
+irisecho 3d figurine.png --format stl --height 80 --out prints/
 ```
 
 Each finished file is printed as `label: path`. Add `--json` to a generating
@@ -78,6 +79,7 @@ marks them) must not be used for commercial work.
 | `clone TEXT --ref clip.wav` | speech in a sampled voice | `--model chatterbox-turbo\|chatterbox`, `--takes`, `--file cues.txt` |
 | `music TAGS` | music | `--seconds`, `--bpm`, `--loop`, `--lyrics`, `--takes`, `--file cues.txt` |
 | `write DRAFT` | a better prompt, printed on stdout | `--for MODEL`, `--image picture.png` |
+| `3d PICTURE` | a 3D model | `--back picture.png`, `--model auto\|pixal3d\|trellis2`, `--detail standard\|high`, `--faces 500000\|100000\|20000`, `--no-textures`, `--keep-openings`, `--format glb\|stl\|3mf\|obj\|ply`, `--height MM` |
 
 All generating commands take `--out FOLDER` (copy results there; with a cue
 sheet, files are named by cue id) and `--json`. `irisecho COMMAND --help` lists
@@ -90,6 +92,30 @@ Cue sheets are text files, one job per line, `#` for comments:
 
 Only clone a voice the person has the right to use. Cloned speech carries an
 inaudible watermark.
+
+### 3D models
+
+`irisecho 3d picture.png` makes a 3D model of the object in the picture. Give
+it one whole object on a plain background; a picture made for the purpose
+(`irisecho image` with "a ... figurine, the whole object visible and centered,
+plain light grey background, soft even lighting, straight-on front view at eye
+level") works best. With the default `--model auto`, IrisEcho checks whether
+the picture was taken at eye level. If it was, the View Maker (Qwen Edit) draws
+the object from behind, checks that the outline matches, and Pixal3D builds from
+both views: the most complete shapes. If not, TRELLIS.2 builds from the picture
+alone: it keeps the object's details and stands it upright, and guesses the
+back. `--model trellis2` skips the View Maker (and its 21 GB download).
+
+A build takes two to four minutes on a 12 GB card (`--detail high` about a
+minute more; when High does not fit in graphics memory IrisEcho steps down by
+itself). Models are solid and closed, so they print without repairs;
+`--keep-openings` leaves cups and vases open at the top. `--faces 20000` makes
+a light model for games and the web whose surface detail lives in its normal
+map (100000 for 3D programs; keep the default 500000 for printing). `--format stl` or
+`3mf` writes a print file standing upright on the plate, `--height` millimetres
+tall (default 100); `obj` (a zip with its texture), `ply` and `glb` keep the
+model's own frame for 3D programs. With `--json` the object includes
+`printable` and, when it is false, `reasons`.
 
 ## Everything else: the local API
 
@@ -121,6 +147,8 @@ between shells, so a body file and `-` is the dependable way.
 | `POST /api/uploads` (multipart `file`) | add a picture or sound for a job to use; returns its `id` |
 | `GET /api/system` | GPU, memory in use right now (`vram`: `used_mb` and `free_mb` per card, the whole card), what is loaded, queue length |
 | `POST /api/system/unload` | free the GPU for another program; 409 while a job is running |
+| `GET /api/jobs/{id}/outputs/{n}/export?format=stl&height_mm=80` | a 3D model in `glb`, `stl`, `3mf` (millimetres, upright on the plate), `obj` (zip) or `ply` |
+| `GET /api/jobs/{id}/outputs/{n}/preview` | the still picture of a 3D model |
 
 Job `params` by kind of model:
 
@@ -135,8 +163,11 @@ Job `params` by kind of model:
 | music | `ace-step` | `prompt` (style tags), `duration`, `bpm`, `lyrics`, `takes`, `loop`, `thinking`, `seed` |
 | sfx | `sa3-sfx` | `prompt`, `duration` (0.5 to 30), `takes`, `trim`, `seed` |
 | video-upscale | `seedvr2-video` | `video` (an upload id of an MP4 clip), `short_side` (720 to 1080, default 1080), `seed` |
+| model3d | `trellis2`, `pixal3d` | `front` (and `back` for `pixal3d`), `detail` (`standard` or `high`), `faces` (500000, 100000 or 20000), `textures` (default true), `openings` (`close` or `keep`), `seed` |
+| views3d | `object-views` | `image1`, `level` (`auto`, `best` or `keep`), `seed` |
 
-`image1`, `image2`, `image3`, `start`, `end`, `ref` and `video` are upload ids.
+`image1`, `image2`, `image3`, `start`, `end`, `ref`, `video`, `front` and `back`
+are upload ids.
 An agent on this computer can skip the upload call: copy the file into the
 `uploads` folder inside the data folder under a new name of lowercase hex digits
 plus its extension (`3fa2b1c4.png`) and pass that name.
@@ -172,6 +203,16 @@ The tested use is `flux-krea` redrawing a whole picture larger at 0.2, with the
 prompt that made it: people and composition stay, skin and hair gain detail.
 Props can change, so check them; a crop of a face redrawn this way does not
 keep the person.
+
+A finished `model3d` job has one output: the GLB (`type` `model3d`) with
+`preview` (a picture of it) and `mesh`: `faces`, `extents` (model units, Y up),
+`watertight`, `thickness` and `printable` with `reasons`. An `object-views`
+job with `level` `auto` returns either a `front` and a `back` (each output has
+a `role`; the back has `matched`, true when its outline mirrors the front's),
+or, for a picture taken from above, only an eye-level version (`role`
+`level`): build from the original with `trellis2`, or run the views again on
+that version with `level` `keep`. `best` goes on with the eye-level version by
+itself. The views are framed for Pixal3D: pass them on as `front` and `back`.
 
 To call the API without `irisecho api`: read `port` and `token` from
 `server.json` in the data folder, send the cookie `irisecho_session=<token>`

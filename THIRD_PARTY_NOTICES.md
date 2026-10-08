@@ -10,6 +10,7 @@ versions shown when a model that needs them is first set up.
 | Component | Version | License | Upstream |
 |---|---|---|---|
 | ComfyUI | v0.38.0 (`6b747c04`) | GPL-3.0 | https://github.com/Comfy-Org/ComfyUI |
+| ComfyUI pull request 16805 (solid remesh), applied at install from `core/src/irisecho_core/engines/comfy/patches/` until it is released | head `22e5e90f` | GPL-3.0 | https://github.com/Comfy-Org/ComfyUI/pull/16805 |
 | ComfyUI-nunchaku | `c71cc259`, one file patched at install for ComfyUI v0.38 | Apache-2.0 | https://github.com/nunchaku-ai/ComfyUI-nunchaku |
 | nunchaku | 1.2.1 | Apache-2.0 | https://github.com/nunchux-ai/nunchaku |
 | ComfyUI-GGUF | `6ea2651e` | Apache-2.0 | https://github.com/city96/ComfyUI-GGUF |
@@ -41,6 +42,10 @@ versions shown when a model that needs them is first set up.
 | keyring | MIT | https://github.com/jaraco/keyring |
 | uv | MIT or Apache-2.0 | https://github.com/astral-sh/uv |
 | segno (QR codes for pairing) | BSD-3-Clause | https://github.com/heuer/segno |
+| NumPy (3D models) | BSD-3-Clause | https://github.com/numpy/numpy |
+| trimesh (3D models) | MIT | https://github.com/mikedh/trimesh |
+| manifold3d (3D models) | Apache-2.0 | https://github.com/elalish/manifold |
+| Pillow (3D model textures) | MIT-CMU | https://github.com/python-pillow/Pillow |
 
 ## The desktop app and interface
 
@@ -50,6 +55,7 @@ versions shown when a model that needs them is first set up.
 | Svelte | MIT | https://github.com/sveltejs/svelte |
 | Vite | MIT | https://github.com/vitejs/vite |
 | Lucide icons | ISC | https://github.com/lucide-icons/lucide |
+| three.js (the 3D viewer, loaded when a model is opened) | MIT | https://github.com/mrdoob/three.js |
 | Bricolage Grotesque | SIL OFL 1.1 | https://github.com/ateliertriay/bricolage |
 | JetBrains Mono | SIL OFL 1.1 | https://github.com/JetBrains/JetBrainsMono |
 

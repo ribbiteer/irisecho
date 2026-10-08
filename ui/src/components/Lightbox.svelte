@@ -10,7 +10,15 @@
   import Repeat from "@lucide/svelte/icons/repeat-2";
   import Trash from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
-  import { api, outputUrl } from "../lib/api";
+  import Box from "@lucide/svelte/icons/box";
+  import Grid from "@lucide/svelte/icons/grid-3x3";
+  import Palette from "@lucide/svelte/icons/palette";
+  import RotateCw from "@lucide/svelte/icons/rotate-3d";
+  import Focus from "@lucide/svelte/icons/scan";
+  import CircleCheck from "@lucide/svelte/icons/circle-check";
+  import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
+  import Viewer3D from "./Viewer3D.svelte";
+  import { api, exportUrl, outputUrl } from "../lib/api";
   import { ago, elapsed } from "../lib/format";
   import { app, fail, modelById, submit, toast } from "../lib/state.svelte";
 
@@ -65,6 +73,31 @@
     touchX = null;
     if (Math.abs(dx) > 50) go(dx < 0 ? 1 : -1);
   }
+  // 3D models: how they are shown, and what they are exported as.
+  const out = $derived(job.outputs[lb.index]);
+  const is3d = $derived(out?.type === "model3d");
+  const mesh = $derived(out?.mesh);
+  let viewMode = $state<"textured" | "clay" | "wireframe">("textured");
+  let spin = $state(false);
+  let viewer = $state<Viewer3D>();
+  const FORMATS = [
+    { id: "glb", label: "GLB", note: "With its textures, for Blender, game engines and the web" },
+    { id: "stl", label: "STL", note: "For any slicer: upright, on the plate, in millimetres" },
+    { id: "3mf", label: "3MF", note: "For Bambu Studio, PrusaSlicer and Orca: upright, in millimetres" },
+    { id: "obj", label: "OBJ", note: "With its texture, as a zip, for older 3D programs" },
+    { id: "ply", label: "PLY", note: "With its colours painted on the points" },
+  ] as const;
+  let format = $state<(typeof FORMATS)[number]["id"]>("glb");
+  let heightMm = $state(100);
+  const forPrint = $derived(format === "stl" || format === "3mf");
+  // Width × depth × height in millimetres at the chosen printed height (models are Y up).
+  const printSize = $derived.by(() => {
+    const e = mesh?.extents;
+    if (!e || !e[1]) return null;
+    const k = heightMm / e[1];
+    return [e[0] * k, e[2] * k, heightMm].map((v) => (v >= 100 ? Math.round(v) : Math.round(v * 10) / 10));
+  });
+
   let expanded = $state(false);
   $effect(() => {
     void job.id;
@@ -128,7 +161,21 @@
 <div class="lightbox" role="dialog" aria-modal="true" aria-label="Image details">
   <button class="scrim" aria-label="Close" onclick={close}></button>
   <div class="stage">
-    {#if job.outputs[lb.index]?.type === "video"}
+    {#if is3d}
+      {#key `${job.id}/${lb.index}`}
+        <div class="model3d">
+          <Viewer3D bind:this={viewer} url={outputUrl(job, lb.index)} mode={viewMode} {spin} />
+          <div class="tools" role="toolbar" aria-label="View">
+            <button class="btn sm glass" aria-pressed={viewMode === "textured"} onclick={() => (viewMode = "textured")} title="Colours and textures"><Palette size={15} /> Colour</button>
+            <button class="btn sm glass" aria-pressed={viewMode === "clay"} onclick={() => (viewMode = "clay")} title="The shape alone, as it will print"><Box size={15} /> Shape</button>
+            <button class="btn sm glass" aria-pressed={viewMode === "wireframe"} onclick={() => (viewMode = "wireframe")} title="The mesh's triangles"><Grid size={15} /> Mesh</button>
+            <span class="gap"></span>
+            <button class="btn sm icon glass" aria-pressed={spin} onclick={() => (spin = !spin)} title="Turn it slowly"><RotateCw size={15} /></button>
+            <button class="btn sm icon glass" onclick={() => viewer?.reset()} title="Back to the first view (or double-click it)"><Focus size={15} /></button>
+          </div>
+        </div>
+      {/key}
+    {:else if job.outputs[lb.index]?.type === "video"}
       <!-- svelte-ignore a11y_media_has_caption -->
       <video src={outputUrl(job, lb.index)} controls autoplay loop playsinline></video>
     {:else}
@@ -153,7 +200,28 @@
       <button class="btn sm ghost copy" onclick={copyPrompt}><Copy size={14} /> Copy prompt</button>
     {/if}
 
+    {#if is3d && mesh && !mesh.error}
+      <div class="verdict" class:ok={mesh.printable}>
+        {#if mesh.printable}
+          <CircleCheck size={18} />
+          <div><strong>Ready to print</strong><small>One closed, solid piece. No repairs needed.</small></div>
+        {:else}
+          <TriangleAlert size={18} />
+          <div><strong>Check before printing</strong><small>{(mesh.reasons ?? []).join(" ")}</small></div>
+        {/if}
+      </div>
+    {/if}
+
     <dl>
+      {#if is3d && printSize}
+        <div><dt>Printed size</dt><dd class="mono">{printSize[0]} × {printSize[1]} × {printSize[2]} mm</dd></div>
+      {/if}
+      {#if is3d && mesh?.faces}
+        <div><dt>Triangles</dt><dd class="mono">{mesh.faces.toLocaleString()}</dd></div>
+      {/if}
+      {#if is3d && out?.resolution}
+        <div><dt>Detail</dt><dd class="mono">{out.resolution >= 1536 ? "High" : out.resolution > 1024 ? `High (${out.resolution})` : "Standard"}</dd></div>
+      {/if}
       {#if job.outputs[lb.index]?.width}
         <div><dt>Size</dt><dd class="mono">{job.outputs[lb.index].width} × {job.outputs[lb.index].height}</dd></div>
       {/if}
@@ -176,8 +244,30 @@
       <div><dt>Made</dt><dd>{ago(job.created)}</dd></div>
     </dl>
 
+    {#if is3d}
+      <div class="export">
+        <span class="label">Export</span>
+        <div class="chips">
+          {#each FORMATS as f (f.id)}
+            <button class="chip" aria-pressed={format === f.id} onclick={() => (format = f.id)}>{f.label}</button>
+          {/each}
+        </div>
+        <p class="note">{FORMATS.find((f) => f.id === format)?.note}</p>
+        {#if forPrint}
+          <label class="height">
+            <span>Printed height</span>
+            <input class="input mono" type="number" min="5" max="2000" step="1" bind:value={heightMm} />
+            <span>mm</span>
+          </label>
+        {/if}
+        <a class="btn primary" href={exportUrl(job, lb.index, format, forPrint ? heightMm : undefined)} download>
+          <Download size={16} /> Download {FORMATS.find((f) => f.id === format)?.label}
+        </a>
+      </div>
+    {/if}
+
     <div class="actions">
-      <button class="btn primary" onclick={reuse}><Repeat size={16} /> Use these settings again</button>
+      <button class={is3d ? "btn" : "btn primary"} onclick={reuse}><Repeat size={16} /> Use these settings again</button>
       {#if krea?.ready && redrawSize}
         <button
           class="btn"
@@ -189,7 +279,9 @@
         </button>
       {/if}
       <div class="row">
-        <a class="btn" href={outputUrl(job, lb.index, true)}><Download size={16} /> Download</a>
+        {#if !is3d}
+          <a class="btn" href={outputUrl(job, lb.index, true)}><Download size={16} /> Download</a>
+        {/if}
         {#if !app.remote}
           <button class="btn" onclick={() => post(`/jobs/${job.id}/outputs/${lb.index}/reveal`)}><FolderOpen size={16} /> Show</button>
         {/if}
@@ -241,6 +333,84 @@
     border-radius: var(--r-2);
     box-shadow: 0 30px 80px -20px rgb(0 0 0 / 0.8);
     pointer-events: auto;
+  }
+  .model3d {
+    position: absolute;
+    inset: 0;
+    pointer-events: auto;
+  }
+  .tools {
+    position: absolute;
+    left: 50%;
+    bottom: 22px;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 6px;
+    padding: 6px;
+    border-radius: 99px;
+    background: rgb(14 11 22 / 0.55);
+    backdrop-filter: blur(8px);
+  }
+  .tools .gap {
+    width: 6px;
+  }
+  .glass {
+    background: transparent;
+    border-color: transparent;
+    color: rgb(255 255 255 / 0.85);
+    border-radius: 99px;
+  }
+  .glass[aria-pressed="true"] {
+    background: color-mix(in oklab, var(--violet) 40%, transparent);
+    color: #fff;
+  }
+  .verdict {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 10px 12px;
+    border-radius: var(--r-2);
+    background: color-mix(in oklab, var(--amber) 14%, transparent);
+    color: var(--amber-ink);
+  }
+  .verdict.ok {
+    background: color-mix(in oklab, var(--teal) 14%, transparent);
+    color: var(--teal-ink);
+  }
+  .verdict div {
+    display: grid;
+    gap: 2px;
+  }
+  .verdict strong {
+    color: var(--text);
+    font-size: 13.5px;
+  }
+  .verdict small {
+    color: var(--text-2);
+    font-size: 12.5px;
+    line-height: 1.4;
+  }
+  .export {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .export .note {
+    font-size: 12px;
+    color: var(--text-3);
+    min-height: 2.6em;
+  }
+  .height {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-2);
+  }
+  .height input {
+    width: 90px;
   }
   .nav {
     position: absolute;
@@ -334,6 +504,15 @@
     .stage {
       flex: none;
       padding: 56px 0 10px;
+    }
+    .model3d {
+      position: relative;
+      inset: auto;
+      width: 100%;
+      height: 62dvh;
+    }
+    .tools {
+      bottom: 10px;
     }
     .stage img,
     .stage video {

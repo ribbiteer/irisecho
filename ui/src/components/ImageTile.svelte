@@ -6,7 +6,8 @@
   import Trash from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
   import Iris from "./Iris.svelte";
-  import { api, outputUrl } from "../lib/api";
+  import Box from "@lucide/svelte/icons/box";
+  import { api, outputUrl, previewUrl } from "../lib/api";
   import { elapsed } from "../lib/format";
   import { app, fail, modelById, submit, toast } from "../lib/state.svelte";
   import type { Job } from "../lib/types";
@@ -15,7 +16,9 @@
 
   const out = $derived(job.outputs[0]);
   const isVideo = $derived(out?.type === "video" || job.kind === "video");
+  const is3d = $derived(out?.type === "model3d" || job.kind === "model3d");
   const ratio = $derived.by(() => {
+    if (is3d) return "1 / 1";
     if (out?.width && out?.height) return `${out.width} / ${out.height}`;
     if (!job.params.aspect && job.kind !== "image" && job.kind !== "video") return "4 / 3";
     const [w, h] = String(job.params.aspect ?? "1:1").split(":").map(Number);
@@ -70,7 +73,14 @@
       }}
       aria-label="Open"
     >
-      {#if isVideo}
+      {#if is3d}
+        {#if out?.preview}
+          <img class="model" src={previewUrl(job)} alt={job.params.prompt ?? "3D model"} loading="lazy" decoding="async" />
+        {:else}
+          <span class="no-preview"><Box size={48} strokeWidth={1.2} /></span>
+        {/if}
+        <span class="play-hint">3D</span>
+      {:else if isVideo}
         <video bind:this={videoEl} src={`${outputUrl(job)}#t=0.05`} muted loop playsinline preload="auto"></video>
         <span class="play-hint">▶</span>
       {:else}
@@ -143,6 +153,17 @@
     height: 100%;
     object-fit: cover;
     display: block;
+  }
+  img.model {
+    object-fit: contain;
+    background: radial-gradient(circle at 50% 42%, var(--surface-3), var(--surface-1) 72%);
+  }
+  .no-preview {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 100%;
+    color: var(--text-4);
   }
   .play-hint {
     position: absolute;

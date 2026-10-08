@@ -1,7 +1,7 @@
 {
   "name": "irisecho-ui",
   "private": true,
-  "version": "0.1.9",
+  "version": "0.2.0",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
@@ -12,12 +12,14 @@
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@tsconfig/svelte": "^5.0.8",
+    "@types/three": "^0.186.0",
     "svelte": "^5.57.1",
     "svelte-check": "^4.7.6",
     "typescript": "~5.9.3",
     "vite": "^8.3.1"
   },
   "dependencies": {
-    "@lucide/svelte": "^1.49.0"
+    "@lucide/svelte": "^1.49.0",
+    "three": "^0.186.1"
   }
 }

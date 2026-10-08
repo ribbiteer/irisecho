@@ -58,6 +58,7 @@ DEVICE_ALLOWED = [
     ("DELETE", r"/api/jobs/[0-9a-f]+"),
     ("POST", r"/api/jobs/[0-9a-f]+/(cancel|favorite)"),
     ("GET", r"/api/jobs/[0-9a-f]+/outputs/\d+"),
+    ("GET", r"/api/jobs/[0-9a-f]+/outputs/\d+/(preview|export)"),
     ("POST", r"/api/uploads"),
     ("GET", r"/api/uploads/[0-9a-f]+\.[a-z0-9]+"),
 ]

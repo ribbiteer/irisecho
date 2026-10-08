@@ -48,9 +48,10 @@
   let {
     value = $bindable(null),
     label,
+    tag = "",
     hint = "",
     compact = false,
-  }: { value: string | null; label: string; hint?: string; compact?: boolean } = $props();
+  }: { value: string | null; label: string; tag?: string; hint?: string; compact?: boolean } = $props();
 
   let busy = $state(false);
   let pad = $state(false);
@@ -115,8 +116,8 @@
 
 {#if value}
   <div class="filled" class:compact>
-    <img src={uploadUrl(value)} alt={label} />
-    <span class="tag">{label}</span>
+    <img src={uploadUrl(value)} alt={tag || label} />
+    <span class="tag">{tag || label}</span>
     <button class="btn sm icon glass" title="Remove" onclick={() => (value = null)}><X size={14} /></button>
   </div>
 {:else}

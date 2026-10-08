@@ -146,6 +146,8 @@ class App:
             return {"voices": voice_options()}
         if "video" in model.settings:
             return {"video": model.settings["video"]}
+        if "model3d" in model.settings:
+            return {"model3d": model.settings["model3d"]}
         return {}
 
     def models(self) -> list[dict]:
@@ -360,6 +362,8 @@ class App:
             return False
         for out in job["outputs"]:
             Path(out["path"]).unlink(missing_ok=True)
+            if out.get("preview"):
+                Path(out["preview"]).unlink(missing_ok=True)
         self.db.delete(job_id)
         self.bus.publish("job.deleted", {"id": job_id})
         return True

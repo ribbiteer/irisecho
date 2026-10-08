@@ -24,6 +24,8 @@ KIND = {
     "clone": "Voice cloning",
     "music": "Music",
     "sfx": "Sound effects",
+    "model3d": "3D models",
+    "views3d": "3D helper (front and back views for Pixal3D)",
     "prompt": "Helpers",
 }
 
@@ -86,6 +88,9 @@ def render() -> str:
         "- Chatterbox output carries Resemble AI's inaudible Perth watermark. IrisEcho",
         "  keeps it. Only clone voices you have permission to use.",
         "- Stable Audio 3's text encoder is also covered by Google's Gemma Terms of Use.",
+        "- TRELLIS.2 and Pixal3D read pictures with Meta's DINOv3 (the file in",
+        "  Comfy-Org/Pixal3D), which is under the DINOv3 License; IrisEcho asks you to",
+        "  accept it before downloading.",
         "",
     ]
     return "\n".join(lines)

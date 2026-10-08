@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-export type Kind = "image" | "edit" | "video" | "upscale" | "voice" | "clone" | "music" | "sfx";
-export type ModelKind = Kind | "prompt"; // "prompt" is a helper, not a studio
+export type Kind = "image" | "edit" | "video" | "upscale" | "model3d" | "voice" | "clone" | "music" | "sfx";
+// Helpers, not studios: "prompt" writes prompts, "views3d" makes the views Pixal3D builds from.
+export type ModelKind = Kind | "prompt" | "views3d";
 
 export interface License {
   id: string;
@@ -57,7 +58,7 @@ export interface Model {
   files: FileStatus[];
   downloads: Download[];
   installing: boolean;
-  options: { voices?: VoiceOption[]; video?: VideoOptions; [key: string]: unknown };
+  options: { voices?: VoiceOption[]; video?: VideoOptions; model3d?: Model3dOptions; [key: string]: unknown };
 }
 
 export type VideoSize = "standard" | "large" | "720p";
@@ -71,6 +72,26 @@ export interface VideoOptions {
   sound: boolean;
   /** Seconds of work per second of video on a 12 GB card, by size. */
   pace: Partial<Record<VideoSize, number>>;
+}
+
+/** What a 3D model builds from, and seconds of work on a 12 GB card by detail. */
+export interface Model3dOptions {
+  views: ("front" | "back")[];
+  pace: { standard: number; high: number };
+}
+
+/** What IrisEcho measured on a finished 3D model (mesh3d.inspect). */
+export interface MeshInfo {
+  faces?: number;
+  extents?: [number, number, number]; // x, y (up), z in model units
+  textured?: boolean;
+  watertight?: boolean;
+  volume?: number;
+  parts?: number;
+  thickness?: number;
+  printable?: boolean;
+  reasons?: string[];
+  error?: string;
 }
 
 export interface Engine {
@@ -87,12 +108,22 @@ export interface Engine {
 
 export interface Output {
   path: string;
-  type: "image" | "audio" | "video" | "text";
+  type: "image" | "audio" | "video" | "text" | "model3d";
   text?: string;
   width?: number;
   height?: number;
   duration?: number;
   seed?: number;
+  // 3D models
+  preview?: string;
+  mesh?: MeshInfo;
+  resolution?: number;
+  // views made for Pixal3D
+  role?: "front" | "back" | "level";
+  source?: "yours" | "made";
+  matched?: boolean;
+  mirror_iou?: number;
+  similarity?: number;
 }
 
 export interface Job {

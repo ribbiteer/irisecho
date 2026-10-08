@@ -42,7 +42,7 @@
 <div class="welcome">
   <Iris size={132} bars={60} active />
   <h1>Welcome to IrisEcho</h1>
-  <p class="lead">Pictures and sound, made on this computer. {verdict}</p>
+  <p class="lead">Pictures, sound and 3D models, made on this computer. {verdict}</p>
 
   <div class="starts">
     {#each starts as s (s.id)}
