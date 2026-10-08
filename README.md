@@ -6,11 +6,11 @@
   <a href="LICENSE"><img alt="License: AGPL-3.0-or-later" src="https://img.shields.io/badge/license-AGPL--3.0--or--later-6B5BD6?style=flat-square"></a>
   <img alt="Windows 11: supported" src="https://img.shields.io/badge/Windows%2011-supported-2FB8A6?style=flat-square">
   <img alt="macOS and Linux: coming soon" src="https://img.shields.io/badge/macOS%20%C2%B7%20Linux-coming%20soon-F2A541?style=flat-square">
-  <img alt="Version 0.1" src="https://img.shields.io/badge/version-0.1-2A2140?style=flat-square">
+  <img alt="Version 0.2" src="https://img.shields.io/badge/version-0.2-2A2140?style=flat-square">
 </p>
 
-IrisEcho is one desktop app for making images, edits, video, voices, music and
-sound effects with open models on your own graphics card. It installs its own
+IrisEcho is one desktop app for making images, edits, video, voices, music,
+sound effects and 3D models with open models on your own graphics card. It installs its own
 engines, downloads each model the first time you choose it, and keeps a single
 model on the GPU at a time, so one consumer card runs all of it. Nothing leaves
 your computer except the downloads you ask for.
@@ -30,12 +30,13 @@ coding agent: [give your agents generation capabilities](#give-your-agents-gener
 | **Edit** | Say what should change in a picture; combine up to three | Qwen Edit (fast and careful), FLUX.1 Kontext\* |
 | **Upscale** | Enlarge 2-4× and restore detail, no prompt needed | SeedVR2 |
 | **Video** | 2-5 s clips from text, a first frame, a last frame, or both; LTX-2.5 makes the sound too | LTX-2.5\*, Wan 2.2, HunyuanVideo 1.5\* |
+| **3D** | A picture or a description becomes a model to view, print or export (GLB, STL, 3MF, OBJ, PLY) | Pixal3D\*, TRELLIS.2\* |
 | **Voice** | Narration in 28 preset voices, a whole script at once | Kokoro |
 | **Clone** | A voice you have the right to use, from a 5-15 s sample, with performed laughs and sighs | Chatterbox, Chatterbox Turbo |
 | **Music** | Beds, jingles and stingers from a few tags; seamless loops on the bar | ACE-Step 1.5 |
 | **Sound** | One-shot effects: foley, UI sounds, impacts, ambience | Stable Audio 3 SFX\* |
 
-<sub>\* Opt-in: non-commercial (FLUX.1 dev family), free for commercial use only under $1M a year (Krea 2) or $10M a year (LTX-2.5), not licensed in the EU, UK or South Korea (HunyuanVideo 1.5), or gated (Stable Audio and LTX-2.5: accept the publisher's terms on Hugging Face and add a read token). IrisEcho shows each license and walks you through it.</sub>
+<sub>\* Opt-in: non-commercial (FLUX.1 dev family), free for commercial use only under $1M a year (Krea 2) or $10M a year (LTX-2.5), not licensed in the EU, UK or South Korea (HunyuanVideo 1.5), gated (Stable Audio and LTX-2.5: accept the publisher's terms on Hugging Face and add a read token), or under Meta's DINOv3 License, accepted in the app (Pixal3D, not offered in the EU, and TRELLIS.2). IrisEcho shows each license and walks you through it.</sub>
 
 **Improve** sits under every picture and video prompt: a small local model
 (Qwen3-VL) rewrites a rough idea the way the chosen model likes it, or describes
@@ -202,6 +203,7 @@ irisecho say --file lines.txt --voice bm_george --out vo/    # id|text per line
 irisecho clone "Correct! [chuckle] Ten points." --ref host.wav --takes 3
 irisecho music "synthwave, driving, analog synth" --bpm 110 --seconds 30 --loop
 irisecho image "a lighthouse at blue hour" --aspect 16:9 --count 4
+irisecho 3d figurine.png --format stl --height 80             # a printable model
 irisecho link D:\ComfyUI\models                              # reuse weights you have
 irisecho models                                              # what is ready, and licenses
 ```
@@ -221,7 +223,7 @@ irisecho agents                                              # the full guide fo
 ## How it works
 
 - **One engine on the GPU at a time.** Every engine (a private ComfyUI for
-  pictures and video, and separate workers for Kokoro, Chatterbox, ACE-Step and
+  pictures, video and 3D, and separate workers for Kokoro, Chatterbox, ACE-Step and
   Stable Audio) lives in its own Python environment. IrisEcho frees the GPU from
   one before starting the next, so versions never clash and a 12 GB card is
   enough.
@@ -258,6 +260,7 @@ license, commercial terms, size and source.
 - [x] Windows installer
 - [x] Prompt writer and library search
 - [x] Phone and LAN access
+- [x] 3D models for printing and 3D programs
 - [ ] macOS and Linux
 - [ ] Signed releases
 
