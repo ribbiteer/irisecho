@@ -188,10 +188,7 @@ def flux(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, *
         if not 0.05 <= denoise <= 1.0:
             raise ValueError("Set denoise between 0.05 and 1.")
     dit = next(v for k, v in names.items() if k.endswith(("-int4", "-fp4")))
-    # Turing cards (RTX 20) have no bfloat16.
-    dtype = (
-        "bfloat16" if max((gpu.compute_cap for gpu in hw.gpus), default=8.0) >= 8.0 else "float16"
-    )
+    dtype = _dit_dtype(hw)
     g: dict = {
         "unet": {
             "class_type": "NunchakuFluxDiTLoader",
@@ -387,10 +384,16 @@ def krea2(*, prompt, seed, aspect, names, settings, hw, prefix, **_):
     return g, _finish(g, ["vae", 0], prefix)
 
 
+def _dit_dtype(hw) -> str:
+    """bfloat16 unless the card the engines run on is a Turing (RTX 20), which lacks it."""
+    gpu = getattr(hw, "gpu", None)
+    cap = gpu.compute_cap if gpu else max((g.compute_cap for g in hw.gpus), default=8.0)
+    return "bfloat16" if cap >= 8.0 else "float16"
+
+
 def _nunchaku_dit(names: dict, hw) -> tuple[str, str]:
     dit = next(v for k, v in names.items() if k.endswith(("-int4", "-fp4")))
-    # Turing cards (RTX 20) have no bfloat16.
-    dtype = "bfloat16" if max((g.compute_cap for g in hw.gpus), default=8.0) >= 8.0 else "float16"
+    dtype = _dit_dtype(hw)
     return dit, dtype
 
 

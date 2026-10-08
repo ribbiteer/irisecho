@@ -12,6 +12,7 @@ The answer decides which build of each model to use:
 from __future__ import annotations
 
 import ctypes
+import os
 import platform
 import shutil
 import subprocess
@@ -32,6 +33,8 @@ class Gpu:
     vram_mb: int
     driver: str
     compute_cap: float
+    index: int = 0  # nvidia-smi's index, which is PCI bus order
+    uuid: str = ""  # "GPU-…", stable across reboots and device orderings
 
 
 @dataclass(frozen=True)
@@ -44,15 +47,40 @@ class Hardware:
     quant: str | None  # "int4" | "fp4" | None
     cuda_tag: str | None  # "cu130" | "cu128" | None
     gpus: list[Gpu] = field(default_factory=list)
+    gpu_uuid: str | None = None  # the card the engines run on
+    gpu_pinned: bool = False  # chosen in Settings rather than picked automatically
+
+    @property
+    def gpu(self) -> Gpu | None:
+        return next((g for g in self.gpus if g.uuid and g.uuid == self.gpu_uuid), None)
 
     @property
     def vram_mb(self) -> int:
+        if self.gpu:
+            return self.gpu.vram_mb
         return max((g.vram_mb for g in self.gpus), default=0)
 
     def public(self) -> dict:
         data = asdict(self)
         data["vram_mb"] = self.vram_mb
+        data["gpu"] = asdict(self.gpu) if self.gpu else None
         return data
+
+
+def parse_gpus(out: str) -> list[Gpu]:
+    """Rows of `index,uuid,name,memory.total,driver_version,compute_cap` from nvidia-smi."""
+    gpus = []
+    for line in out.strip().splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 6:
+            continue
+        index, uuid, mem, driver, cap = parts[0], parts[1], *parts[-3:]
+        name = ", ".join(parts[2:-3])  # a name could hold a comma
+        try:
+            gpus.append(Gpu(name, int(float(mem)), driver, float(cap), int(index), uuid))
+        except ValueError:
+            continue
+    return gpus
 
 
 def _nvidia_gpus() -> list[Gpu]:
@@ -63,7 +91,7 @@ def _nvidia_gpus() -> list[Gpu]:
         out = subprocess.run(
             [
                 exe,
-                "--query-gpu=name,memory.total,driver_version,compute_cap",
+                "--query-gpu=index,uuid,name,memory.total,driver_version,compute_cap",
                 "--format=csv,noheader,nounits",
             ],
             stdin=subprocess.DEVNULL,
@@ -71,20 +99,11 @@ def _nvidia_gpus() -> list[Gpu]:
             text=True,
             timeout=10,
             check=True,
+            creationflags=0x08000000 if sys.platform == "win32" else 0,  # CREATE_NO_WINDOW
         ).stdout
     except (OSError, subprocess.SubprocessError):
         return []
-    gpus = []
-    for line in out.strip().splitlines():
-        parts = [p.strip() for p in line.split(",")]
-        if len(parts) != 4:
-            continue
-        name, mem, driver, cap = parts
-        try:
-            gpus.append(Gpu(name, int(float(mem)), driver, float(cap)))
-        except ValueError:
-            continue
-    return gpus
+    return parse_gpus(out)
 
 
 _vram: tuple[float, list[dict]] = (-1e9, [])
@@ -154,13 +173,24 @@ def _ram_mb() -> int:
     return 0
 
 
-def classify(system: str, machine: str, gpus: list[Gpu]) -> tuple[str, str | None, str | None]:
+def choose(gpus: list[Gpu], wanted: str = "") -> Gpu | None:
+    """The card to run on: the one asked for when it can run the engines, else the largest."""
+    usable = [g for g in gpus if g.compute_cap >= 7.5]
+    if not usable:
+        return None
+    return next((g for g in usable if wanted and g.uuid == wanted), None) or max(
+        usable, key=lambda g: g.vram_mb
+    )
+
+
+def classify(
+    system: str, machine: str, gpus: list[Gpu], wanted: str = ""
+) -> tuple[str, str | None, str | None]:
     """Return (backend, quant, cuda_tag) for a machine."""
     if system == "Darwin" and machine.lower() in ("arm64", "aarch64"):
         return "mps", None, None
-    usable = [g for g in gpus if g.compute_cap >= 7.5]
-    if system in ("Windows", "Linux") and usable:
-        gpu = max(usable, key=lambda g: g.vram_mb)
+    gpu = choose(gpus, wanted)
+    if system in ("Windows", "Linux") and gpu:
         quant = "fp4" if gpu.compute_cap >= 12.0 else "int4"
         try:
             driver = float(".".join(gpu.driver.split(".")[:2]))
@@ -171,11 +201,13 @@ def classify(system: str, machine: str, gpus: list[Gpu]) -> tuple[str, str | Non
     return "cpu", None, None
 
 
-@lru_cache(maxsize=1)
-def detect() -> Hardware:
+@lru_cache(maxsize=4)
+def detect(wanted: str = "") -> Hardware:
+    """This machine, running on the card whose uuid is `wanted` (empty: pick automatically)."""
     system, machine = platform.system(), platform.machine()
     gpus = _nvidia_gpus() if system in ("Windows", "Linux") else []
-    backend, quant, cuda_tag = classify(system, machine, gpus)
+    backend, quant, cuda_tag = classify(system, machine, gpus, wanted)
+    gpu = choose(gpus, wanted) if backend == "cuda" else None
     return Hardware(
         system=system,
         machine=machine,
@@ -185,4 +217,22 @@ def detect() -> Hardware:
         quant=quant,
         cuda_tag=cuda_tag,
         gpus=gpus,
+        gpu_uuid=gpu.uuid if gpu and gpu.uuid else None,
+        gpu_pinned=bool(gpu and wanted and gpu.uuid == wanted),
     )
+
+
+def gpu_env(hw: Hardware) -> dict[str, str]:
+    """Environment that makes an engine's CUDA see only the chosen card.
+
+    CUDA numbers cards fastest first while nvidia-smi numbers them by PCI bus, so
+    on a machine with several cards "device 0" is not necessarily the card the
+    installs were chosen for. A uuid names the card whatever the ordering. One
+    card picked automatically changes nothing, and a CUDA_VISIBLE_DEVICES the
+    person set themselves is kept unless they chose a card in Settings.
+    """
+    if hw.backend != "cuda" or not hw.gpu_uuid:
+        return {}
+    if not hw.gpu_pinned and (len(hw.gpus) < 2 or "CUDA_VISIBLE_DEVICES" in os.environ):
+        return {}
+    return {"CUDA_DEVICE_ORDER": "PCI_BUS_ID", "CUDA_VISIBLE_DEVICES": hw.gpu_uuid}

@@ -457,6 +457,13 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
     @api.patch("/api/settings")
     async def patch_settings(request: Request):
         body = await request.json()
+        if "gpu" in body and body["gpu"] != core.settings.gpu:
+            try:
+                await core.set_gpu(str(body["gpu"] or ""))
+            except Busy as e:
+                raise HTTPException(409, str(e)) from None
+            except ValueError as e:
+                raise HTTPException(400, str(e)) from None
         allowed = {"outputs_dir", "models_dir", "strip_metadata"}
         changes = {k: v for k, v in body.items() if k in allowed}
         for key in ("outputs_dir", "models_dir"):

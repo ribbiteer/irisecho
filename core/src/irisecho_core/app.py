@@ -40,7 +40,7 @@ class Busy(Exception):
 class App:
     def __init__(self) -> None:
         self.settings = settings.load()
-        self.hw = hardware.detect()
+        self.hw = hardware.detect(self.settings.gpu)
         self.registry = registry.default()
         self.store = Store(
             self.registry, self.settings.models_path, self.settings.linked_model_dirs
@@ -495,6 +495,29 @@ class App:
                 self.resident = None
                 self.loaded_model = None
                 self.bus.publish("engines", {})
+
+    async def set_gpu(self, uuid: str) -> None:
+        """Run on another card (empty: pick automatically). Refused while a job runs.
+
+        Every engine is stopped so the next job starts on the new card. A card of a
+        different generation can need other model builds or engine installs; the
+        Models page then says so as it does on any new machine.
+        """
+        if uuid and uuid not in {g.uuid for g in self.hw.gpus}:
+            raise ValueError("That graphics card was not found.")
+        if self.current_job or self._gpu.locked():
+            raise Busy("A job is running. Try again when the queue is empty.")
+        async with self._gpu:
+            for engine in self.engines.values():
+                await engine.release()
+            self.resident = None
+            self.loaded_model = None
+            settings.update(self.settings, {"gpu": uuid})
+            self.hw = hardware.detect(uuid)
+            for engine in self.engines.values():
+                engine.hw = self.hw
+        self.bus.publish("engines", {})
+        self.bus.publish("models", {})
 
     def system(self) -> dict:
         return {

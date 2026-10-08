@@ -147,6 +147,8 @@ export interface Gpu {
   vram_mb: number;
   driver: string;
   compute_cap: number;
+  index: number; // nvidia-smi order (PCI bus)
+  uuid: string;
 }
 
 export interface System {
@@ -159,9 +161,11 @@ export interface System {
     quant: string | null;
     cuda_tag: string | null;
     gpus: Gpu[];
+    gpu: Gpu | null; // the card the engines run on
+    gpu_pinned: boolean; // chosen in Settings, not picked automatically
     vram_mb: number;
   };
-  vram: { used_mb: number; free_mb: number }[]; // live, whole card; empty without nvidia-smi
+  vram: { used_mb: number; free_mb: number }[]; // live, whole card, by nvidia-smi index; empty without nvidia-smi
   queue: { current: string | null; waiting: number };
   resident: string | null;
   loaded_model: string | null;
@@ -175,6 +179,7 @@ export interface Settings {
   accepted_licenses: string[];
   strip_metadata: boolean;
   lan_enabled: boolean;
+  gpu: string; // uuid of the chosen card; empty picks automatically
   models_path: string;
   outputs_path: string;
 }

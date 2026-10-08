@@ -18,8 +18,28 @@
   let draft = $state("");
 
   const hw = $derived(app.system?.hardware);
-  const gpu = $derived(hw?.gpus[0]);
-  const vram = $derived(app.system?.vram?.[0]);
+  const gpu = $derived(hw?.gpu ?? hw?.gpus[0]);
+  const vram = $derived(app.system?.vram?.[gpu?.index ?? 0]);
+  const cards = $derived((hw?.gpus ?? []).filter((g) => g.compute_cap >= 7.5));
+  const largest = $derived(cards.reduce<(typeof cards)[number] | undefined>((a, g) => (!a || g.vram_mb > a.vram_mb ? g : a), undefined));
+  const cardLabel = (g: { index: number; name: string; vram_mb: number }) =>
+    `${g.index}: ${g.name.replace("NVIDIA GeForce ", "")} · ${Math.round(g.vram_mb / 1024)} GB`;
+
+  // Moves the engines to another graphics card; refused while a job runs.
+  let switching = $state(false);
+  async function chooseGpu(uuid: string) {
+    switching = true;
+    try {
+      app.settings = await api<Settings>("/settings", { method: "PATCH", body: { gpu: uuid } });
+      await refresh();
+      toast("Saved. The next job runs on this card.", "ok");
+    } catch (e) {
+      fail(e);
+      await refresh();
+    } finally {
+      switching = false;
+    }
+  }
   const gb = (mb: number) => (mb / 1024).toFixed(1);
 
   // Unloads the model IrisEcho keeps on the graphics card, for another program.
@@ -221,6 +241,24 @@
         <dd>
           {#if gpu}{gpu.name} · {Math.round(gpu.vram_mb / 1024)} GB{:else if hw?.backend === "mps"}Apple Silicon (Metal){:else}None found (CPU only){/if}
         </dd>
+        {#if cards.length > 1}
+          <dt>Run on</dt>
+          <dd>
+            <select
+              class="select"
+              aria-label="Graphics card to run on"
+              value={app.settings?.gpu ?? ""}
+              disabled={switching || !!app.system?.queue.current}
+              title={app.system?.queue.current ? "Wait for the queue to finish" : "The graphics card IrisEcho's engines use"}
+              onchange={(e) => chooseGpu(e.currentTarget.value)}
+            >
+              <option value="">Automatic{largest ? ` (${cardLabel(largest)})` : ""}</option>
+              {#each cards as g (g.uuid)}
+                <option value={g.uuid}>{cardLabel(g)}</option>
+              {/each}
+            </select>
+          </dd>
+        {/if}
         {#if vram}
           <dt>Graphics memory</dt>
           <dd class="gpu-mem">

@@ -474,9 +474,9 @@ def read_cues(path: Path) -> list[tuple[str, str]]:
 
 
 def cmd_info(args) -> int:
-    from irisecho_core import hardware
+    from irisecho_core import hardware, settings
 
-    hw = hardware.detect()
+    hw = hardware.detect(settings.load().gpu)
     if args.json:
         print(json.dumps(hw.public(), indent=2))
         return 0
@@ -485,7 +485,8 @@ def cmd_info(args) -> int:
         print(f"{key}: {value}")
     print(f"backend: {hw.backend}" + (f" ({hw.quant}, {hw.cuda_tag})" if hw.quant else ""))
     for g in hw.gpus:
-        print(f"gpu: {g.name}, {g.vram_mb // 1024} GB, driver {g.driver}")
+        used = " (in use)" if len(hw.gpus) > 1 and g.uuid == hw.gpu_uuid else ""
+        print(f"gpu {g.index}: {g.name}, {g.vram_mb // 1024} GB, driver {g.driver}{used}")
     print(f"ram: {hw.ram_mb // 1024} GB")
     print(f"data: {paths.data_dir()}")
     return 0

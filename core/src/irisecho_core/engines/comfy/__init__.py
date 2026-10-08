@@ -26,7 +26,7 @@ from pathlib import Path
 
 import httpx
 
-from irisecho_core import mesh3d, paths
+from irisecho_core import hardware, mesh3d, paths
 from irisecho_core.engines import uvenv
 from irisecho_core.engines.base import Engine, EngineStartError, RunContext
 from irisecho_core.engines.comfy import graphs, sourcepatch
@@ -360,6 +360,7 @@ class ComfyEngine(Engine):
                     "HF_HUB_DISABLE_TELEMETRY": "1",
                     "DO_NOT_TRACK": "1",
                     "IRISECHO_PARENT_PID": str(os.getpid()),
+                    **hardware.gpu_env(self.hw),
                 }
             )
             self.proc = await asyncio.create_subprocess_exec(

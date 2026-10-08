@@ -12,7 +12,7 @@ from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 
-from irisecho_core import paths
+from irisecho_core import hardware, paths
 from irisecho_core.engines import uvenv
 from irisecho_core.engines.base import Engine, EngineStartError, RunContext
 
@@ -177,7 +177,10 @@ class WorkerEngine(Engine):
             self.state = "starting"
             report(None, f"Starting {self.name}")
             self.worker = WorkerProcess(
-                self.id, uvenv.venv_python(self.venv), self.worker_script, self.worker_env()
+                self.id,
+                uvenv.venv_python(self.venv),
+                self.worker_script,
+                {**hardware.gpu_env(self.hw), **self.worker_env()},
             )
             try:
                 await self.worker.start()

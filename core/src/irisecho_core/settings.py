@@ -27,6 +27,8 @@ class Settings:
     strip_metadata: bool = True
     # Phone / LAN access. Off by default.
     lan_enabled: bool = False
+    # The NVIDIA card to run on, by uuid. Empty picks the card with the most memory.
+    gpu: str = ""
 
     @property
     def models_path(self) -> Path:

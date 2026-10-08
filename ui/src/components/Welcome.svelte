@@ -10,7 +10,7 @@
   import type { Kind } from "../lib/types";
 
   const hw = $derived(app.system?.hardware);
-  const gpu = $derived(hw?.gpus[0]);
+  const gpu = $derived(hw?.gpu ?? hw?.gpus[0]);
   const verdict = $derived.by(() => {
     if (!hw) return "";
     if (hw.backend === "cuda") {
