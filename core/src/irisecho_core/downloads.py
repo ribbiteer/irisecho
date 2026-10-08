@@ -14,9 +14,11 @@ terms on the host yet. Both are fixed by the person, not by retrying.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import httpx
 
@@ -95,6 +97,24 @@ class DownloadManager:
             d._task.cancel()
             return True
         return False
+
+    async def move_to(self, root: Path) -> None:
+        """Download into another models folder from now on.
+
+        A download already running would finish in the old folder, leaving the
+        new one short of that file with nothing fetching it, so running downloads
+        are stopped, their partial files removed, and they start again in `root`.
+        """
+        running = [d for d in self.items.values() if d._task and not d._task.done()]
+        for d in running:
+            d._task.cancel()
+        await asyncio.gather(*[d._task for d in running], return_exceptions=True)
+        specs = [self.store.registry.files[d.id] for d in running]
+        for spec in specs:
+            with contextlib.suppress(OSError):  # still open in a hashing thread: left behind
+                self.store.part_path(spec).unlink(missing_ok=True)
+        self.store.root = root
+        self.request(specs)
 
     async def wait(self, specs: list[FileSpec]) -> list[Download]:
         tasks = [self.items[s.id]._task for s in specs if s.id in self.items]

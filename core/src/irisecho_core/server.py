@@ -474,7 +474,7 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
                     raise HTTPException(400, str(e)) from e
         settings.update(core.settings, changes)
         if "models_dir" in changes:
-            core.store.root = core.settings.models_path
+            await core.downloads.move_to(core.settings.models_path)
             core.bus.publish("models", {})
         return core.settings.public()
 
