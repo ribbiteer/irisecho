@@ -89,16 +89,41 @@ fn venv_python(venv: &Path) -> PathBuf {
     }
 }
 
+/// The version in a core package's file name: irisecho_core-0.2.0-py3-none-any.whl -> [0, 2, 0].
+fn wheel_version(name: &str) -> Option<Vec<u64>> {
+    let rest = name.strip_prefix("irisecho_core-")?.strip_suffix(".whl")?;
+    let version = rest.split('-').next()?;
+    version.split('.').map(|part| part.parse().ok()).collect()
+}
+
+/// The newest core package. An update can leave the previous one beside it (a
+/// silent install does not run the old uninstaller), and the folder lists the
+/// older one first, so taking the first would keep running the old core.
 fn find_wheel(dir: &Path) -> Result<PathBuf, String> {
     fs::read_dir(dir)
         .map_err(|e| format!("Could not read {}: {e}", dir.display()))?
         .filter_map(|e| e.ok().map(|e| e.path()))
-        .find(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with("irisecho_core-") && n.ends_with(".whl"))
+        .filter_map(|p| {
+            let version = wheel_version(p.file_name()?.to_str()?)?;
+            Some((version, p))
         })
+        .max_by(|a, b| a.0.cmp(&b.0))
+        .map(|(_, p)| p)
         .ok_or_else(|| "The installer is missing the IrisEcho core package.".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wheel_version;
+
+    #[test]
+    fn newer_core_packages_sort_higher() {
+        let old = wheel_version("irisecho_core-0.1.9-py3-none-any.whl").unwrap();
+        let new = wheel_version("irisecho_core-0.2.0-py3-none-any.whl").unwrap();
+        let ten = wheel_version("irisecho_core-0.1.10-py3-none-any.whl").unwrap();
+        assert!(new > old && ten > old && new > ten);
+        assert_eq!(wheel_version("uv.exe"), None);
+    }
 }
 
 // --- status ------------------------------------------------------------------
