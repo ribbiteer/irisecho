@@ -20,7 +20,7 @@
   let withLyrics = $state(false);
   let lyrics = $state("");
   let takes = $state(2);
-  let thinking = $state(false);
+  let thinking = $state(true);
   let loop = $state(false);
   let sending = $state(false);
 
@@ -34,7 +34,7 @@
       withLyrics = !!r.params.lyrics;
       lyrics = r.params.lyrics ?? "";
       takes = r.params.takes ?? 2;
-      thinking = !!r.params.thinking;
+      thinking = r.params.thinking !== false;
       loop = !!r.params.loop;
       app.reuse = null;
     }
@@ -155,7 +155,7 @@
     <button class="switch" role="switch" aria-checked={thinking} aria-label="Plan the structure first" onclick={() => (thinking = !thinking)}></button>
     <span>
       <strong>Plan the structure first</strong>
-      <small>Better shape on longer pieces. Slower.</small>
+      <small>Plans tempo, key and form before composing, as ACE-Step does by default. Turn off for faster drafts.</small>
     </span>
   </label>
 

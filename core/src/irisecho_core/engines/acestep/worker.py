@@ -8,6 +8,7 @@ import random
 
 import numpy as np
 import soundfile as sf
+from irisecho_audio import loop_cut
 from irisecho_worker import Reporter, serve
 
 state: dict = {"dit": None, "llm": None, "key": None, "lm_key": None}
@@ -48,20 +49,6 @@ def load(params: dict, report: Reporter) -> dict:
     return {}
 
 
-def loop_cut(audio: np.ndarray, sr: int, bpm: int, xfade: float = 0.25) -> np.ndarray:
-    """Trim to a whole number of 4/4 bars and crossfade the tail into the head."""
-    bar = int(round(sr * 240 / bpm))
-    fade = int(sr * xfade)
-    bars = (len(audio) - fade) // bar
-    if bars < 1:
-        return audio
-    body = audio[: bars * bar].copy()
-    tail = audio[bars * bar : bars * bar + fade]
-    ramp = np.linspace(0.0, 1.0, len(tail), dtype=np.float32)[:, None]
-    body[: len(tail)] = body[: len(tail)] * ramp + tail * (1.0 - ramp)
-    return body
-
-
 def compose(params: dict, report: Reporter) -> dict:
     from acestep.inference import GenerationConfig, GenerationParams, generate_music
 
@@ -80,6 +67,9 @@ def compose(params: dict, report: Reporter) -> dict:
         bpm=params.get("bpm"),
         duration=params["duration"],
         thinking=bool(params.get("thinking")) and state["llm"] is not None,
+        # The turbo model is distilled for a timestep shift of 3; ACE-Step's
+        # own app uses 3, while the library default of 1 is for the base model.
+        shift=3.0,
         seed=seeds[0],
     )
     config = GenerationConfig(

@@ -136,3 +136,14 @@ def test_multi_picture_edit_keeps_named_objects_and_names_what_picture_1_shows()
     assert "most distinctive things you can see" in multi
     single = system_prompt(STYLES["qwen-edit"], "improve", 0, "make the sky red")
     assert "most distinctive things" not in single
+
+
+def test_sound_style_asks_for_a_sound_and_skips_picture_rules():
+    style = STYLES["sfx"]
+    draft = "a sign creaking on a clock tower"
+    prompt = system_prompt(style, "improve", 0, draft)
+    assert "single sound" in prompt
+    assert "double quotes" not in prompt and "baton markers" not in prompt
+    assert "sound-effect prompt" in user_prompt(style, "improve", draft)
+    assert "sound the scene" in user_prompt(style, "describe", "")
+    assert style_for("sa3-sfx", registry.default().models["sa3-sfx"].settings) == "sfx"

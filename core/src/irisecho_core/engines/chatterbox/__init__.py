@@ -118,7 +118,6 @@ class ChatterboxEngine(WorkerEngine):
                 "type": "audio",
                 "duration": t["duration"],
                 "seed": t["seed"],
-                "liveliness": t.get("liveliness"),
             }
             for t in result["takes"]
         ]

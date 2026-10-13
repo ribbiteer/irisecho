@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
   import ActionBar from "../ActionBar.svelte";
+  import PromptTools from "../PromptTools.svelte";
   import { app, submit } from "../../lib/state.svelte";
   import type { Studio } from "../../lib/studios";
   import type { Model } from "../../lib/types";
@@ -70,6 +71,7 @@
       </span>
     </label>
     <textarea id="sfx" class="textarea" rows="5" bind:value={prompt} placeholder="A heavy wooden desk drawer slammed shut, short and dry"></textarea>
+    {#if !perLine}<PromptTools {model} bind:value={prompt} describe />{/if}
     <p class="tip">Say what makes the sound, how it is triggered, and how it was recorded. One sound at a time; layer bigger effects from separate takes.</p>
   </div>
 

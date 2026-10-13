@@ -91,6 +91,7 @@ class Style:
     guide_with_image: str = ""  # used instead of `guide` when a picture is supplied
     guide_multi: str = ""  # used instead of both when the edit combines several pictures
     text_guide: str = ""  # added only when the draft is about words in the picture
+    audio: bool = False  # the prompt describes a sound
 
 
 STYLES: dict[str, Style] = {
@@ -292,6 +293,37 @@ STYLES: dict[str, Style] = {
                 "tone of voice, any music, and the sounds of the place."
             ),
         ),
+        # From Stability's prompting guide for Stable Audio 3 and the brief of its
+        # own prompt assistant: the model learned from sound-library catalogue
+        # text, so dense physical descriptions of one sound work best.
+        Style(
+            "sfx",
+            "Stable Audio sound effects",
+            edit=False,
+            video=False,
+            audio=True,
+            guide=(
+                "Target: Stable Audio 3, a sound-effects model trained on sound libraries "
+                "whose entries read like catalogue descriptions. Write one or two dense, "
+                "concrete sentences, 15 to 45 words, about a single sound: the exact source "
+                "(object, material, creature or machine), how it is set off, how it changes "
+                "over time (attack, decay, repeats, movement past the listener), the space it "
+                "was recorded in and how close the microphone is. Use plain physical words in "
+                "place of moods. Keep to one sound event or one steady ambience. Speech, "
+                "music and singing appear only when the draft asks for them. Leave the length "
+                "and any tags to IrisEcho; write the description alone. Write in English."
+            ),
+            guide_with_image=(
+                "Target: Stable Audio 3, a sound-effects model trained on sound libraries "
+                "whose entries read like catalogue descriptions. Look at the attached picture "
+                "and write one or two dense, concrete sentences, 15 to 45 words, about the one "
+                "sound that scene makes most clearly: the exact source (object, material, "
+                "creature or machine), how it is set off, how it changes over time, the space "
+                "it was recorded in and how close the microphone is. Use plain physical words "
+                "in place of moods. Leave the length and any tags to IrisEcho; write the "
+                "description alone. Write in English."
+            ),
+        ),
     ]
 }
 
@@ -306,17 +338,30 @@ def system_prompt(style: Style, mode: str, pictures: int, draft: str = "") -> st
     if style.edit and pictures > 1:
         guide += f" The {pictures} pictures are attached in order: Picture 1 to Picture {pictures}."
     parts = [guide]
-    if mode == "describe" or WORDS.search(draft):
+    if not style.audio and (mode == "describe" or WORDS.search(draft)):
         parts += [style.text_guide, TEXT] if style.text_guide else [TEXT]
-    if CLOCKS.search(draft) and not style.edit and not style.video:
+    if CLOCKS.search(draft) and not style.edit and not style.video and not style.audio:
         parts.append(DIALS)
     parts += [COMMON, REPLY]
     return "\n\n".join(parts)
 
 
 def user_prompt(style: Style, mode: str, draft: str, pictures: int = 1) -> str:
-    kind = "edit instruction" if style.edit else "video prompt" if style.video else "image prompt"
+    kind = (
+        "edit instruction"
+        if style.edit
+        else "video prompt"
+        if style.video
+        else "sound-effect prompt"
+        if style.audio
+        else "image prompt"
+    )
     if mode == "describe":
+        if style.audio:
+            return (
+                "Imagine the sound the scene in the attached picture makes and write it as "
+                "a sound-effect prompt in the style described above."
+            )
         if style.edit:
             return (
                 "Suggest one good edit for the attached picture and write it as an "

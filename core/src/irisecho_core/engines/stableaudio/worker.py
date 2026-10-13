@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 import torch
+from irisecho_audio import trim
 from irisecho_worker import Reporter, serve
 
 state: dict = {"model": None, "key": None, "sr": 44100}
@@ -58,16 +59,6 @@ def load(params: dict, report: Reporter) -> dict:
     return {}
 
 
-def trim(audio: np.ndarray, sr: int, db: float = -50.0, pad: float = 0.03) -> np.ndarray:
-    """Cut the silence the model pads short sounds with, keeping a tiny margin."""
-    level = np.max(np.abs(audio), axis=1)
-    loud = np.flatnonzero(level > 10 ** (db / 20))
-    if loud.size == 0:
-        return audio
-    p = int(pad * sr)
-    return audio[max(0, loud[0] - p) : loud[-1] + p + 1]
-
-
 def generate(params: dict, report: Reporter) -> dict:
     model = state["model"]
     if model is None:
@@ -76,25 +67,29 @@ def generate(params: dict, report: Reporter) -> dict:
     seed = params.get("seed")
     if seed is None:
         seed = random.randrange(2**31)
-    report.progress(0.1, "Generating")
-    audio = model.generate(
-        prompt=params["prompt"],
-        duration=float(params["seconds"]),
-        batch_size=len(outs),
-        seed=int(seed),
-    )
-    batch = audio.detach().float().cpu().numpy()
-    if batch.ndim == 2:
-        batch = batch[None]
     sr = state["sr"]
     takes = []
-    for i, out in enumerate(outs[: len(batch)]):
-        clip = batch[i].T  # [samples, channels]
+    # One take per seed, so a take's seed makes that same sound again.
+    for i, out in enumerate(outs):
+        report.progress(
+            0.05 + 0.9 * i / len(outs),
+            f"Generating · take {i + 1} of {len(outs)}" if len(outs) > 1 else "Generating",
+        )
+        audio = model.generate(
+            prompt=params["prompt"],
+            duration=float(params["seconds"]),
+            batch_size=1,
+            seed=int(seed) + i,
+        )
+        clip = audio.detach().float().cpu().numpy().reshape(-1, audio.shape[-1]).T
         if params.get("trim", True):
-            clip = trim(clip, sr)
+            # Only the silence the model pads short sounds with; decays and room tone stay.
+            clip = trim(clip, sr, below_peak_db=60.0, floor_db=-75.0, pad_s=0.05)
+        # Loudness stays as generated: a pin drop should not come out as loud
+        # as an explosion. Only keep peaks from clipping.
         peak = float(np.max(np.abs(clip))) if clip.size else 0.0
-        if peak > 0:
-            clip = clip * (10 ** (-1 / 20) / peak)  # peak at -1 dBFS
+        if peak > 0.99:
+            clip = clip * (0.99 / peak)
         sf.write(out, clip, sr, subtype="PCM_16")
         takes.append({"path": out, "duration": round(len(clip) / sr, 3), "seed": int(seed) + i})
     report.progress(1.0, "Done")

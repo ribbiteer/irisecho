@@ -112,8 +112,7 @@ class KokoroEngine(WorkerEngine):
                 "voice": str(ctx.files[f"kokoro-voices/{voice}.pt"]),
                 "lang": voice[0],
                 "speed": float(p.get("speed") or 1.0),
-                "trim_db": -42.0 if clean else None,
-                "rms_db": -18.0 if clean else None,
+                "clean": bool(clean),
                 "out": str(out),
             },
         )

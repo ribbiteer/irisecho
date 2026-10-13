@@ -86,8 +86,9 @@ class StableAudioEngine(WorkerEngine):
             ctx,
             "generate",
             {
-                # Stability's guide: this tag steers toward clean, sensible effects.
-                "prompt": f"{prompt.rstrip('. ')}. TrackType: SFX",
+                # Stability's guide: this tag, leading the prompt the way their
+                # prompt assistant writes it, steers toward clean, sensible effects.
+                "prompt": f"TrackType: SFX, {prompt}",
                 "seconds": seconds,
                 "seed": p.get("seed"),
                 "outs": [str(ctx.output(i, "wav")) for i in range(takes)],

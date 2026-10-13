@@ -46,10 +46,8 @@ def speak(params: dict, report: Reporter) -> dict:
     if not chunks:
         raise RuntimeError("Nothing to say: the text had no speakable words.")
     audio = np.concatenate(chunks).astype(np.float32)
-    if params.get("trim_db") is not None:
-        audio = trim(audio, SAMPLE_RATE, params["trim_db"])
-    if params.get("rms_db") is not None:
-        audio = normalize(audio, params["rms_db"])
+    if params.get("clean"):
+        audio = normalize(trim(audio, SAMPLE_RATE), SAMPLE_RATE)
     sf.write(params["out"], audio, SAMPLE_RATE, subtype="PCM_16")
     report.progress(1.0, "Done")
     return {"duration": round(len(audio) / SAMPLE_RATE, 3), "sample_rate": SAMPLE_RATE}

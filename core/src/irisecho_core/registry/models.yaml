@@ -730,6 +730,7 @@ models:
     engine: stable-audio
     license: stability-community
     summary: One-shot sound effects in seconds. Foley, UI sounds, impacts, ambience.
+    settings: {prompt_style: sfx}
     variants:
       - when: {backend: cuda}
         files: [sa3-sfx]

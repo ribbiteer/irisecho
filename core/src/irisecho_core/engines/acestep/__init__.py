@@ -104,6 +104,8 @@ class AceStepEngine(WorkerEngine):
         if not caption:
             raise ValueError("Describe the music with a few style tags.")
         takes = max(1, min(MAX_TAKES, int(p.get("takes") or 1)))
+        # The song planner (5 Hz LM) is on unless asked off, as in ACE-Step's own app.
+        thinking = p.get("thinking") is not False
         root = group_root(ctx, "ace-step-core")
         lm_root = group_root(ctx, "ace-step-lm")
         await self.call(
@@ -115,7 +117,7 @@ class AceStepEngine(WorkerEngine):
                 "device": self.device(),
                 "lm": LM,
                 "lm_root": str(lm_root),
-                "thinking": bool(p.get("thinking")),
+                "thinking": thinking,
             },
         )
         outs = [str(ctx.output(i, "wav")) for i in range(takes)]
@@ -128,7 +130,7 @@ class AceStepEngine(WorkerEngine):
                 "duration": float(p.get("duration") or 30),
                 "bpm": int(p["bpm"]) if p.get("bpm") else None,
                 "seed": p.get("seed"),
-                "thinking": bool(p.get("thinking")),
+                "thinking": thinking,
                 "loop": bool(p.get("loop")) and bool(p.get("bpm")),
                 "outs": outs,
             },
