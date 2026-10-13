@@ -5,6 +5,7 @@
   import ActionBar from "../ActionBar.svelte";
   import Waveform from "../Waveform.svelte";
   import { api, uploadUrl } from "../../lib/api";
+  import { looksLikeAudio, readableAudio } from "../../lib/audio";
   import { app, fail, submit } from "../../lib/state.svelte";
   import type { Studio } from "../../lib/studios";
   import type { Model } from "../../lib/types";
@@ -41,14 +42,14 @@
   });
 
   async function upload(file: File) {
-    if (!file.type.startsWith("audio/")) {
-      fail("Use a WAV, MP3, FLAC or OGG recording.");
+    if (!looksLikeAudio(file)) {
+      fail("Use a WAV, MP3, FLAC, OGG or M4A recording.");
       return;
     }
     uploading = true;
     try {
       const form = new FormData();
-      form.append("file", file);
+      form.append("file", await readableAudio(file));
       const r = await api<{ id: string }>("/uploads", { form });
       ref = { id: r.id, name: file.name };
     } catch (e) {
@@ -138,7 +139,7 @@
         />
         <FileAudio size={22} />
         <strong>{uploading ? "Adding…" : "Drop a recording, or choose a file"}</strong>
-        <small>5 to 15 seconds of one clear voice. The first 6 seconds shape the delivery most.</small>
+        <small>10 to 15 seconds of one clear voice, no music or other speakers. Phone voice memos work.</small>
       </label>
     {/if}
   </div>

@@ -76,8 +76,9 @@ marks them) must not be used for commercial work.
 |---|---|---|
 | `image PROMPT` | pictures | `--model` (default `z-image-turbo`), `--aspect 1:1\|4:3\|3:4\|16:9\|9:16\|3:2\|2:3`, `--count`, `--seed`; FLUX models also `--from picture.png`, `--denoise`, `--size 1920x1088` |
 | `say TEXT` | narration | `--voice` (default `af_heart`), `--speed`, `--file cues.txt` |
-| `clone TEXT --ref clip.wav` | speech in a sampled voice | `--model chatterbox-turbo\|chatterbox`, `--takes`, `--file cues.txt` |
-| `music TAGS` | music | `--seconds`, `--bpm`, `--loop`, `--lyrics`, `--takes`, `--file cues.txt` |
+| `clone TEXT --ref clip.wav` | speech in a sampled voice | `--model chatterbox-turbo\|chatterbox`, `--takes`, `--file cues.txt`; the clip is 10 to 15 s of one voice (WAV, MP3, FLAC or OGG; Turbo needs more than 5 s) |
+| `music TAGS` | music | `--seconds`, `--bpm`, `--loop`, `--lyrics` or `--lyrics-file`, `--takes`, `--no-thinking`, `--file cues.txt` |
+| `sfx PROMPT` | sound effects | `--seconds` (0.5 to 30), `--takes` (default 3), `--raw`, `--file cues.txt`, `--accept-license` |
 | `write DRAFT` | a better prompt, printed on stdout | `--for MODEL`, `--image picture.png` |
 | `3d PICTURE` | a 3D model | `--back picture.png`, `--model auto\|pixal3d\|trellis2`, `--detail standard\|high`, `--faces 500000\|100000\|20000`, `--no-textures`, `--keep-openings`, `--format glb\|stl\|3mf\|obj\|ply`, `--height MM` |
 
@@ -87,11 +88,19 @@ everything.
 
 Cue sheets are text files, one job per line, `#` for comments:
 
-- `say` and `clone`: `id|text`
+- `say`, `clone` and `sfx`: `id|text`
 - `music`: `id|seconds|bpm|tags` (bpm may be empty)
 
 Only clone a voice the person has the right to use. Cloned speech carries an
-inaudible watermark.
+inaudible watermark. Long text is spoken sentence by sentence and joined, so a
+whole paragraph comes out in one file.
+
+Speech is trimmed and brought to -19 LUFS with peaks under -1 dBFS (`--raw`
+keeps the model's own output). Music plans tempo, key and form with ACE-Step's
+song planner first, as ACE-Step itself does; `--no-thinking` skips it for faster
+drafts. `--loop` (with `--bpm`) cuts whole bars from the first downbeat it hears
+and blends the seam. Sound effects keep their own loudness, so a pin drop stays
+quieter than an explosion; only the silence the model pads with is trimmed.
 
 ### 3D models
 
@@ -119,8 +128,8 @@ model's own frame for 3D programs. With `--json` the object includes
 
 ## Everything else: the local API
 
-Edits, upscaling, video, sound effects and library housekeeping have no command
-of their own yet. Reach them through the running app's API. `irisecho api`
+Edits, upscaling, video and library housekeeping have no command of their own
+yet. Reach them through the running app's API. `irisecho api`
 finds the app and signs the request; the window must be open (or
 `irisecho serve` running).
 
@@ -160,7 +169,7 @@ Job `params` by kind of model:
 | video | `ltx25`, `wan22-t2v`, `wan22-i2v`, `wan22-i2v-1022`, `hunyuan15-i2v` | `prompt`, `aspect`, `seconds` (2 to 5), `size` (`standard`, `large`, or `720p` on a 12 GB card; `hunyuan15-i2v` has no `large`), `smooth`, and a `start` and/or `end` frame: required for the `i2v` models (`hunyuan15-i2v` takes `start` only), optional for `ltx25` |
 | voice | `kokoro` | `text`, `voice`, `speed`, `clean` |
 | clone | `chatterbox-turbo`, `chatterbox` | `text`, `ref`, `consent` (must be `true`), `takes`, `seed`; `exaggeration` and `cfg` on `chatterbox` |
-| music | `ace-step` | `prompt` (style tags), `duration`, `bpm`, `lyrics`, `takes`, `loop`, `thinking`, `seed` |
+| music | `ace-step` | `prompt` (style tags), `duration`, `bpm`, `lyrics`, `takes`, `loop`, `thinking` (default `true`), `seed` |
 | sfx | `sa3-sfx` | `prompt`, `duration` (0.5 to 30), `takes`, `trim`, `seed` |
 | video-upscale | `seedvr2-video` | `video` (an upload id of an MP4 clip), `short_side` (720 to 1080, default 1080), `seed` |
 | model3d | `trellis2`, `pixal3d` | `front` (and `back` for `pixal3d`), `detail` (`standard` or `high`), `faces` (500000, 100000 or 20000), `textures` (default true), `openings` (`close` or `keep`), `seed` |

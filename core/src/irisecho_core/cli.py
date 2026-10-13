@@ -7,6 +7,11 @@ irisecho info                this machine and what it can run
 irisecho models              every model and whether it is ready
 irisecho setup MODEL         install and download everything a model needs
 irisecho say TEXT            speak a line (or --file cues.txt for a script)
+irisecho clone TEXT --ref F  speak in a voice cloned from a short recording
+irisecho music TAGS          compose music (or --file cues.txt)
+irisecho sfx PROMPT          make sound effects (or --file cues.txt)
+irisecho link FOLDER         use model files you already have
+irisecho 3d PICTURE          make a 3D model from a picture
 irisecho image PROMPT        make images
 irisecho write DRAFT         improve a prompt, or describe a picture as one
 irisecho api METHOD PATH     call the running app's local API (api GET models)
@@ -692,18 +697,43 @@ def cmd_music(args) -> int:
     else:
         print("Give style tags, or --file with a cue sheet.", file=sys.stderr)
         return 2
+    lyrics = args.lyrics or ""
+    if args.lyrics_file:
+        lyrics = Path(args.lyrics_file).read_text(encoding="utf-8")
     params = [
         {
             **cue,
             "takes": args.takes,
             "loop": args.loop,
             "thinking": args.thinking,
-            "lyrics": args.lyrics or "",
+            "lyrics": lyrics,
             "seed": args.seed,
         }
         for cue in cues
     ]
     return generate(args, "ace-step", params)
+
+
+def cmd_sfx(args) -> int:
+    if args.file:
+        cues = read_cues(Path(args.file))
+    elif args.prompt:
+        cues = [("", args.prompt)]
+    else:
+        print("Describe a sound, or give --file with a cue sheet.", file=sys.stderr)
+        return 2
+    params = [
+        {
+            "id": cid,
+            "prompt": text,
+            "duration": args.seconds,
+            "takes": args.takes,
+            "trim": not args.raw,
+            "seed": args.seed,
+        }
+        for cid, text in cues
+    ]
+    return generate(args, "sa3-sfx", params, args.accept_license)
 
 
 def cmd_image(args) -> int:
@@ -941,12 +971,14 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("clone", help="speak in a voice cloned from a short clip")
     p.add_argument("text", nargs="?")
-    p.add_argument("--ref", required=True, help="5-15 s of clean speech; the first 6 s matter most")
+    p.add_argument(
+        "--ref", required=True, help="10-15 s of one clear voice (WAV, MP3, FLAC or OGG)"
+    )
     p.add_argument("--file", help="cue sheet: one `id|text` per line")
     p.add_argument(
         "--model", default="chatterbox-turbo", choices=["chatterbox-turbo", "chatterbox"]
     )
-    p.add_argument("--takes", type=int, default=1, help="liveliest take is listed first")
+    p.add_argument("--takes", type=int, default=1, help="takes of each line, one seed apart")
     p.add_argument("--seed", type=int)
     p.add_argument("--exaggeration", type=float, default=0.5, help="classic model only")
     p.add_argument("--cfg", type=float, default=0.5, help="classic model only")
@@ -962,12 +994,30 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--bpm", type=int)
     p.add_argument("--takes", type=int, default=1)
     p.add_argument("--loop", action="store_true", help="cut on the bar into a seamless loop")
-    p.add_argument("--thinking", action="store_true", help="plan the structure first")
+    p.add_argument(
+        "--thinking",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="plan tempo, key and form first (on by default; --no-thinking is faster)",
+    )
     p.add_argument("--lyrics", help="sung lyrics (instrumental when omitted)")
+    p.add_argument("--lyrics-file", help="read the sung lyrics from this text file")
     p.add_argument("--seed", type=int)
     p.add_argument("--out", help="copy results into this folder")
     p.add_argument("--json", action="store_true", help="one JSON object per job on stdout")
     p.set_defaults(fn=cmd_music)
+
+    p = sub.add_parser("sfx", help="make sound effects from a description, or a cue sheet")
+    p.add_argument("prompt", nargs="?", help="what the sound is, in plain words")
+    p.add_argument("--file", help="cue sheet: one `id|description` per line")
+    p.add_argument("--seconds", type=float, default=3, help="0.5 to 30")
+    p.add_argument("--takes", type=int, default=3, help="takes of each sound, one seed apart")
+    p.add_argument("--seed", type=int)
+    p.add_argument("--raw", action="store_true", help="keep the silence the model pads with")
+    p.add_argument("--accept-license", action="store_true")
+    p.add_argument("--out", help="copy results into this folder")
+    p.add_argument("--json", action="store_true", help="one JSON object per job on stdout")
+    p.set_defaults(fn=cmd_sfx)
 
     p = sub.add_parser("image", help="make images from a prompt")
     p.add_argument("prompt")
