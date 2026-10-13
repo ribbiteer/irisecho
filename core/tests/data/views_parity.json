@@ -1,0 +1,437 @@
+{
+ "back": {
+  "alpha_front": {
+   "class_type": "InvertMask",
+   "inputs": {
+    "mask": [
+     "load_front",
+     1
+    ]
+   }
+  },
+  "bg_model": {
+   "class_type": "LoadBackgroundRemovalModel",
+   "inputs": {
+    "bg_removal_name": "birefnet.safetensors"
+   }
+  },
+  "check": {
+   "class_type": "IrisEchoViewCheck",
+   "inputs": {
+    "back_mask": [
+     "mask_back",
+     0
+    ],
+    "front_mask": [
+     "mask_front",
+     0
+    ]
+   }
+  },
+  "cut_front": {
+   "class_type": "RemoveBackground",
+   "inputs": {
+    "bg_removal_model": [
+     "bg_model",
+     0
+    ],
+    "image": [
+     "load_front",
+     0
+    ]
+   }
+  },
+  "decode": {
+   "class_type": "VAEDecode",
+   "inputs": {
+    "samples": [
+     "sample",
+     0
+    ],
+    "vae": [
+     "q_vae",
+     0
+    ]
+   }
+  },
+  "frame": {
+   "class_type": "IrisEchoFrameViews",
+   "inputs": {
+    "back": [
+     "decode",
+     0
+    ],
+    "back_mask": [
+     "mask_back",
+     0
+    ],
+    "front": [
+     "load_front",
+     0
+    ],
+    "front_mask": [
+     "mask_front",
+     0
+    ]
+   }
+  },
+  "load_front": {
+   "class_type": "LoadImage",
+   "inputs": {
+    "image": "a.png"
+   }
+  },
+  "mask_back": {
+   "class_type": "RemoveBackground",
+   "inputs": {
+    "bg_removal_model": [
+     "bg_model",
+     0
+    ],
+    "image": [
+     "decode",
+     0
+    ]
+   }
+  },
+  "mask_front": {
+   "class_type": "IrisEchoChooseMask",
+   "inputs": {
+    "alpha": [
+     "alpha_front",
+     0
+    ],
+    "cutout": [
+     "cut_front",
+     0
+    ]
+   }
+  },
+  "q_clip": {
+   "class_type": "CLIPLoader",
+   "inputs": {
+    "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+    "device": "default",
+    "type": "qwen_image"
+   }
+  },
+  "q_encode": {
+   "class_type": "VAEEncode",
+   "inputs": {
+    "pixels": [
+     "q_scale",
+     0
+    ],
+    "vae": [
+     "q_vae",
+     0
+    ]
+   }
+  },
+  "q_negative": {
+   "class_type": "TextEncodeQwenImageEditPlus",
+   "inputs": {
+    "clip": [
+     "q_clip",
+     0
+    ],
+    "image1": [
+     "q_scale",
+     0
+    ],
+    "prompt": "",
+    "vae": [
+     "q_vae",
+     0
+    ]
+   }
+  },
+  "q_norm": {
+   "class_type": "CFGNorm",
+   "inputs": {
+    "model": [
+     "q_shift",
+     0
+    ],
+    "strength": 1.0
+   }
+  },
+  "q_scale": {
+   "class_type": "ImageScaleToTotalPixels",
+   "inputs": {
+    "image": [
+     "load_front",
+     0
+    ],
+    "megapixels": 1.0,
+    "resolution_steps": 1,
+    "upscale_method": "lanczos"
+   }
+  },
+  "q_shift": {
+   "class_type": "ModelSamplingAuraFlow",
+   "inputs": {
+    "model": [
+     "q_unet",
+     0
+    ],
+    "shift": 3.0
+   }
+  },
+  "q_text": {
+   "class_type": "TextEncodeQwenImageEditPlus",
+   "inputs": {
+    "clip": [
+     "q_clip",
+     0
+    ],
+    "image1": [
+     "q_scale",
+     0
+    ],
+    "prompt": "Turn the camera around to the other side of this object and show it from directly behind, exactly opposite to this view. Keep exactly the same object with the same colours and details, the same size and position in the frame, the camera at the same eye level and distance, the same soft lighting and the same plain light grey background.",
+    "vae": [
+     "q_vae",
+     0
+    ]
+   }
+  },
+  "q_unet": {
+   "class_type": "NunchakuQwenImageDiTLoader",
+   "inputs": {
+    "cpu_offload": "enable",
+    "model_name": "svdq-int4_r128-qwen-image-edit-2509-lightning-8steps-251115.safetensors",
+    "num_blocks_on_gpu": 20,
+    "use_pin_memory": "disable"
+   }
+  },
+  "q_vae": {
+   "class_type": "VAELoader",
+   "inputs": {
+    "vae_name": "qwen_image_vae.safetensors"
+   }
+  },
+  "sample": {
+   "class_type": "KSampler",
+   "inputs": {
+    "cfg": 1.0,
+    "denoise": 1.0,
+    "latent_image": [
+     "q_encode",
+     0
+    ],
+    "model": [
+     "q_norm",
+     0
+    ],
+    "negative": [
+     "q_negative",
+     0
+    ],
+    "positive": [
+     "q_text",
+     0
+    ],
+    "sampler_name": "euler",
+    "scheduler": "simple",
+    "seed": 3,
+    "steps": 8
+   }
+  },
+  "save_back": {
+   "class_type": "SaveImage",
+   "inputs": {
+    "filename_prefix": "p-back",
+    "images": [
+     "frame",
+     1
+    ]
+   }
+  },
+  "save_front": {
+   "class_type": "SaveImage",
+   "inputs": {
+    "filename_prefix": "p-front",
+    "images": [
+     "frame",
+     0
+    ]
+   }
+  }
+ },
+ "level": {
+  "decode": {
+   "class_type": "VAEDecode",
+   "inputs": {
+    "samples": [
+     "sample",
+     0
+    ],
+    "vae": [
+     "q_vae",
+     0
+    ]
+   }
+  },
+  "orig": {
+   "class_type": "LoadImage",
+   "inputs": {
+    "image": "a.png"
+   }
+  },
+  "q_clip": {
+   "class_type": "CLIPLoader",
+   "inputs": {
+    "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+    "device": "default",
+    "type": "qwen_image"
+   }
+  },
+  "q_encode": {
+   "class_type": "VAEEncode",
+   "inputs": {
+    "pixels": [
+     "q_scale",
+     0
+    ],
+    "vae": [
+     "q_vae",
+     0
+    ]
+   }
+  },
+  "q_negative": {
+   "class_type": "TextEncodeQwenImageEditPlus",
+   "inputs": {
+    "clip": [
+     "q_clip",
+     0
+    ],
+    "image1": [
+     "q_scale",
+     0
+    ],
+    "prompt": "",
+    "vae": [
+     "q_vae",
+     0
+    ]
+   }
+  },
+  "q_norm": {
+   "class_type": "CFGNorm",
+   "inputs": {
+    "model": [
+     "q_shift",
+     0
+    ],
+    "strength": 1.0
+   }
+  },
+  "q_scale": {
+   "class_type": "ImageScaleToTotalPixels",
+   "inputs": {
+    "image": [
+     "orig",
+     0
+    ],
+    "megapixels": 1.0,
+    "resolution_steps": 1,
+    "upscale_method": "lanczos"
+   }
+  },
+  "q_shift": {
+   "class_type": "ModelSamplingAuraFlow",
+   "inputs": {
+    "model": [
+     "q_unet",
+     0
+    ],
+    "shift": 3.0
+   }
+  },
+  "q_text": {
+   "class_type": "TextEncodeQwenImageEditPlus",
+   "inputs": {
+    "clip": [
+     "q_clip",
+     0
+    ],
+    "image1": [
+     "q_scale",
+     0
+    ],
+    "prompt": "Show this exact object from directly in front, with the camera at the object's mid-height looking straight at it: a straight-on front view with no downward or sideways angle. Keep exactly the same object with the same shape, proportions, colours and details. The whole object is visible and centered with space around it, on the same plain light grey background with soft even lighting.",
+    "vae": [
+     "q_vae",
+     0
+    ]
+   }
+  },
+  "q_unet": {
+   "class_type": "NunchakuQwenImageDiTLoader",
+   "inputs": {
+    "cpu_offload": "enable",
+    "model_name": "svdq-int4_r128-qwen-image-edit-2509-lightning-8steps-251115.safetensors",
+    "num_blocks_on_gpu": 20,
+    "use_pin_memory": "disable"
+   }
+  },
+  "q_vae": {
+   "class_type": "VAELoader",
+   "inputs": {
+    "vae_name": "qwen_image_vae.safetensors"
+   }
+  },
+  "same": {
+   "class_type": "IrisEchoSimilarity",
+   "inputs": {
+    "a": [
+     "q_scale",
+     0
+    ],
+    "b": [
+     "decode",
+     0
+    ]
+   }
+  },
+  "sample": {
+   "class_type": "KSampler",
+   "inputs": {
+    "cfg": 1.0,
+    "denoise": 1.0,
+    "latent_image": [
+     "q_encode",
+     0
+    ],
+    "model": [
+     "q_norm",
+     0
+    ],
+    "negative": [
+     "q_negative",
+     0
+    ],
+    "positive": [
+     "q_text",
+     0
+    ],
+    "sampler_name": "euler",
+    "scheduler": "simple",
+    "seed": 3,
+    "steps": 8
+   }
+  },
+  "save": {
+   "class_type": "SaveImage",
+   "inputs": {
+    "filename_prefix": "p",
+    "images": [
+     "decode",
+     0
+    ]
+   }
+  }
+ }
+}

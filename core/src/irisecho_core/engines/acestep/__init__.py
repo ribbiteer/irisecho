@@ -14,7 +14,7 @@ from pathlib import Path
 
 import httpx
 
-from irisecho_core.engines import uvenv
+from irisecho_core.engines import audioformat, audiosource, uvenv
 from irisecho_core.engines.base import RunContext
 from irisecho_core.engines.worker import WorkerEngine
 
@@ -43,6 +43,79 @@ def group_root(ctx: RunContext, group: str) -> Path:
             "the Models page and set it up again to download a complete copy."
         )
     return roots.pop()
+
+
+def _bounded(model, name: str, value, kind=float):
+    value = kind(value)
+    c = model.control(name)
+    if c is not None and c.min is not None and c.max is not None:
+        value = max(kind(c.min), min(kind(c.max), value))
+    return value
+
+
+def compose_options(model, p: dict) -> dict:
+    """The advanced music settings a job set (and only those), checked against the registry."""
+    out: dict = {}
+    if p.get("key"):
+        out["key"] = str(p["key"]).strip()
+    if p.get("time_signature") not in (None, ""):
+        out["time_signature"] = str(p["time_signature"]).strip()
+    if p.get("vocal_language"):
+        out["vocal_language"] = str(p["vocal_language"]).strip()
+    if p.get("steps") is not None:
+        out["steps"] = _bounded(model, "steps", p["steps"], int)
+    if p.get("shift") is not None:
+        out["shift"] = _bounded(model, "shift", p["shift"])
+    if p.get("lm_temperature") is not None:
+        out["lm_temperature"] = _bounded(model, "lm_temperature", p["lm_temperature"])
+    if p.get("lm_top_p") is not None:
+        out["lm_top_p"] = _bounded(model, "lm_top_p", p["lm_top_p"])
+    if p.get("raw"):
+        out["raw"] = True
+    return out
+
+
+TASKS = ("cover", "repaint", "extend")
+MAX_EXTEND = 240.0  # seconds added by one extend, in step with the longest song the studio makes
+
+
+def source_options(model, p: dict) -> dict:
+    """What a job that starts from a recording adds to the request ({} for a plain job).
+
+    `task` is cover (the same song in a new style), repaint (new music for one part)
+    or extend (new music after the end). The worker turns extend into a repaint past
+    the end of the recording, which ACE-Step pads with silence itself.
+    """
+    task = p.get("task") or ""
+    source = p.get("source")
+    if not task and not source:
+        return {}
+    if not task:
+        raise ValueError(
+            "Choose what to do with the recording: cover it, repaint a part, or extend it."
+        )
+    if task not in TASKS:
+        raise ValueError(f"Unknown task {task}; use cover, repaint or extend.")
+    if not source:
+        raise ValueError("Add the recording to start from first.")
+    out: dict = {"task": task, "source": str(audiosource.upload_path(source))}
+    if task == "cover":
+        if p.get("cover_strength") is not None:
+            out["cover_strength"] = _bounded(model, "cover_strength", p["cover_strength"])
+        if p.get("cover_noise") is not None:
+            out["cover_noise"] = _bounded(model, "cover_noise", p["cover_noise"])
+    elif task == "repaint":
+        if p.get("region") is None:
+            raise ValueError("Give the part to repaint as a start and an end, in seconds.")
+        out["region"] = list(audiosource.region(p["region"]))
+    else:
+        if p.get("extend_by") is None:
+            raise ValueError("Say how many seconds to add.")
+        by = audiosource.seconds(p["extend_by"], "Seconds to add")
+        if not 1 <= by <= MAX_EXTEND:
+            raise ValueError(f"Seconds to add must be between 1 and {MAX_EXTEND:g}.")
+        out["extend_by"] = round(by, 3)
+    return out
 
 
 class AceStepEngine(WorkerEngine):
@@ -106,6 +179,11 @@ class AceStepEngine(WorkerEngine):
         takes = max(1, min(MAX_TAKES, int(p.get("takes") or 1)))
         # The song planner (5 Hz LM) is on unless asked off, as in ACE-Step's own app.
         thinking = p.get("thinking") is not False
+        # Cover, repaint and extend start from the recording, not from a plan (ACE-Step
+        # skips the planner for them, inference.py:612), so it is not even loaded.
+        source = source_options(ctx.model, p)
+        if source:
+            thinking = False
         root = group_root(ctx, "ace-step-core")
         lm_root = group_root(ctx, "ace-step-lm")
         await self.call(
@@ -120,21 +198,22 @@ class AceStepEngine(WorkerEngine):
                 "thinking": thinking,
             },
         )
-        outs = [str(ctx.output(i, "wav")) for i in range(takes)]
-        result = await self.call(
-            ctx,
-            "compose",
-            {
-                "caption": caption,
-                "lyrics": (p.get("lyrics") or "").strip(),
-                "duration": float(p.get("duration") or 30),
-                "bpm": int(p["bpm"]) if p.get("bpm") else None,
-                "seed": p.get("seed"),
-                "thinking": thinking,
-                "loop": bool(p.get("loop")) and bool(p.get("bpm")),
-                "outs": outs,
-            },
-        )
+        _, ext, fmt = audioformat.pick(p)
+        outs = [str(ctx.output(i, ext)) for i in range(takes)]
+        request = {
+            "caption": caption,
+            "lyrics": (p.get("lyrics") or "").strip(),
+            "duration": float(p.get("duration") or 30),
+            "bpm": int(p["bpm"]) if p.get("bpm") else None,
+            "seed": p.get("seed"),
+            "thinking": thinking,
+            "loop": bool(p.get("loop")) and bool(p.get("bpm")),
+            "outs": outs,
+            **fmt,
+            **compose_options(ctx.model, p),
+            **source,
+        }
+        result = await self.call(ctx, "compose", request)
         return [
             {"path": o["path"], "type": "audio", "duration": o["duration"], "seed": o.get("seed")}
             for o in result["takes"]

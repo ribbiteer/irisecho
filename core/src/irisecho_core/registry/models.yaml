@@ -41,6 +41,10 @@ repos:
   Comfy-Org/TRELLIS.2: 430a9d09b2416687018c8fe8edced2ad4858a439
   Comfy-Org/Pixal3D: f37641be376725d324c56626007cc477f1249a69
   Comfy-Org/BiRefNet: 25511f8787e51912e1480706b4e47b8f467fbf72
+  alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union: 01c794d57ff16844b24d0580471fa9d686e7a465
+  Comfy-Org/Depth-Anything-3: 1aaeea516f22fb2f4c7fae761c8ed470c6cf9f93
+  Comfy-Org/SDPose: acb43fbe8142b54d9ebd52b720b81dd4e14c8d81
+  Comfy-Org/MoGe: 1484985258ba7ef45c314144fcf0e90924ffbf44
 
 licenses:
   apache-2.0:
@@ -129,6 +133,31 @@ licenses:
       whose license allows personal and commercial use but not military,
       nuclear, espionage or weapons uses, and asks you to follow trade controls
       and to credit DINOv3 in research you publish.
+  pixal3d-moge:
+    name: MIT License and DINOv3 License
+    url: https://ai.meta.com/resources/models-and-libraries/dinov3-license/
+    commercial: true
+    condition: Tencent does not offer Pixal3D in the EU
+    accept: true
+    summary: >-
+      Pixal3D itself is under the MIT License; Tencent does not offer its own
+      download in the European Union. It reads pictures with Meta's DINOv3,
+      whose license allows personal and commercial use but not military,
+      nuclear, espionage or weapons uses, and asks you to follow trade controls
+      and to credit DINOv3 in research you publish. The camera angle is
+      estimated with Microsoft's MoGe-2 (MIT License; its DINOv2 parts are
+      Apache 2.0).
+  zimage-control:
+    name: Apache License 2.0, MIT License and Stable Diffusion 2 heritage
+    url: https://huggingface.co/Comfy-Org/SDPose
+    commercial: true
+    accept: true
+    summary: >-
+      Z-Image Turbo, its Fun ControlNet and Depth Anything 3 (small) are under
+      the Apache License 2.0. The pose reader, SDPose, is published under the
+      MIT License, but its card says it starts from Stable Diffusion 2 weights,
+      which carry the CreativeML Open RAIL++-M license: free to use, including
+      commercially, but not for the harmful uses it lists.
 
 files:
   # Kokoro
@@ -390,6 +419,24 @@ files:
     repo: Comfy-Org/SeedVR2
     path: vae/ema_vae_fp16.safetensors
     category: vae
+  seedvr2-7b:
+    repo: Comfy-Org/SeedVR2
+    path: diffusion_models/seedvr2_7b_int8_convrot.safetensors
+    category: diffusion_models
+
+  # Z-Image Turbo guided by a picture: the Fun ControlNet, and a depth and a pose reader
+  zimage-fun-union:
+    repo: alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union
+    path: Z-Image-Turbo-Fun-Controlnet-Union.safetensors
+    category: model_patches
+  da3-small:
+    repo: Comfy-Org/Depth-Anything-3
+    path: geometry_estimation/depth_anything_3_small.safetensors
+    category: geometry_estimation
+  sdpose-wholebody:
+    repo: Comfy-Org/SDPose
+    path: checkpoints/sdpose_wholebody_fp16.safetensors
+    category: checkpoints
 
   # Video
   wan-umt5:
@@ -439,6 +486,23 @@ files:
   wan-t2v-lora-1217-low:
     repo: lightx2v/Wan2.2-Distill-Loras
     path: wan2.2_t2v_A14b_low_noise_lora_rank64_lightx2v_4step_1217.safetensors
+    category: loras
+  # Wan 2.2 Fun Camera, with the four-step LoRA pair of ComfyUI's own template
+  wan-fun-camera-high:
+    repo: Comfy-Org/Wan_2.2_ComfyUI_Repackaged
+    path: split_files/diffusion_models/wan2.2_fun_camera_high_noise_14B_fp8_scaled.safetensors
+    category: diffusion_models
+  wan-fun-camera-low:
+    repo: Comfy-Org/Wan_2.2_ComfyUI_Repackaged
+    path: split_files/diffusion_models/wan2.2_fun_camera_low_noise_14B_fp8_scaled.safetensors
+    category: diffusion_models
+  wan-i2v-lora-v1-high:
+    repo: Comfy-Org/Wan_2.2_ComfyUI_Repackaged
+    path: split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors
+    category: loras
+  wan-i2v-lora-v1-low:
+    repo: Comfy-Org/Wan_2.2_ComfyUI_Repackaged
+    path: split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors
     category: loras
 
   # HunyuanVideo 1.5 (shares the Qwen2.5-VL encoder with Qwen Edit)
@@ -493,6 +557,14 @@ files:
     repo: Comfy-Org/Pixal3D
     path: diffusion_models/pixal3d_multiview_int8_convrot.safetensors
     category: diffusion_models
+  pixal3d-int8:
+    repo: Comfy-Org/Pixal3D
+    path: diffusion_models/pixal3d_int8_convrot.safetensors
+    category: diffusion_models
+  moge2-vitl-normal:
+    repo: Comfy-Org/MoGe
+    path: geometry_estimation/moge_2_vitl_normal_fp16.safetensors
+    category: geometry_estimation
   trellis2-shape-vae:
     repo: Comfy-Org/TRELLIS.2
     path: vae/trellis_2_shape_vae_bf16.safetensors
@@ -518,6 +590,88 @@ files:
     path: frame_interpolation/film_net_fp16.safetensors
     category: frame_interpolation
 
+# Advanced controls shared by several models (anchors; see `controls:` under each model).
+# A control left unset gives the model's recommended behaviour, which is its `default`.
+x-controls:
+  audio-format: &audio-format
+    name: format
+    type: choice
+    default: wav16
+    options:
+      - {value: wav16, label: WAV 16-bit}
+      - {value: wav24, label: WAV 24-bit}
+      - {value: flac, label: FLAC}
+    label: File format
+    help: "16-bit WAV is the usual. 24-bit WAV keeps more detail for editing; FLAC is lossless and about half the size."
+  flux-loras: &flux-loras
+    name: loras
+    type: loras
+    family: flux
+    default: []
+    label: Add-ons (LoRA)
+    help: Styles, characters or concepts trained for FLUX.1. Put .safetensors files in the loras folder of your models folder.
+  zimage-loras: &zimage-loras
+    name: loras
+    type: loras
+    family: zimage
+    default: []
+    label: Add-ons (LoRA)
+    help: Styles, characters or concepts trained for Z-Image. Plain LoRAs only (not LoKr or LoHa).
+  size: &size-1mp
+    name: megapixels
+    type: float
+    min: 0.5
+    max: 2.0
+    step: 0.1
+    default: 1.0
+    unit: MP
+    label: Size
+    help: How many pixels. Bigger takes longer and can repeat things in the picture; about 2 MP is the most a 12 GB card fits.
+  edit-size: &edit-size
+    name: megapixels
+    type: float
+    min: 0.5
+    max: 2.0
+    step: 0.1
+    default: 1.0
+    unit: MP
+    label: Working size
+    help: The size the picture is edited at. The result comes out at this size, in the picture's own shape.
+  scheduler: &scheduler
+    name: scheduler
+    type: choice
+    tier: expert
+    default: simple
+    options: [simple, beta, sgm_uniform, normal]
+    label: Scheduler
+    help: How the steps are spread from noise to finish. "simple" is what this model was tuned with.
+  flux-sampler: &flux-sampler
+    name: sampler
+    type: choice
+    tier: expert
+    default: euler
+    options: [euler, dpmpp_2m, deis, heun]
+    label: Sampler
+    help: The method that removes noise at each step. "euler" is what this model was tuned with; heun takes twice as long.
+  qwen-sampler: &qwen-sampler
+    name: sampler
+    type: choice
+    tier: expert
+    default: euler
+    options: [euler, res_multistep, dpmpp_2m]
+    label: Sampler
+    help: The method that removes noise at each step. "euler" is what this model was tuned with.
+  flux-shift: &flux-shift
+    name: max_shift
+    type: float
+    tier: expert
+    min: 0.5
+    max: 2.0
+    step: 0.05
+    default: 1.15
+    label: Shift
+    help: Higher spends more of the steps on overall shapes, lower on fine detail.
+
 models:
   qwen-edit-fast:
     name: Qwen Edit Fast
@@ -533,6 +687,14 @@ models:
       - when: {backend: cuda, quant: fp4}
         workflow: qwen-edit
         files: [qwen-edit-fast-fp4, qwen25vl-fp8, qwen-image-vae]
+    controls:
+      - {name: steps, type: int, min: 2, max: 6, default: 4, label: Steps, help: "More is slower and sometimes finer. This model is tuned for 4."}
+      - *edit-size
+      - {name: keep_size, type: bool, default: false, label: Keep the exact framing, help: "Edits at a size the model reads without rescaling, so the unchanged parts line up with the original instead of shifting a few pixels."}
+      - {name: feather, type: int, min: 0, max: 31, default: 12, unit: px, needs: box, label: Soft edge, help: "How gradually the changed area blends into the rest when you change only an area. 0 is a hard edge."}
+      - {name: shift, type: float, tier: expert, min: 2, max: 5, step: 0.1, default: 3.0, label: Shift, help: "Higher favours overall shapes, lower favours fine detail."}
+      - *qwen-sampler
+      - *scheduler
 
   qwen-edit:
     name: Qwen Edit
@@ -548,6 +710,14 @@ models:
       - when: {backend: cuda, quant: fp4}
         workflow: qwen-edit
         files: [qwen-edit-8step-fp4, qwen25vl-fp8, qwen-image-vae]
+    controls:
+      - {name: steps, type: int, min: 6, max: 10, default: 8, label: Steps, help: "More is slower and sometimes finer. This model is tuned for 8."}
+      - *edit-size
+      - {name: keep_size, type: bool, default: false, label: Keep the exact framing, help: "Edits at a size the model reads without rescaling, so the unchanged parts line up with the original instead of shifting a few pixels."}
+      - {name: feather, type: int, min: 0, max: 31, default: 12, unit: px, needs: box, label: Soft edge, help: "How gradually the changed area blends into the rest when you change only an area. 0 is a hard edge."}
+      - {name: shift, type: float, tier: expert, min: 2, max: 5, step: 0.1, default: 3.0, label: Shift, help: "Higher favours overall shapes, lower favours fine detail."}
+      - *qwen-sampler
+      - *scheduler
 
   flux-kontext:
     name: FLUX.1 Kontext
@@ -563,6 +733,12 @@ models:
       - when: {backend: cuda, quant: fp4}
         workflow: kontext
         files: [kontext-fp4, t5xxl-fp8, clip-l, flux-ae]
+    controls:
+      - {name: guidance, type: float, min: 1.5, max: 4, step: 0.1, default: 2.5, label: Follow the prompt, help: "Higher sticks closer to your words and adds contrast; lower looks more natural."}
+      - {name: steps, type: int, min: 12, max: 40, default: 20, label: Steps, help: "More is slower and sometimes finer. 20 is recommended."}
+      - *flux-loras
+      - *flux-sampler
+      - *scheduler
 
   seedvr2:
     name: SeedVR2
@@ -574,6 +750,33 @@ models:
       - when: {backend: cuda}
         workflow: seedvr2
         files: [seedvr2-3b, seedvr2-vae]
+    controls:
+      - &upscale-color
+        name: color
+        type: choice
+        default: lab
+        options:
+          - {value: lab, label: True to the original}
+          - {value: wavelet, label: Keep the new detail}
+          - {value: adain, label: Overall tint}
+          - {value: none, label: No correction}
+        label: Colour matching
+        help: "How the colours of the result are matched to your picture. \"True to the original\" is safest; \"Keep the new detail\" lets the restored texture win where they disagree; \"No correction\" shows the raw result."
+      - {name: tile, type: choice, tier: expert, default: 512, options: [{value: 512, label: "512 (default)"}, {value: 768, label: "768"}, {value: 1024, label: "1024"}], label: Tile size, help: "The size of the pieces a big picture is worked in. Bigger pieces mean fewer visible seams but need more graphics memory; go back to 512 if it runs out."}
+
+  seedvr2-7b:
+    name: SeedVR2 7B
+    kind: upscale
+    engine: comfy
+    license: apache-2.0
+    summary: The larger SeedVR2. Slower, with finer restored detail than the standard one, and it needs an 8 GB download.
+    variants:
+      - when: {backend: cuda}
+        workflow: seedvr2
+        files: [seedvr2-7b, seedvr2-vae]
+    controls:
+      - *upscale-color
+      - {name: tile, type: choice, tier: expert, default: 512, options: [{value: 512, label: "512 (default)"}, {value: 768, label: "768"}, {value: 1024, label: "1024"}], label: Tile size, help: "The size of the pieces a big picture is worked in. Bigger pieces mean fewer visible seams but need more graphics memory; go back to 512 if it runs out."}
 
   seedvr2-video:
     name: SeedVR2 Video
@@ -585,6 +788,8 @@ models:
       - when: {backend: cuda}
         workflow: seedvr2-video
         files: [seedvr2-3b, seedvr2-vae]
+    controls:
+      - *upscale-color
 
   pixal3d:
     name: Pixal3D
@@ -598,6 +803,14 @@ models:
       - when: {backend: cuda}
         workflow: pixal3d-mv
         files: [pixal3d-mv-int8, trellis2-shape-vae, trellis2-texture-vae, dinov3-naf, birefnet]
+    controls:
+      - &m3d-triangles {name: triangles, type: int, min: 5000, max: 1000000, step: 5000, default: 500000, unit: triangles, label: Exact triangle count, help: "Overrides the triangle choice above. Game models are usually 5,000 to 50,000; 3D printing 200,000 or more. Very low counts can fail to export."}
+      - &m3d-texture {name: texture_size, type: choice, default: 2048, options: [{value: 1024, label: "1024 (smaller file)"}, {value: 2048, label: "2048 (default)"}], label: Texture size, help: "The width of the painted surface in pixels. 1024 makes a smaller file; 2048 keeps finer print."}
+      - &m3d-smoothing {name: smoothing, type: int, min: 0, max: 8, step: 1, default: 3, label: Surface smoothing, help: "Rounds off the bumps of the raw shape. Lower keeps sharp edges and any streaks; higher gives a softer, more organic surface."}
+      - &m3d-crease {name: crease, type: choice, tier: expert, default: 180, options: [{value: 180, label: "Smooth everywhere (default)"}, {value: 60, label: "Sharp edges above 60 degrees"}, {value: 30, label: "Sharp edges above 30 degrees"}], label: Shading of edges, help: "Where the shading shows a hard edge. Smooth suits creatures and figures; the sharp settings suit boxes, gears and other hard-surface things, especially at low triangle counts."}
+      - &m3d-small {name: keep_small, type: choice, tier: expert, default: 0.01, options: [{value: 0, label: Keep every loose part}, {value: 0.01, label: "Drop tiny loose parts (default)"}, {value: 0.05, label: Drop small loose parts}], label: Drop small loose parts, help: "Separate bits much smaller than the main model are thrown away as specks. Keep every loose part if your object has floating pieces such as a hovering sword or detached buttons."}
+      - &m3d-steps {name: steps, type: int, tier: expert, min: 8, max: 30, default: 12, label: Steps, help: "How many refinement steps each of the three stages takes. More is slower (a few seconds per step) and not always better. 12 is what the model was tuned with."}
+      - &m3d-guidance {name: guidance, type: float, tier: expert, min: 3, max: 10, step: 0.5, default: 7.5, label: Follow the picture, help: "How strictly the shape follows your picture. Higher is more literal; lower is looser and can look less over-baked. The painting stage is not affected."}
 
   trellis2:
     name: TRELLIS.2
@@ -611,6 +824,36 @@ models:
       - when: {backend: cuda}
         workflow: trellis2
         files: [trellis2-int8, trellis2-shape-vae, trellis2-texture-vae, dinov3-naf, birefnet]
+    controls:
+      - *m3d-triangles
+      - *m3d-texture
+      - *m3d-smoothing
+      - *m3d-crease
+      - *m3d-small
+      - *m3d-steps
+      - *m3d-guidance
+
+  pixal3d-single:
+    name: Pixal3D from one picture
+    kind: model3d
+    engine: comfy
+    license: pixal3d-moge
+    summary: Builds a 3D model from one picture, with Pixal3D's own shape model and a camera-angle estimate. A different take to compare with TRELLIS.2; for eye-level pictures. Needs a 6 GB download.
+    settings:
+      # pace copied from pixal3d and trellis2, not measured
+      model3d: {views: [front], pace: {standard: 165, high: 235}}
+    variants:
+      - when: {backend: cuda}
+        workflow: pixal3d-single
+        files: [pixal3d-int8, moge2-vitl-normal, trellis2-shape-vae, trellis2-texture-vae, dinov3-naf, birefnet]
+    controls:
+      - *m3d-triangles
+      - *m3d-texture
+      - *m3d-smoothing
+      - *m3d-crease
+      - *m3d-small
+      - *m3d-steps
+      - *m3d-guidance
 
   object-views:
     name: View Maker
@@ -625,6 +868,8 @@ models:
       - when: {backend: cuda, quant: fp4}
         workflow: views3d
         files: [qwen-edit-8step-fp4, qwen25vl-fp8, qwen-image-vae, birefnet]
+    controls:
+      - {name: back_words, type: text, default: "", label: Describe the back, help: "Words about what the back of your object looks like, for example \"a zipper down the middle and two pockets\". Added to the instruction that draws the back view."}
 
   ltx25:
     name: LTX-2.5
@@ -646,6 +891,13 @@ models:
       - when: {backend: cuda}
         workflow: ltx
         files: [ltx25-unet-int8, ltx25-text-encoder, ltx25-vae, ltx25-audio-vae, ltx25-upscaler, film]
+    controls:
+      - {name: motion, type: int, min: 0, max: 50, step: 1, default: 18, label: Allow more motion, help: "Higher lets the clip move further away from your picture; lower keeps it closer to the picture and calmer."}
+      - {name: start_strength, type: float, min: 0.5, max: 1.0, step: 0.05, default: 0.7, needs: start, label: Hold the first picture, help: "How tightly the first frame is held. Lower gives the clip more freedom to change (looser likeness, more movement); 1 pins it."}
+      - {name: end_strength, type: float, min: 0.3, max: 1.0, step: 0.05, default: 0.7, needs: end, label: Hold the last picture, help: "How tightly the last frame is held. Lower lets the clip drift away from it; higher makes it land exactly there."}
+      - {name: sound, type: bool, default: true, label: Make sound, help: "Switch off for a silent clip."}
+      - {name: sampler, type: choice, tier: expert, default: euler_ancestral, options: [euler_ancestral, euler], label: Sampler, help: "The method that removes noise at each step. euler_ancestral is what this model was tuned with; euler is steadier between seeds."}
+      - &video-interpolation {name: interpolation, type: choice, needs: smooth, default: 2, options: [{value: 2, label: "2x (default)"}, {value: 4, label: "4x (slower)"}], label: Smoothing amount, help: "How many frames the Smooth option adds between each pair. 4x is silkier and takes longer, and the file gets larger."}
 
   wan22-i2v:
     name: Wan 2.2 from a picture
@@ -663,6 +915,9 @@ models:
       - when: {backend: cuda}
         workflow: wan22
         files: [wan-i2v-distilled-high, wan-i2v-distilled-low, wan-umt5, wan-vae, film]
+    controls:
+      - &wan-loras {name: loras, type: loras, family: wan14b, pair: true, default: [], label: Add-ons (LoRA), help: "Camera, style or motion add-ons made for Wan 2.2 14B. Each needs a high-noise and a low-noise file (put them in the loras folder of your models folder)."}
+      - *video-interpolation
 
   wan22-i2v-1022:
     name: Wan 2.2 camera moves
@@ -679,6 +934,11 @@ models:
       - when: {backend: cuda}
         workflow: wan22
         files: [wan-i2v-high, wan-i2v-low, wan-i2v-lora-1022-high, wan-i2v-lora-1022-low, wan-umt5, wan-vae, film]
+    controls:
+      - &wan-distill-high {name: distill_high, type: float, min: 0.5, max: 1.4, step: 0.05, default: 1.0, label: "Speed-up strength, high noise", help: "Strength of the four-step speed-up on the first half of the clip's making, which sets the motion. Lowering it (0.6 to 0.8) is the usual fix when the motion looks slow."}
+      - &wan-distill-low {name: distill_low, type: float, min: 0.5, max: 1.4, step: 0.05, default: 1.0, label: "Speed-up strength, low noise", help: "Strength of the four-step speed-up on the second half, which sets the fine detail. Change it only if the details look off."}
+      - *wan-loras
+      - *video-interpolation
 
   wan22-t2v:
     name: Wan 2.2 from text
@@ -695,6 +955,30 @@ models:
       - when: {backend: cuda}
         workflow: wan22
         files: [wan-t2v-high, wan-t2v-low, wan-t2v-lora-1217-high, wan-t2v-lora-1217-low, wan-umt5, wan-vae, film]
+    controls:
+      - *wan-distill-high
+      - *wan-distill-low
+      - *wan-loras
+      - *video-interpolation
+
+  wan22-camera:
+    name: Wan 2.2 camera control
+    kind: video
+    engine: comfy
+    license: apache-2.0
+    summary: Moves the camera the way you choose (pan, zoom, roll) through the scene of your first frame. Needs a first frame and a 30 GB download.
+    settings:
+      prompt_style: wan-i2v
+      # pace guessed from wan22-i2v (same fp8 experts, same four steps), not measured
+      video: {frames: [start], needs_frame: true, sizes: [standard, large, 720p], fps: 16, sound: false, pace: {standard: 25, large: 40, 720p: 75}}
+    variants:
+      - when: {backend: cuda}
+        workflow: wan22-camera
+        files: [wan-fun-camera-high, wan-fun-camera-low, wan-i2v-lora-v1-high, wan-i2v-lora-v1-low, wan-umt5, wan-vae, film]
+    controls:
+      - {name: camera_speed, type: float, min: 0.2, max: 3.0, step: 0.1, default: 1.0, label: Camera speed, help: "How far the camera travels over the clip. 1 is the usual; lower is a gentle drift, higher a bigger move that can smear the scene. Does nothing for a static camera."}
+      - *wan-loras
+      - *video-interpolation
 
   hunyuan15-i2v:
     name: HunyuanVideo 1.5 from a picture
@@ -710,6 +994,10 @@ models:
       - when: {backend: cuda}
         workflow: hunyuan15
         files: [hy15-i2v-480-distill, hy15-sr-720, hy15-upsampler-720, qwen25vl-fp8, hy15-byt5, hy15-vae, sigclip-384, film]
+    controls:
+      - {name: steps, type: choice, default: 8, options: [{value: 8, label: "8 steps (default)"}, {value: 12, label: "12 steps (slower)"}], label: Steps, help: "12 is the other value the makers recommend; it takes about half as long again for a possible gain in finish."}
+      - {name: sr_noise, type: float, tier: expert, min: 0.4, max: 0.9, step: 0.05, default: 0.7, label: 720p re-imagining, help: "Only used by the 720p size. Lower stays closer to the first pass; higher lets the sharpening pass invent more."}
+      - *video-interpolation
 
   ace-step:
     name: ACE-Step 1.5
@@ -723,6 +1011,79 @@ models:
       - when: {backend: mps}
         files: [ace-step-core, ace-step-lm]
         preview: true
+    controls:
+      - name: key
+        type: choice
+        default: ""
+        options:
+          - {value: "", label: Any}
+          - {value: C major, label: C major}
+          - {value: C minor, label: C minor}
+          - {value: C# major, label: C# major}
+          - {value: C# minor, label: C# minor}
+          - {value: D major, label: D major}
+          - {value: D minor, label: D minor}
+          - {value: D# major, label: D# major}
+          - {value: D# minor, label: D# minor}
+          - {value: E major, label: E major}
+          - {value: E minor, label: E minor}
+          - {value: F major, label: F major}
+          - {value: F minor, label: F minor}
+          - {value: F# major, label: F# major}
+          - {value: F# minor, label: F# minor}
+          - {value: G major, label: G major}
+          - {value: G minor, label: G minor}
+          - {value: G# major, label: G# major}
+          - {value: G# minor, label: G# minor}
+          - {value: A major, label: A major}
+          - {value: A minor, label: A minor}
+          - {value: A# major, label: A# major}
+          - {value: A# minor, label: A# minor}
+          - {value: B major, label: B major}
+          - {value: B minor, label: B minor}
+        label: Key
+        help: "The musical key. Any lets the song planner choose. Useful when the music must fit with other tracks."
+      - name: time_signature
+        type: choice
+        default: ""
+        options:
+          - {value: "", label: Any}
+          - {value: "2", label: 2/4}
+          - {value: "3", label: 3/4}
+          - {value: "4", label: 4/4}
+          - {value: "6", label: 6/8}
+        label: Time signature
+        help: "The beat pattern: 4/4 for most pop and dance, 3/4 for waltzes, 6/8 for a rolling feel. Any lets the song planner choose."
+      - name: vocal_language
+        type: choice
+        default: unknown
+        needs: lyrics
+        options:
+          - {value: unknown, label: Detect from the lyrics}
+          - {value: en, label: English}
+          - {value: zh, label: Chinese}
+          - {value: ja, label: Japanese}
+          - {value: ko, label: Korean}
+          - {value: es, label: Spanish}
+          - {value: fr, label: French}
+          - {value: de, label: German}
+          - {value: it, label: Italian}
+          - {value: pt, label: Portuguese}
+          - {value: ru, label: Russian}
+        label: Language of the lyrics
+        help: "Set it when the singing comes out in the wrong language; otherwise the language is detected from the lyrics."
+      - name: raw
+        type: bool
+        default: false
+        label: Raw output
+        help: "Skips ACE-Step's final level-setting (it raises or lowers each song to peak at -1 dB). Loops are still cut as asked, and a song that would clip is turned down just enough."
+      - *audio-format
+      - {name: steps, type: int, tier: expert, min: 1, max: 20, default: 8, label: Steps, help: "More is slower. This model is tuned for 8; fewer is a quick draft."}
+      - {name: shift, type: float, tier: expert, min: 1, max: 5, step: 0.1, default: 3.0, label: Shift, help: "How the steps are spread from noise to finished music. This model is tuned for 3."}
+      - {name: lm_temperature, type: float, tier: expert, min: 0, max: 2, step: 0.05, default: 0.85, needs: thinking, label: Planner variety, help: "How adventurous the song planner is. Lower plans more predictably, higher more surprisingly. Only used while planning is on."}
+      - {name: lm_top_p, type: float, tier: expert, min: 0, max: 1, step: 0.01, default: 0.9, needs: thinking, label: Planner focus, help: "Lower makes the song planner stick to its most likely choices. Only used while planning is on."}
+      - {name: cover_strength, type: float, tier: advanced, min: 0, max: 1, step: 0.01, default: 1.0, needs: source, label: How closely to follow the recording, help: "Only for a cover. 1 keeps the recording's tune and structure; lower, such as 0.2, gives more room for a new style."}
+      - {name: cover_noise, type: float, tier: expert, min: 0, max: 1, step: 0.01, default: 0.0, needs: source, label: Keep the melody, help: "Only for a cover. 0 starts from nothing but your style tags; raise it a little (0.1 to 0.25) to bring the recording's melody back. Higher keeps the tune but resists a change of style."}
 
   sa3-sfx:
     name: Stable Audio 3 SFX
@@ -737,6 +1098,13 @@ models:
       - when: {backend: mps}
         files: [sa3-sfx]
         preview: true
+    controls:
+      - *audio-format
+      - {name: steps, type: int, tier: expert, min: 1, max: 100, default: 8, label: Steps, help: "More is slower, and this model gains little past 8; fewer is quicker but rougher."}
+      - {name: cfg, type: float, tier: expert, min: 0, max: 25, step: 0.1, default: 1.0, label: Prompt strength, help: "How strictly to follow the description. 1 is what this model is tuned for; raise it (try 3 to 7) to use the Leave out box."}
+      - {name: negative, type: text, tier: expert, default: "", label: Leave out, help: "Things the sound should not have, such as music or speech. Only works when Prompt strength is above 1."}
+      - {name: init_strength, type: float, tier: advanced, min: 0, max: 1, step: 0.05, default: 0.5, needs: init_audio, label: How much to change, help: "Only used with a starting sound. 0 stays closest to it (0.1 is a near copy), 1 ignores it and makes a new sound from the description."}
+      - {name: track_type, type: bool, tier: expert, default: true, label: Sound-effect tag, help: "Starts the description with the tag the model's guide recommends for sound effects. Turn it off if your description already says what kind of sound it is."}
 
   chatterbox-turbo:
     name: Chatterbox Turbo
@@ -751,6 +1119,12 @@ models:
       - when: {backend: mps}
         files: [chatterbox-turbo]
         preview: true
+    controls:
+      - {name: temperature, type: float, min: 0.05, max: 2, step: 0.05, default: 0.8, label: Variation, help: "Lower is steadier and flatter, higher is livelier and riskier. Raise it a little if the voice sounds monotone."}
+      - {name: repetition_penalty, type: float, min: 1, max: 2, step: 0.05, default: 1.2, label: Repeat guard, help: "Raise it if words loop or stutter."}
+      - *audio-format
+      - {name: top_p, type: float, tier: expert, min: 0, max: 1, step: 0.05, default: 0.95, label: Top-p, help: "Only the likeliest speech sounds are considered; lower is safer and more uniform."}
+      - {name: top_k, type: int, tier: expert, min: 0, max: 1000, step: 10, default: 1000, label: Top-k, help: "How many candidates are considered for each sound. 0 turns the limit off."}
 
   chatterbox:
     name: Chatterbox
@@ -765,6 +1139,12 @@ models:
       - when: {backend: mps}
         files: [chatterbox]
         preview: true
+    controls:
+      - {name: temperature, type: float, min: 0.05, max: 5, step: 0.05, default: 0.8, label: Variation, help: "Lower is steadier and flatter, higher is livelier and riskier. Raise it a little if the voice sounds monotone."}
+      - {name: repetition_penalty, type: float, min: 1, max: 2, step: 0.05, default: 1.2, label: Repeat guard, help: "Raise it if words loop or stutter."}
+      - *audio-format
+      - {name: min_p, type: float, tier: expert, min: 0, max: 1, step: 0.01, default: 0.05, label: Min-p, help: "Drops very unlikely speech sounds. 0.02 to 0.1 works well, and it copes better with a higher Variation."}
+      - {name: top_p, type: float, tier: expert, min: 0, max: 1, step: 0.05, default: 1.0, label: Top-p, help: "1 turns it off. Lower keeps only the likeliest speech sounds."}
 
   prompt-writer:
     name: Prompt Writer
@@ -788,6 +1168,9 @@ models:
     variants:
       - when: {}
         files: [kokoro-model, kokoro-config, kokoro-voices]
+    controls:
+      - {name: blend, type: text, default: "", label: Mix voices, help: "Mix several voices into a new one, replacing the voice chosen above. Write voice names, optionally with weights: Bella:0.6, Sky:0.4. Without weights the voices count equally. Up to 5."}
+      - *audio-format
 
   z-image-turbo:
     name: Z-Image Turbo
@@ -807,6 +1190,40 @@ models:
         workflow: z-image-native
         files: [zimage-bf16, qwen3-4b, flux-ae]
         preview: true
+    controls:
+      - *size-1mp
+      - {name: steps, type: int, min: 6, max: 12, default: 9, label: Steps, help: "More is slower and sometimes finer. This model is tuned for 9."}
+      - *zimage-loras
+      - {name: shift, type: float, tier: expert, min: 1, max: 7, step: 0.1, default: 3.0, label: Shift, help: "Higher favours overall shapes, lower favours fine detail."}
+      - {name: sampler, type: choice, tier: expert, default: res_multistep, options: [res_multistep, euler, dpmpp_2m, er_sde], label: Sampler, help: "The method that removes noise at each step. res_multistep is what this model was tuned with."}
+      - *scheduler
+
+  # Z-Image Turbo steered by a picture. The Fun ControlNet reads an edge, depth or
+  # pose map; edges come from ComfyUI's own Canny, depth from Depth Anything 3
+  # (small), pose from SDPose. Nunchaku's own example runs this ControlNet on the
+  # 4-bit model, so only the Nunchaku variants exist.
+  z-image-control:
+    name: Z-Image Turbo with a guide picture
+    kind: image
+    engine: comfy
+    license: zimage-control
+    summary: Draws a new picture that follows the outline, depth or pose of a picture you give it. Same quick Z-Image Turbo, plus a 3 GB guide model and two small readers (depth and pose, 2 GB).
+    settings: {prompt_style: zimage}
+    variants:
+      - when: {backend: cuda, quant: int4}
+        workflow: z-image-control
+        files: [zimage-int4, qwen3-4b, flux-ae, zimage-fun-union, da3-small, sdpose-wholebody]
+      - when: {backend: cuda, quant: fp4}
+        workflow: z-image-control
+        files: [zimage-fp4, qwen3-4b, flux-ae, zimage-fun-union, da3-small, sdpose-wholebody]
+    controls:
+      - {name: guide_strength, type: float, min: 0.3, max: 1.0, step: 0.05, default: 0.75, label: How closely to follow the guide, help: "Higher follows the guide picture more strictly; lower gives your words more room. The makers suggest 0.65 to 0.8, so 0.75 is the starting point; go lower if the result looks stiff or traced."}
+      - *size-1mp
+      - {name: steps, type: int, min: 6, max: 12, default: 9, label: Steps, help: "More is slower and sometimes finer. This model is tuned for 9."}
+      - *zimage-loras
+      - {name: shift, type: float, tier: expert, min: 1, max: 7, step: 0.1, default: 3.0, label: Shift, help: "Higher favours overall shapes, lower favours fine detail."}
+      - {name: sampler, type: choice, tier: expert, default: res_multistep, options: [res_multistep, euler, dpmpp_2m, er_sde], label: Sampler, help: "The method that removes noise at each step. res_multistep is what this model was tuned with."}
+      - *scheduler
 
   flux-schnell:
     name: FLUX.1 schnell
@@ -822,6 +1239,12 @@ models:
         workflow: flux-nunchaku
         files: [schnell-fp4, t5xxl-fp8, clip-l, flux-ae]
     settings: {prompt_style: flux-schnell, steps: 4, guidance: null}
+    controls:
+      - *size-1mp
+      - {name: steps, type: int, min: 1, max: 8, default: 4, label: Steps, help: "More is slower and sometimes finer. This model is tuned for 4."}
+      - *flux-loras
+      - *flux-sampler
+      - *scheduler
 
   qwen-image-fast:
     name: Qwen-Image Fast
@@ -837,6 +1260,13 @@ models:
       - when: {backend: cuda, quant: fp4}
         workflow: qwen-image-nunchaku
         files: [qwen-image-fast-fp4, qwen25vl-fp8, qwen-image-vae]
+    controls:
+      - {name: steps, type: int, min: 2, max: 6, default: 4, label: Steps, help: "More is slower and sometimes finer. This model is tuned for 4."}
+      - {name: megapixels, type: float, min: 0.5, max: 2.0, step: 0.1, default: 1.7, unit: MP, label: Size, help: "How many pixels. Bigger takes longer; about 2 MP is the most a 12 GB card fits."}
+      - {name: trained_sizes, type: bool, default: false, label: Use the trained sizes, help: "Qwen-Image's own size for each shape (1664 x 928 for 16:9 and so on), instead of the Size above."}
+      - {name: shift, type: float, tier: expert, min: 2, max: 5, step: 0.1, default: 3.0, label: Shift, help: "Higher if pictures come out blurry or dark, lower for more fine detail."}
+      - *qwen-sampler
+      - *scheduler
 
   qwen-image:
     name: Qwen-Image
@@ -852,6 +1282,13 @@ models:
       - when: {backend: cuda, quant: fp4}
         workflow: qwen-image-nunchaku
         files: [qwen-image-8step-fp4, qwen25vl-fp8, qwen-image-vae]
+    controls:
+      - {name: steps, type: int, min: 6, max: 10, default: 8, label: Steps, help: "More is slower and sometimes finer. This model is tuned for 8."}
+      - {name: megapixels, type: float, min: 0.5, max: 2.0, step: 0.1, default: 1.7, unit: MP, label: Size, help: "How many pixels. Bigger takes longer; about 2 MP is the most a 12 GB card fits."}
+      - {name: trained_sizes, type: bool, default: false, label: Use the trained sizes, help: "Qwen-Image's own size for each shape (1664 x 928 for 16:9 and so on), instead of the Size above."}
+      - {name: shift, type: float, tier: expert, min: 2, max: 5, step: 0.1, default: 3.0, label: Shift, help: "Higher if pictures come out blurry or dark, lower for more fine detail."}
+      - *qwen-sampler
+      - *scheduler
 
   flux-dev:
     name: FLUX.1 dev
@@ -867,6 +1304,14 @@ models:
         workflow: flux-nunchaku
         files: [flux-dev-fp4, t5xxl-fp8, clip-l, flux-ae]
     settings: {prompt_style: flux, steps: 20, guidance: 3.5, shift: true}
+    controls:
+      - {name: guidance, type: float, min: 1, max: 6, step: 0.1, default: 3.5, label: Follow the prompt, help: "Higher sticks closer to your words and adds contrast; lower looks more natural."}
+      - {name: steps, type: int, min: 8, max: 40, default: 20, label: Steps, help: "More is slower and sometimes finer. 20 is recommended."}
+      - *size-1mp
+      - *flux-loras
+      - *flux-shift
+      - *flux-sampler
+      - *scheduler
 
   flux-krea:
     name: FLUX.1 Krea
@@ -882,6 +1327,14 @@ models:
         workflow: flux-nunchaku
         files: [flux-krea-fp4, t5xxl-fp8, clip-l, flux-ae]
     settings: {prompt_style: flux, steps: 28, guidance: 4.5, shift: true}
+    controls:
+      - {name: guidance, type: float, min: 1, max: 6, step: 0.1, default: 4.5, label: Follow the prompt, help: "Higher sticks closer to your words and adds contrast; lower looks more natural."}
+      - {name: steps, type: int, min: 8, max: 40, default: 28, label: Steps, help: "More is slower and sometimes finer. 28 is recommended."}
+      - *size-1mp
+      - *flux-loras
+      - *flux-shift
+      - *flux-sampler
+      - *scheduler
 
   krea-2:
     name: Krea 2
@@ -897,3 +1350,9 @@ models:
         workflow: krea2
         files: [krea2-turbo-w4a4, krea2-text-encoder, qwen-image-vae]
     settings: {prompt_style: krea2, steps: 8, cfg: 1.0}
+
+    controls:
+      - *size-1mp
+      - {name: steps, type: int, min: 4, max: 12, default: 8, label: Steps, help: "More is slower and sometimes finer. This model is tuned for 8."}
+      - *qwen-sampler
+      - *scheduler

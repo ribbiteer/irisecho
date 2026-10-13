@@ -50,6 +50,10 @@ DEVICE_ALLOWED = [
     ("GET", r"/api/bootstrap"),
     ("GET", r"/api/system"),
     ("GET", r"/api/models"),
+    ("GET", r"/api/loras"),
+    ("GET", r"/api/presets"),
+    ("PUT", r"/api/presets"),
+    ("DELETE", r"/api/presets"),
     ("GET", r"/api/engines"),
     ("GET", r"/api/settings"),
     ("GET", r"/api/jobs"),
@@ -61,6 +65,7 @@ DEVICE_ALLOWED = [
     ("GET", r"/api/jobs/[0-9a-f]+/outputs/\d+/(preview|export)"),
     ("POST", r"/api/uploads"),
     ("GET", r"/api/uploads/[0-9a-f]+\.[a-z0-9]+"),
+    ("GET", r"/api/uploads/[0-9a-f]+\.[a-z0-9]+/settings"),
 ]
 _ALLOWED = [(m, re.compile(p + "$")) for m, p in DEVICE_ALLOWED]
 

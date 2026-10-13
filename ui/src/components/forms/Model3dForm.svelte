@@ -11,9 +11,12 @@
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import ActionBar from "../ActionBar.svelte";
+  import AdvancedControls from "../AdvancedControls.svelte";
   import ImageDrop from "../ImageDrop.svelte";
   import Iris from "../Iris.svelte";
+  import SeedField from "../SeedField.svelte";
   import SetupPanel from "../SetupPanel.svelte";
+  import { controlParams, nextSeed, reuseCommon } from "../../lib/controls";
   import { api, outputToUpload, outputUrl, uploadUrl } from "../../lib/api";
   import { app, fail, followJob, modelById, modelsOf, submit, toast } from "../../lib/state.svelte";
   import type { Studio } from "../../lib/studios";
@@ -23,6 +26,7 @@
 
   const pixal = $derived(modelById("pixal3d"));
   const trellis = $derived(modelById("trellis2"));
+  const pixalSingle = $derived(modelById("pixal3d-single"));
   const viewMaker = $derived(modelById("object-views"));
   // Front and back views need both the View Maker and Pixal3D on this machine.
   const canMakeViews = $derived(!!viewMaker?.available && !!pixal?.available);
@@ -92,6 +96,9 @@
   };
   let views = $state<Views | null>(null);
   let onlyPicture = $state(false);
+  // Advanced: words about the back, added to the instruction that draws it.
+  let backWords = $state("");
+  const advanced = $derived(!!app.settings?.advanced);
   let run = 0; // the latest views request; older ones are ignored when they finish
 
   async function makeViews(image: string, level: "auto" | "best" | "keep") {
@@ -103,7 +110,15 @@
     views = { state: "working", message: "Waiting for the graphics card", progress: null };
     try {
       let job = await api<Job>("/jobs", {
-        body: { model: "object-views", params: { image1: image, level, seed: Math.floor(Math.random() * 2 ** 50) } },
+        body: {
+          model: "object-views",
+          params: {
+            image1: image,
+            level,
+            seed: Math.floor(Math.random() * 2 ** 50),
+            ...(advanced && backWords.trim() ? { back_words: backWords.trim() } : {}),
+          },
+        },
       });
       if (mine !== run) return;
       views.job = job;
@@ -166,11 +181,20 @@
   }
 
   // --- what builds it -------------------------------------------------------------
-  const plan = $derived<"pixal3d" | "trellis2">(
-    !onlyPicture && views?.state === "ready" && views.uploads ? "pixal3d" : "trellis2",
-  );
-  const buildModel = $derived(plan === "pixal3d" ? pixal : trellis);
-  const waitingForViews = $derived(!onlyPicture && (views?.state === "working" || (views?.state === "ready" && !views.uploads)));
+  // Advanced: choose the model instead of letting the views decide ("auto", the default).
+  type Choice = "auto" | "trellis2" | "pixal3d" | "pixal3d-single";
+  let buildWith = $state<Choice>("auto");
+  const hasBackView = $derived(views?.state === "ready" && !!views.uploads);
+  const choiceOk = (c: Choice): boolean =>
+    c === "auto" ||
+    (c === "trellis2" && !!trellis?.available) ||
+    (c === "pixal3d" && hasBackView && !!pixal?.available) ||
+    (c === "pixal3d-single" && !!pixalSingle?.available);
+  const forced = $derived<Exclude<Choice, "auto"> | null>(advanced && buildWith !== "auto" && choiceOk(buildWith) ? (buildWith as Exclude<Choice, "auto">) : null);
+  const autoPlan = $derived<"pixal3d" | "trellis2">(!onlyPicture && hasBackView ? "pixal3d" : "trellis2");
+  const plan = $derived<"pixal3d" | "trellis2" | "pixal3d-single">(forced ?? autoPlan);
+  const buildModel = $derived(plan === "pixal3d" ? pixal : plan === "pixal3d-single" ? pixalSingle : trellis);
+  const waitingForViews = $derived(!forced && !onlyPicture && (views?.state === "working" || (views?.state === "ready" && !views.uploads)));
 
   let detail = $state<"standard" | "high">("standard");
   const FACES = [
@@ -182,6 +206,8 @@
   let textures = $state(true);
   let keepOpenings = $state(false);
   let sending = $state(false);
+  let fixedSeed = $state(false);
+  let seed = $state(Math.floor(Math.random() * 1e9));
 
   const minutes = $derived.by(() => {
     const pace = buildModel?.options.model3d?.pace;
@@ -199,6 +225,10 @@
       faces = r.params.faces ?? 500000;
       textures = r.params.textures ?? true;
       keepOpenings = r.params.openings === "keep";
+      const reused = modelById(r.model);
+      const s = reused ? reuseCommon(reused, r).seed : null;
+      fixedSeed = s != null;
+      if (s != null) seed = s;
       source = "picture";
       restored = true;
       picture = r.params.front ?? null;
@@ -206,8 +236,9 @@
         views = { state: "ready", message: "", progress: null, matched: true, uploads: { front: r.params.front, back: r.params.back } };
       } else {
         views = null;
-        onlyPicture = r.model === "trellis2";
+        onlyPicture = r.model === "trellis2" || r.model === "pixal3d-single";
       }
+      buildWith = r.model === "pixal3d-single" || r.model === "pixal3d" || r.model === "trellis2" ? r.model : "auto";
       app.reuse = null;
     }
   });
@@ -220,7 +251,8 @@
       textures,
       openings: keepOpenings ? "keep" : "close",
       faces,
-      seed: Math.floor(Math.random() * 2 ** 50),
+      seed: nextSeed(fixedSeed, seed, 0),
+      ...controlParams(buildModel),
     };
     const params =
       plan === "pixal3d" && views?.uploads
@@ -330,6 +362,19 @@
         {:else}
           <p class="status warn"><TriangleAlert size={15} /> This back may not show the other side. Draw it again, or build from your picture alone.</p>
         {/if}
+        {#if advanced}
+          <div class="field">
+            <label class="label" for="back-words">Describe the back <span class="opt">optional</span></label>
+            <input
+              id="back-words"
+              class="input"
+              bind:value={backWords}
+              placeholder="a zipper down the middle and two pockets"
+              maxlength="300"
+            />
+            <p class="tip">Words about what the back looks like, used the next time the back is drawn.</p>
+          </div>
+        {/if}
         <div class="row">
           <button class="btn sm ghost" onclick={drawBackAgain}><RefreshCw size={14} /> Draw the back again</button>
         </div>
@@ -373,9 +418,34 @@
       {/if}
     </div>
 
+    {#if advanced}
+      <div class="field">
+        <span class="label">Build with</span>
+        <div class="chips" aria-label="Build with">
+          <button class="chip" aria-pressed={!forced} onclick={() => (buildWith = "auto")}>Automatic</button>
+          <button class="chip" aria-pressed={forced === "trellis2"} disabled={!choiceOk("trellis2")} onclick={() => (buildWith = "trellis2")}>TRELLIS.2</button>
+          <button class="chip" aria-pressed={forced === "pixal3d"} disabled={!choiceOk("pixal3d")} onclick={() => (buildWith = "pixal3d")}>Pixal3D (front + back)</button>
+          <button class="chip" aria-pressed={forced === "pixal3d-single"} disabled={!choiceOk("pixal3d-single")} onclick={() => (buildWith = "pixal3d-single")}>Pixal3D (one picture)</button>
+        </div>
+        <p class="tip">
+          {#if forced === "pixal3d-single"}
+            Pixal3D from your picture alone. Another take to compare with TRELLIS.2; it suits pictures taken at eye level.
+          {:else if forced}
+            Builds with {buildModel?.name}, whatever the views say.
+          {:else}
+            Automatic uses the front and back views when they fit, otherwise TRELLIS.2 from your picture alone.
+          {/if}
+          {#if !hasBackView}Pixal3D (front + back) needs a back view that has been made.{/if}
+          {#if pixalSingle && !pixalSingle.available}Pixal3D (one picture) needs a supported graphics card.{/if}
+        </p>
+      </div>
+    {/if}
+
     <p class="plan">
       {#if plan === "pixal3d"}
         <strong>{pixal?.name}</strong> builds from the front and the back.
+      {:else if plan === "pixal3d-single"}
+        <strong>{pixalSingle?.name}</strong> builds from your picture alone.
       {:else}
         <strong>{trellis?.name}</strong> builds from your picture and stands it upright.
       {/if}
@@ -415,6 +485,10 @@
         <small>For cups, vases and bowls: leave the top open. Otherwise small holes and openings are closed so it prints solid.</small>
       </span>
     </label>
+
+    <SeedField bind:fixed={fixedSeed} bind:seed />
+
+    {#if buildModel}<AdvancedControls model={buildModel} />{/if}
   {/if}
 
   {#if buildModel}
@@ -567,6 +641,11 @@
   .row {
     display: flex;
     gap: 8px;
+  }
+  .opt {
+    font-weight: 400;
+    color: var(--text-4);
+    margin-left: 4px;
   }
   .more {
     font-size: 12.5px;

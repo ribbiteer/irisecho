@@ -17,6 +17,8 @@ your computer except the downloads you ask for.
 
 Use it at your desk, [from your phone](#from-your-phone), or hand it to your
 coding agent: [give your agents generation capabilities](#give-your-agents-generation-capabilities).
+It stays simple by default; switch on [advanced controls](#advanced-controls) for steps,
+guidance, your own LoRAs, presets and side-by-side comparisons.
 
 <p align="center">
   <img src="docs/assets/screens/create-image.jpg" alt="The Image studio: the prompt and settings on the left, four finished pictures on the right: a neon street market, a watch movement, a portrait of a sea captain and a bowl of green apples." width="100%">
@@ -26,15 +28,15 @@ coding agent: [give your agents generation capabilities](#give-your-agents-gener
 
 | Studio | What you do | Models |
 |---|---|---|
-| **Image** | Describe a picture; get photos, illustration, lettering that reads | Z-Image Turbo, FLUX.1 schnell, Qwen-Image, FLUX.1 dev / Krea\*, Krea 2\* |
-| **Edit** | Say what should change in a picture; combine up to three | Qwen Edit (fast and careful), FLUX.1 Kontext\* |
-| **Upscale** | Enlarge 2-4× and restore detail, no prompt needed | SeedVR2 |
-| **Video** | 2-5 s clips from text, a first frame, a last frame, or both; LTX-2.5 makes the sound too | LTX-2.5\*, Wan 2.2, HunyuanVideo 1.5\* |
-| **3D** | A picture or a description becomes a model to view, print or export (GLB, STL, 3MF, OBJ, PLY) | Pixal3D\*, TRELLIS.2\* |
-| **Voice** | Narration in 28 preset voices, a whole script at once | Kokoro |
+| **Image** | Describe a picture; get photos, illustration, lettering that reads; or follow the outlines, depth or pose of a guide picture | Z-Image Turbo (also with a guide picture), FLUX.1 schnell, Qwen-Image, FLUX.1 dev / Krea\*, Krea 2\* |
+| **Edit** | Say what should change in a picture, or only in an area you mark; combine up to three | Qwen Edit (fast and careful), FLUX.1 Kontext\* |
+| **Upscale** | Enlarge 2-4× and restore detail, no prompt needed | SeedVR2 3B and 7B |
+| **Video** | 2-5 s clips from text, a first frame, a last frame, or both; camera moves on presets; continue a clip from its last frame; LTX-2.5 makes the sound too | LTX-2.5\*, Wan 2.2 (and Fun Camera), HunyuanVideo 1.5\* |
+| **3D** | A picture or a description becomes a model to view, print or export (GLB, STL, 3MF, OBJ, PLY) | Pixal3D\* (one picture or front and back), TRELLIS.2\* |
+| **Voice** | Narration in 28 preset voices or a blend of them, a whole script at once | Kokoro |
 | **Clone** | A voice you have the right to use, from a 5-15 s sample, with performed laughs and sighs | Chatterbox, Chatterbox Turbo |
-| **Music** | Beds, jingles and stingers from a few tags; seamless loops on the bar | ACE-Step 1.5 |
-| **Sound** | One-shot effects: foley, UI sounds, impacts, ambience | Stable Audio 3 SFX\* |
+| **Music** | Beds, jingles and stingers from a few tags; seamless loops on the bar; cover, repaint or extend a recording | ACE-Step 1.5 |
+| **Sound** | One-shot effects: foley, UI sounds, impacts, ambience; variations of a sound you have | Stable Audio 3 SFX\* |
 
 <sub>\* Opt-in: non-commercial (FLUX.1 dev family), free for commercial use only under $1M a year (Krea 2) or $10M a year (LTX-2.5), not licensed in the EU, UK or South Korea (HunyuanVideo 1.5), gated (Stable Audio and LTX-2.5: accept the publisher's terms on Hugging Face and add a read token), or under Meta's DINOv3 License, accepted in the app (Pixal3D, not offered in the EU, and TRELLIS.2). IrisEcho shows each license and walks you through it.</sub>
 
@@ -46,7 +48,7 @@ and favourites; a search is a link (`#/library?q=fox`).
 
 Voice lines come out trimmed and loudness-matched, music loops are cut on whole
 bars, cloned takes are ranked liveliest first, and pictures are saved with no
-embedded prompts or settings.
+embedded prompts or settings unless you ask for them.
 
 <table>
   <tr>
@@ -63,6 +65,34 @@ embedded prompts or settings.
   <img src="docs/assets/screens/lightbox.jpg" alt="A finished portrait opened full size, with its prompt, size, seed and time beside it and a button to use the same settings again." width="100%">
 </p>
 <p align="center"><sub>Every result keeps its prompt, seed and settings, one click from making another. Everything shown here was made in IrisEcho.</sub></p>
+
+## Advanced controls
+
+Every model starts on the settings it was tuned for, so nobody has to know what a
+sampler is. Turn on **Settings › Show advanced controls** and each studio gains a
+**More controls** section with what that model can actually use:
+
+- **Steps, guidance, size, sampler and shift** where they make a difference. A
+  distilled model gets no guidance or negative prompt, because it would ignore them.
+- **Your own LoRAs** for FLUX.1, Z-Image and Wan 2.2: put `.safetensors` files in the
+  `loras` folder (or a ComfyUI folder you linked) and pick them with a strength.
+  IrisEcho reads each file to tell which model it fits and shows its trigger words.
+- **Model-specific controls**, for example:
+  - video motion versus closeness to the start frame;
+  - a voice blend, or the sampling settings of a cloned voice;
+  - key, time signature and language for music;
+  - texture size and triangle count for 3D;
+  - FLAC or 24-bit output for audio.
+- **Recommended values stay visible.** Each control shows its recommended value
+  with a reset next to it. You can save named presets per model.
+- **Every result's settings.** Each result lists everything it was made with,
+  copies it as API JSON or a command, and can run again with one setting varied
+  (same seed) to compare.
+- **Settings in your pictures.** Optionally, pictures carry their prompt and
+  settings in the layout Civitai and Forge read, and IrisEcho can read them back
+  from any picture.
+
+The same controls work from the command line (`--set steps=30`) and the API.
 
 ## From your phone
 
@@ -203,6 +233,7 @@ irisecho say --file lines.txt --voice bm_george --out vo/    # id|text per line
 irisecho clone "Correct! [chuckle] Ten points." --ref host.wav --takes 3
 irisecho music "synthwave, driving, analog synth" --bpm 110 --seconds 30 --loop
 irisecho image "a lighthouse at blue hour" --aspect 16:9 --count 4
+irisecho image "a fox" --model flux-dev --set steps=30 --set guidance=2.5   # advanced controls
 irisecho 3d figurine.png --format stl --height 80             # a printable model
 irisecho link D:\ComfyUI\models                              # reuse weights you have
 irisecho models                                              # what is ready, and licenses
@@ -261,6 +292,7 @@ license, commercial terms, size and source.
 - [x] Prompt writer and library search
 - [x] Phone and LAN access
 - [x] 3D models for printing and 3D programs
+- [x] Advanced controls, LoRAs and presets
 - [ ] macOS and Linux
 - [ ] Signed releases
 

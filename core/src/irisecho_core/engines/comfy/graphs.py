@@ -74,15 +74,79 @@ def stage_labels(graph: dict) -> dict[str, str]:
     return out
 
 
+def _v(params: dict, name: str, default):
+    """A job's advanced control value, or the recipe's own when the job sets none.
+
+    Every control falls back to exactly what the graph used before the control
+    existed (tests/test_graph_parity.py holds the builders to that).
+    """
+    value = params.get(name)
+    return default if value is None else value
+
+
+def _budget(params: dict, default: int) -> int:
+    """The pixel budget (side of the square of the same area) for a megapixels control."""
+    mp = params.get("megapixels")
+    return default if mp is None else round(1024 * math.sqrt(float(mp)))
+
+
+def _add_loras(g: dict, model: list, loras, node: str, strength: str, prefix: str = "lora") -> list:
+    """Chain the job's add-ons onto a model; returns the last model output."""
+    for i, entry in enumerate(loras or (), 1):
+        g[f"{prefix}{i}"] = {
+            "class_type": node,
+            "inputs": {
+                "model": model,
+                "lora_name": entry["file"],
+                strength: float(entry["strength"]),
+            },
+        }
+        model = [f"{prefix}{i}", 0]
+    return model
+
+
+def _init_latent(g: dict, init: str, budget: int, vae) -> list:
+    """Image to image: the picture at the job's pixel budget, encoded as the starting latent."""
+    g["init"] = {"class_type": "LoadImage", "inputs": {"image": init}}
+    g["init_scale"] = {
+        "class_type": "ImageScaleToTotalPixels",
+        "inputs": {
+            "image": ["init", 0],
+            "upscale_method": "lanczos",
+            "megapixels": round(budget * budget / (1024 * 1024), 2),
+            "resolution_steps": 16,
+        },
+    }
+    g["latent"] = {"class_type": "VAEEncode", "inputs": {"pixels": ["init_scale", 0], "vae": vae}}
+    return ["latent", 0]
+
+
+def _denoise(params: dict) -> float:
+    denoise = float(params["denoise"]) if params.get("denoise") is not None else 0.2
+    if not 0.05 <= denoise <= 1.0:
+        raise ValueError("Set denoise between 0.05 and 1.")
+    return denoise
+
+
 def _custom_sampler(
-    g: dict, *, model, conditioning, latent, seed, steps, sampler, guider=None, denoise=1.0
+    g: dict,
+    *,
+    model,
+    conditioning,
+    latent,
+    seed,
+    steps,
+    sampler,
+    guider=None,
+    denoise=1.0,
+    scheduler="simple",
 ) -> str:
     """Add the RandomNoise → SamplerCustomAdvanced chain; returns the sampler node id."""
     g["noise"] = {"class_type": "RandomNoise", "inputs": {"noise_seed": seed}}
     g["sampler"] = {"class_type": "KSamplerSelect", "inputs": {"sampler_name": sampler}}
     g["sigmas"] = {
         "class_type": "BasicScheduler",
-        "inputs": {"model": model, "scheduler": "simple", "steps": steps, "denoise": denoise},
+        "inputs": {"model": model, "scheduler": scheduler, "steps": steps, "denoise": denoise},
     }
     if guider is None:
         g["guider"] = {
@@ -113,8 +177,23 @@ def _finish(g: dict, vae, prefix: str) -> str:
     return "save"
 
 
-def z_image(*, prompt, seed, aspect, names, settings, hw, prefix, native=False, **_):
-    w, h = size_for(aspect, 1024)
+def z_image(
+    *,
+    prompt,
+    seed,
+    aspect,
+    names,
+    settings,
+    hw,
+    prefix,
+    native=False,
+    params=None,
+    images=None,
+    **_,
+):
+    params = params or {}
+    budget = _budget(params, 1024)
+    w, h = size_for(aspect, budget)
     g: dict = {}
     if native:
         g["unet"] = {
@@ -129,9 +208,159 @@ def z_image(*, prompt, seed, aspect, names, settings, hw, prefix, native=False, 
         "inputs": {"clip_name": names["qwen3-4b"], "type": "lumina2", "device": "default"},
     }
     g["vae"] = {"class_type": "VAELoader", "inputs": {"vae_name": names["flux-ae"]}}
+    # Nunchaku's Z-Image patcher takes ComfyUI's own LoRA loader (plain LoRAs only).
+    model = _add_loras(g, ["unet", 0], params.get("loras"), "LoraLoaderModelOnly", "strength_model")
     g["shift"] = {
         "class_type": "ModelSamplingAuraFlow",
-        "inputs": {"model": ["unet", 0], "shift": 3.0},
+        "inputs": {"model": model, "shift": float(_v(params, "shift", 3.0))},
+    }
+    g["text"] = {"class_type": "CLIPTextEncode", "inputs": {"clip": ["clip", 0], "text": prompt}}
+    init = (images or {}).get("image1")
+    if init:
+        latent = _init_latent(g, init, budget, ["vae", 0])
+    else:
+        g["latent"] = {
+            "class_type": "EmptySD3LatentImage",
+            "inputs": {"width": w, "height": h, "batch_size": 1},
+        }
+        latent = ["latent", 0]
+    _custom_sampler(
+        g,
+        model=["shift", 0],
+        conditioning=["text", 0],
+        latent=latent,
+        seed=seed,
+        steps=int(_v(params, "steps", settings.get("steps", 9))),
+        sampler=_v(params, "sampler", "res_multistep"),
+        scheduler=_v(params, "scheduler", "simple"),
+        denoise=_denoise(params) if init else 1.0,
+    )
+    return g, _finish(g, ["vae", 0], prefix)
+
+
+def z_image_native(**kw):
+    return z_image(native=True, **kw)
+
+
+GUIDE_TYPES = ("canny", "depth", "pose", "as_is")
+
+
+def z_image_control(*, prompt, seed, aspect, names, settings, hw, prefix, images, params=None, **_):
+    """Z-Image Turbo steered by a picture through the Fun ControlNet (Union).
+
+    The guide picture is scaled to the job's size and centre-cropped to its shape, so
+    the result has the chosen aspect whatever the guide's. It becomes an edge map
+    (ComfyUI's Canny, thresholds 0.1 and 0.32 as in Nunchaku's example), a depth map
+    (Depth Anything 3 small), or a pose drawing (SDPose, whole body, as in ComfyUI's
+    blueprint); "as_is" uses the picture itself as the map.
+    """
+    params = params or {}
+    guide = (images or {}).get("guide")
+    if not guide:
+        raise ValueError("Add the guide picture.")
+    kind = params.get("guide_type") or "canny"
+    if kind not in GUIDE_TYPES:
+        raise ValueError(f"Choose a guide type: {', '.join(GUIDE_TYPES)}.")
+    w, h = size_for(aspect, _budget(params, 1024))
+    dit = names.get("zimage-int4") or names.get("zimage-fp4")
+    g: dict = {
+        "unet": {"class_type": "NunchakuZImageDiTLoader", "inputs": {"model_name": dit}},
+        "clip": {
+            "class_type": "CLIPLoader",
+            "inputs": {"clip_name": names["qwen3-4b"], "type": "lumina2", "device": "default"},
+        },
+        "vae": {"class_type": "VAELoader", "inputs": {"vae_name": names["flux-ae"]}},
+        "patch_file": {
+            "class_type": "ModelPatchLoader",
+            "inputs": {"name": names["zimage-fun-union"]},
+        },
+        "guide": {"class_type": "LoadImage", "inputs": {"image": guide}},
+        "guide_fit": {
+            "class_type": "ImageScale",
+            "inputs": {
+                "image": ["guide", 0],
+                "upscale_method": "lanczos",
+                "width": w,
+                "height": h,
+                "crop": "center",
+            },
+        },
+    }
+    control = ["guide_fit", 0]
+    if kind == "canny":
+        g["map"] = {
+            "class_type": "Canny",
+            "inputs": {"image": control, "low_threshold": 0.1, "high_threshold": 0.32},
+        }
+        control = ["map", 0]
+    elif kind == "depth":
+        g["depth_model"] = {
+            "class_type": "LoadDA3Model",
+            "inputs": {"model_name": names["da3-small"], "weight_dtype": "default"},
+        }
+        g["depth_run"] = {
+            "class_type": "DA3Inference",
+            "inputs": {
+                "da3_model": ["depth_model", 0],
+                "image": control,
+                "resolution": 504,
+                "resize_method": "upper_bound_resize",
+                "mode": "mono",
+            },
+        }
+        g["map"] = {
+            "class_type": "DA3Render",
+            "inputs": {
+                "da3_geometry": ["depth_run", 0],
+                "output": "depth",
+                "output.normalization": "v2_style",
+                "output.apply_sky_clip": False,
+            },
+        }
+        control = ["map", 0]
+    elif kind == "pose":
+        g["pose_model"] = {
+            "class_type": "CheckpointLoaderSimple",
+            "inputs": {"ckpt_name": names["sdpose-wholebody"]},
+        }
+        g["pose_run"] = {
+            "class_type": "SDPoseKeypointExtractor",
+            "inputs": {
+                "model": ["pose_model", 0],
+                "vae": ["pose_model", 2],
+                "image": control,
+                "batch_size": 16,
+            },
+        }
+        g["map"] = {
+            "class_type": "SDPoseDrawKeypoints",
+            "inputs": {
+                "keypoints": ["pose_run", 0],
+                "draw_body": True,
+                "draw_hands": True,
+                "draw_face": True,
+                "draw_feet": True,
+                "stick_width": 4,
+                "face_point_size": 2,
+                "score_threshold": 0.5,
+                "draw_head": True,
+            },
+        }
+        control = ["map", 0]
+    model = _add_loras(g, ["unet", 0], params.get("loras"), "LoraLoaderModelOnly", "strength_model")
+    g["control"] = {
+        "class_type": "QwenImageDiffsynthControlnet",
+        "inputs": {
+            "model": model,
+            "model_patch": ["patch_file", 0],
+            "vae": ["vae", 0],
+            "image": control,
+            "strength": float(_v(params, "guide_strength", 0.75)),
+        },
+    }
+    g["shift"] = {
+        "class_type": "ModelSamplingAuraFlow",
+        "inputs": {"model": ["control", 0], "shift": float(_v(params, "shift", 3.0))},
     }
     g["text"] = {"class_type": "CLIPTextEncode", "inputs": {"clip": ["clip", 0], "text": prompt}}
     g["latent"] = {
@@ -144,14 +373,11 @@ def z_image(*, prompt, seed, aspect, names, settings, hw, prefix, native=False, 
         conditioning=["text", 0],
         latent=["latent", 0],
         seed=seed,
-        steps=int(settings.get("steps", 9)),
-        sampler="res_multistep",
+        steps=int(_v(params, "steps", settings.get("steps", 9))),
+        sampler=_v(params, "sampler", "res_multistep"),
+        scheduler=_v(params, "scheduler", "simple"),
     )
     return g, _finish(g, ["vae", 0], prefix)
-
-
-def z_image_native(**kw):
-    return z_image(native=True, **kw)
 
 
 # The largest Flux size measured on a 12 GB card: 1920 x 1088 peaked at 11.7 GB.
@@ -179,14 +405,10 @@ def flux(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, *
     elif init:
         # The picture keeps its own aspect at about one megapixel; only the area
         # reaches the shift below, so the square of the same area stands in.
-        w, h = 1024, 1024
+        w = h = _budget(params, 1024)
     else:
-        w, h = size_for(aspect, 1024)
-    denoise = 1.0
-    if init:
-        denoise = float(params["denoise"]) if params.get("denoise") is not None else 0.2
-        if not 0.05 <= denoise <= 1.0:
-            raise ValueError("Set denoise between 0.05 and 1.")
+        w, h = size_for(aspect, _budget(params, 1024))
+    denoise = _denoise(params) if init else 1.0
     dit = next(v for k, v in names.items() if k.endswith(("-int4", "-fp4")))
     dtype = _dit_dtype(hw)
     g: dict = {
@@ -218,20 +440,25 @@ def flux(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, *
             "inputs": {"width": w, "height": h, "batch_size": 1},
         },
     }
-    model = ["unet", 0]
+    model = _add_loras(
+        g, ["unet", 0], params.get("loras"), "NunchakuFluxLoraLoader", "lora_strength"
+    )
     conditioning = ["text", 0]
     if settings.get("guidance") is not None:
         g["guidance"] = {
             "class_type": "FluxGuidance",
-            "inputs": {"conditioning": ["text", 0], "guidance": float(settings["guidance"])},
+            "inputs": {
+                "conditioning": ["text", 0],
+                "guidance": float(_v(params, "guidance", settings["guidance"])),
+            },
         }
         conditioning = ["guidance", 0]
     if settings.get("shift"):
         g["shift"] = {
             "class_type": "ModelSamplingFlux",
             "inputs": {
-                "model": ["unet", 0],
-                "max_shift": 1.15,
+                "model": model,
+                "max_shift": float(_v(params, "max_shift", 1.15)),
                 "base_shift": 0.5,
                 "width": w,
                 "height": h,
@@ -260,7 +487,7 @@ def flux(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, *
                 "inputs": {
                     "image": ["init", 0],
                     "upscale_method": "lanczos",
-                    "megapixels": 1.0,
+                    "megapixels": float(_v(params, "megapixels", 1.0)),
                     "resolution_steps": 16,
                 },
             }
@@ -274,15 +501,33 @@ def flux(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, *
         conditioning=conditioning,
         latent=["latent", 0],
         seed=seed,
-        steps=int(settings.get("steps", 4)),
-        sampler="euler",
+        steps=int(_v(params, "steps", settings.get("steps", 4))),
+        sampler=_v(params, "sampler", "euler"),
+        scheduler=_v(params, "scheduler", "simple"),
         denoise=denoise,
     )
     return g, _finish(g, ["vae", 0], prefix)
 
 
-def qwen_image(*, prompt, seed, aspect, names, settings, hw, prefix, **_):
-    w, h = size_for(aspect, 1328)
+# Qwen-Image's trained sizes (the official ComfyUI template's table).
+QWEN_SIZES = {
+    "1:1": (1328, 1328),
+    "16:9": (1664, 928),
+    "9:16": (928, 1664),
+    "4:3": (1472, 1104),
+    "3:4": (1104, 1472),
+    "3:2": (1584, 1056),
+    "2:3": (1056, 1584),
+}
+
+
+def qwen_image(*, prompt, seed, aspect, names, settings, hw, prefix, params=None, images=None, **_):
+    params = params or {}
+    budget = _budget(params, 1328)
+    if params.get("trained_sizes") and aspect in QWEN_SIZES:
+        w, h = QWEN_SIZES[aspect]
+    else:
+        w, h = size_for(aspect, budget)
     dit, _dtype = _nunchaku_dit(names, hw)
     g: dict = {
         "unet": {
@@ -305,7 +550,10 @@ def qwen_image(*, prompt, seed, aspect, names, settings, hw, prefix, **_):
         "vae": {"class_type": "VAELoader", "inputs": {"vae_name": names["qwen-image-vae"]}},
         "shift": {
             "class_type": "ModelSamplingAuraFlow",
-            "inputs": {"model": ["unet", 0], "shift": float(settings.get("shift", 3.1))},
+            "inputs": {
+                "model": ["unet", 0],
+                "shift": float(_v(params, "shift", settings.get("shift", 3.1))),
+            },
         },
         "text": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["clip", 0], "text": prompt}},
         "negative": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["clip", 0], "text": ""}},
@@ -314,6 +562,8 @@ def qwen_image(*, prompt, seed, aspect, names, settings, hw, prefix, **_):
             "inputs": {"width": w, "height": h, "batch_size": 1},
         },
     }
+    init = (images or {}).get("image1")
+    latent = _init_latent(g, init, budget, ["vae", 0]) if init else ["latent", 0]
     cfg = float(settings.get("cfg", 2.5))
     # The distilled files run at cfg 1: no negative pass, so each step costs half.
     guider = (
@@ -333,18 +583,22 @@ def qwen_image(*, prompt, seed, aspect, names, settings, hw, prefix, **_):
         g,
         model=["shift", 0],
         conditioning=["text", 0],
-        latent=["latent", 0],
+        latent=latent,
         seed=seed,
-        steps=int(settings.get("steps", 20)),
-        sampler="euler",
+        steps=int(_v(params, "steps", settings.get("steps", 20))),
+        sampler=_v(params, "sampler", "euler"),
+        scheduler=_v(params, "scheduler", "simple"),
         guider=guider,
+        denoise=_denoise(params) if init else 1.0,
     )
     return g, _finish(g, ["vae", 0], prefix)
 
 
-def krea2(*, prompt, seed, aspect, names, settings, hw, prefix, **_):
+def krea2(*, prompt, seed, aspect, names, settings, hw, prefix, params=None, images=None, **_):
     """Krea 2 Turbo: ComfyUI's own 4-bit weights, eight steps at cfg 1, a zeroed negative."""
-    w, h = size_for(aspect, 1024)
+    params = params or {}
+    budget = _budget(params, 1024)
+    w, h = size_for(aspect, budget)
     g: dict = {
         "unet": {
             "class_type": "UNETLoader",
@@ -373,14 +627,18 @@ def krea2(*, prompt, seed, aspect, names, settings, hw, prefix, **_):
                 "negative": ["negative", 0],
                 "latent_image": ["latent", 0],
                 "seed": seed,
-                "steps": int(settings.get("steps", 8)),
+                "steps": int(_v(params, "steps", settings.get("steps", 8))),
                 "cfg": float(settings.get("cfg", 1.0)),
-                "sampler_name": "euler",
-                "scheduler": "simple",
+                "sampler_name": _v(params, "sampler", "euler"),
+                "scheduler": _v(params, "scheduler", "simple"),
                 "denoise": 1.0,
             },
         },
     }
+    init = (images or {}).get("image1")
+    if init:
+        g["sample"]["inputs"]["latent_image"] = _init_latent(g, init, budget, ["vae", 0])
+        g["sample"]["inputs"]["denoise"] = _denoise(params)
     return g, _finish(g, ["vae", 0], prefix)
 
 
@@ -397,8 +655,21 @@ def _nunchaku_dit(names: dict, hw) -> tuple[str, str]:
     return dit, dtype
 
 
-def qwen_edit(*, prompt, seed, names, settings, hw, prefix, images, **_):
-    """Instruction edit; up to three pictures, called picture 1-3 in the prompt."""
+def qwen_edit(*, prompt, seed, names, settings, hw, prefix, images, params=None, **_):
+    """Instruction edit; up to three pictures, called picture 1-3 in the prompt.
+
+    `keep_size` (off unless asked): the text encoder rescales its own reference to
+    1024 x 1024 on an 8-pixel grid, which differs slightly from the picture being
+    edited, so the result can drift by a few pixels. With keep_size the reference
+    latents are the edited pictures themselves, on a 16-pixel grid, and the encoder
+    adds none of its own.
+    """
+    params = params or {}
+    # Changing only an area (a mask, or a box the engine drew as one) keeps everything
+    # outside it exactly: the original pixels are pasted over the result, which needs
+    # the picture and the result on one grid.
+    region = images.get("mask")
+    keep = bool(params.get("keep_size")) or bool(region)
     dit, _dtype = _nunchaku_dit(names, hw)
     g: dict = {
         "unet": {
@@ -421,7 +692,7 @@ def qwen_edit(*, prompt, seed, names, settings, hw, prefix, images, **_):
         "vae": {"class_type": "VAELoader", "inputs": {"vae_name": names["qwen-image-vae"]}},
         "shift": {
             "class_type": "ModelSamplingAuraFlow",
-            "inputs": {"model": ["unet", 0], "shift": 3.0},
+            "inputs": {"model": ["unet", 0], "shift": float(_v(params, "shift", 3.0))},
         },
         "norm": {"class_type": "CFGNorm", "inputs": {"model": ["shift", 0], "strength": 1.0}},
     }
@@ -436,14 +707,14 @@ def qwen_edit(*, prompt, seed, names, settings, hw, prefix, images, **_):
             "inputs": {
                 "image": [f"load{slot}", 0],
                 "upscale_method": "lanczos",
-                "megapixels": 1.0,
-                "resolution_steps": 1,
+                "megapixels": float(_v(params, "megapixels", 1.0)),
+                "resolution_steps": 16 if keep else 1,
             },
         }
         refs[f"image{slot}"] = [f"scale{slot}", 0]
     if "image1" not in refs:
         raise ValueError("Add the picture to edit.")
-    common = {"clip": ["clip", 0], "vae": ["vae", 0], **refs}
+    common = {"clip": ["clip", 0], **({} if keep else {"vae": ["vae", 0]}), **refs}
     g["text"] = {
         "class_type": "TextEncodeQwenImageEditPlus",
         "inputs": {**common, "prompt": prompt},
@@ -456,27 +727,101 @@ def qwen_edit(*, prompt, seed, names, settings, hw, prefix, images, **_):
         "class_type": "VAEEncode",
         "inputs": {"pixels": refs["image1"], "vae": ["vae", 0]},
     }
+    positive, negative = ["text", 0], ["negative", 0]
+    if keep:
+        for slot in (1, 2, 3):
+            if f"image{slot}" not in refs:
+                continue
+            latent = ["encode", 0]
+            if slot > 1:
+                g[f"encode{slot}"] = {
+                    "class_type": "VAEEncode",
+                    "inputs": {"pixels": refs[f"image{slot}"], "vae": ["vae", 0]},
+                }
+                latent = [f"encode{slot}", 0]
+            for side, cond in (("pos", positive), ("neg", negative)):
+                g[f"ref_{side}{slot}"] = {
+                    "class_type": "ReferenceLatent",
+                    "inputs": {"conditioning": cond, "latent": latent},
+                }
+            positive, negative = [f"ref_pos{slot}", 0], [f"ref_neg{slot}", 0]
+    # A region edit samples the whole picture (pinning the outside latent at each of
+    # Lightning's few steps held the edit back, measured 2026-10-13) and keeps only the
+    # area, pasted with a soft edge over Picture 1 on the same grid.
+    model, latent = ["norm", 0], ["encode", 0]
+    soft = (
+        _region_mask(g, region, refs["image1"], int(_v(params, "feather", 12))) if region else None
+    )
     g["sample"] = {
         "class_type": "KSampler",
         "inputs": {
-            "model": ["norm", 0],
-            "positive": ["text", 0],
-            "negative": ["negative", 0],
-            "latent_image": ["encode", 0],
+            "model": model,
+            "positive": positive,
+            "negative": negative,
+            "latent_image": latent,
             "seed": seed,
-            "steps": int(settings.get("steps", 4)),
+            "steps": int(_v(params, "steps", settings.get("steps", 4))),
             "cfg": float(settings.get("cfg", 1.0)),
-            "sampler_name": "euler",
-            "scheduler": "simple",
+            "sampler_name": _v(params, "sampler", "euler"),
+            "scheduler": _v(params, "scheduler", "simple"),
             "denoise": 1.0,
         },
     }
-    return g, _finish(g, ["vae", 0], prefix)
+    save = _finish(g, ["vae", 0], prefix)
+    if region:
+        g["paste"] = {
+            "class_type": "ImageCompositeMasked",
+            "inputs": {
+                "destination": refs["image1"],
+                "source": ["decode", 0],
+                "x": 0,
+                "y": 0,
+                "resize_source": False,
+                "mask": soft,
+            },
+        }
+        g["save"]["inputs"]["images"] = ["paste", 0]
+    return g, save
 
 
-def kontext(*, prompt, seed, names, settings, hw, prefix, images, **_):
+def _region_mask(g: dict, mask: str, picture: list, feather: int) -> list:
+    """The area to change, at the scaled picture's size, with a soft edge `feather` px wide."""
+    g["mask_load"] = {"class_type": "LoadImageMask", "inputs": {"image": mask, "channel": "red"}}
+    g["mask_size"] = {"class_type": "GetImageSize", "inputs": {"image": picture}}
+    g["mask_img"] = {"class_type": "MaskToImage", "inputs": {"mask": ["mask_load", 0]}}
+    g["mask_fit"] = {
+        "class_type": "ImageScale",
+        "inputs": {
+            "image": ["mask_img", 0],
+            "upscale_method": "bilinear",
+            "width": ["mask_size", 0],
+            "height": ["mask_size", 1],
+            "crop": "disabled",
+        },
+    }
+    out = ["mask_fit", 0]
+    if feather > 0:
+        g["mask_blur"] = {
+            "class_type": "ImageBlur",
+            "inputs": {
+                "image": out,
+                "blur_radius": min(31, feather),
+                "sigma": min(10.0, max(1.0, feather / 3)),
+            },
+        }
+        out = ["mask_blur", 0]
+    g["mask_soft"] = {"class_type": "ImageToMask", "inputs": {"image": out, "channel": "red"}}
+    return ["mask_soft", 0]
+
+
+def kontext(*, prompt, seed, names, settings, hw, prefix, images, params=None, **_):
+    params = params or {}
     if not images.get("image1"):
         raise ValueError("Add the picture to edit.")
+    if params.get("box") is not None or images.get("mask"):
+        raise ValueError(
+            "Changing only an area works with Qwen Edit; Kontext edits the whole picture."
+        )
     dit, dtype = _nunchaku_dit(names, hw)
     g: dict = {
         "unet": {
@@ -512,7 +857,7 @@ def kontext(*, prompt, seed, names, settings, hw, prefix, images, **_):
             "class_type": "FluxGuidance",
             "inputs": {
                 "conditioning": ["text", 0],
-                "guidance": float(settings.get("guidance", 2.5)),
+                "guidance": float(_v(params, "guidance", settings.get("guidance", 2.5))),
             },
         },
         "reference": {
@@ -520,14 +865,18 @@ def kontext(*, prompt, seed, names, settings, hw, prefix, images, **_):
             "inputs": {"conditioning": ["guidance", 0], "latent": ["encode", 0]},
         },
     }
+    model = _add_loras(
+        g, ["unet", 0], params.get("loras"), "NunchakuFluxLoraLoader", "lora_strength"
+    )
     _custom_sampler(
         g,
-        model=["unet", 0],
+        model=model,
         conditioning=["reference", 0],
         latent=["encode", 0],
         seed=seed,
-        steps=int(settings.get("steps", 8)),
-        sampler="euler",
+        steps=int(_v(params, "steps", settings.get("steps", 8))),
+        sampler=_v(params, "sampler", "euler"),
+        scheduler=_v(params, "scheduler", "simple"),
     )
     return g, _finish(g, ["vae", 0], prefix)
 
@@ -539,12 +888,21 @@ def seedvr2(*, seed, names, prefix, images, params, **_):
     scale = int(params.get("scale") or 2)
     if scale not in (2, 3, 4):
         raise ValueError("Choose 2x, 3x or 4x.")
-    tiled = {"tile_size": 512, "overlap": 128, "temporal_size": 4096, "temporal_overlap": 8}
+    tiled = {
+        "tile_size": int(_v(params, "tile", 512)),
+        "overlap": 128,
+        "temporal_size": 4096,
+        "temporal_overlap": 8,
+    }
     g: dict = {
         "load": {"class_type": "LoadImage", "inputs": {"image": images["image1"]}},
         "unet": {
             "class_type": "UNETLoader",
-            "inputs": {"unet_name": names["seedvr2-3b"], "weight_dtype": "default"},
+            "inputs": {
+                # the 3B model, or the 7B one when that is what was downloaded
+                "unet_name": names.get("seedvr2-3b") or names["seedvr2-7b"],
+                "weight_dtype": "default",
+            },
         },
         "vae": {"class_type": "VAELoader", "inputs": {"vae_name": names["seedvr2-vae"]}},
         "resize": {
@@ -589,7 +947,7 @@ def seedvr2(*, seed, names, prefix, images, params, **_):
             "inputs": {
                 "images": ["decode", 0],
                 "original_resized_images": ["resize", 0],
-                "color_correction_method": "lab",
+                "color_correction_method": _v(params, "color", "lab"),
             },
         },
     }
@@ -692,12 +1050,12 @@ def seedvr2_video(*, seed, names, prefix, images, params, **_):
             "inputs": {
                 "images": ["decode", 0],
                 "original_resized_images": ["even", 0],
-                "color_correction_method": "lab",
+                "color_correction_method": _v(params, "color", "lab"),
             },
         },
         "video": {
             "class_type": "CreateVideo",
-            "inputs": {"images": ["post", 0], "fps": ["parts", 2]},
+            "inputs": {"images": ["post", 0], "fps": ["parts", 2], "audio": ["parts", 1]},
         },
         "save": {
             "class_type": "SaveVideo",
@@ -756,10 +1114,27 @@ def wan22(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, 
                 "inputs": {
                     "model": [f"unet_{part}", 0],
                     "lora_name": names[f"{lora}-{part}"],
-                    "strength_model": 1.0,
+                    "strength_model": float(_v(params, f"distill_{part}", 1.0)),
                 },
             }
         model_high, model_low = ["lora_high", 0], ["lora_low", 0]
+    # The person's own add-ons: the high-noise file on the high expert, the low on the low.
+    for i, entry in enumerate(params.get("loras") or (), 1):
+        for part in ("high", "low"):
+            if not entry.get(part):
+                continue
+            g[f"xlora_{part}{i}"] = {
+                "class_type": "LoraLoaderModelOnly",
+                "inputs": {
+                    "model": model_high if part == "high" else model_low,
+                    "lora_name": entry[part],
+                    "strength_model": float(entry["strength"]),
+                },
+            }
+            if part == "high":
+                model_high = [f"xlora_{part}{i}", 0]
+            else:
+                model_low = [f"xlora_{part}{i}", 0]
     g |= {
         "shift_high": {
             "class_type": "ModelSamplingSD3",
@@ -795,6 +1170,151 @@ def wan22(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, 
     if end:
         g["end"] = {"class_type": "LoadImage", "inputs": {"image": end}}
         g["frames"]["inputs"]["end_image"] = ["end", 0]
+    common = {
+        "steps": 4,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "noise_seed": seed,
+        "positive": ["frames", 0],
+        "negative": ["frames", 1],
+    }
+    g["sample_high"] = {
+        "class_type": "KSamplerAdvanced",
+        "inputs": {
+            **common,
+            "model": ["shift_high", 0],
+            "latent_image": ["frames", 2],
+            "add_noise": "enable",
+            "start_at_step": 0,
+            "end_at_step": 2,
+            "return_with_leftover_noise": "enable",
+        },
+    }
+    g["sample"] = {
+        "class_type": "KSamplerAdvanced",
+        "inputs": {
+            **common,
+            "model": ["shift_low", 0],
+            "latent_image": ["sample_high", 0],
+            "add_noise": "disable",
+            "start_at_step": 2,
+            "end_at_step": 10000,
+            "return_with_leftover_noise": "disable",
+        },
+    }
+    g["decode"] = {
+        "class_type": "VAEDecode",
+        "inputs": {"samples": ["sample", 0], "vae": ["vae", 0]},
+    }
+    _save_video(g, ["decode", 0], 16, params, names, prefix)
+    return g, "save"
+
+
+# The camera moves of WanCameraEmbedding, by the ids the interface and the API use.
+CAMERA_MOVES = {
+    "static": "Static",
+    "pan_up": "Pan Up",
+    "pan_down": "Pan Down",
+    "pan_left": "Pan Left",
+    "pan_right": "Pan Right",
+    "zoom_in": "Zoom In",
+    "zoom_out": "Zoom Out",
+    "anticlockwise": "Anti Clockwise (ACW)",
+    "clockwise": "ClockWise (CW)",
+}
+
+
+def wan22_camera(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, **_):
+    """Wan 2.2 Fun Camera 14B: a first frame and a camera move, with the four-step
+    LoRA pair of ComfyUI's template (4 steps split 2 + 2, cfg 1, shift 8)."""
+    start = images.get("start")
+    if not start:
+        raise ValueError("Add a first frame.")
+    move = params.get("camera") or "static"
+    if move not in CAMERA_MOVES:
+        raise ValueError(f"Choose a camera move: {', '.join(CAMERA_MOVES)}.")
+    seconds = max(2, min(5, int(params.get("seconds") or 3)))
+    frames = round((seconds * 16 - 1) / 4) * 4 + 1  # Wan needs 4n + 1 frames
+    size = params.get("size") or "standard"
+    if size not in VIDEO_TIERS:
+        raise ValueError("Choose a size: standard, large or 720p.")
+    if size == "720p" and hw.vram_mb < VIDEO_720P_MIN_MB:
+        raise ValueError("The 720p size needs a graphics card with 12 GB of memory.")
+    w, h = size_for(aspect, VIDEO_TIERS[size])
+    g: dict = {}
+    model = {}
+    for part in ("high", "low"):
+        g[f"unet_{part}"] = {
+            "class_type": "UNETLoader",
+            "inputs": {"unet_name": names[f"wan-fun-camera-{part}"], "weight_dtype": "default"},
+        }
+        g[f"lora_{part}"] = {
+            "class_type": "LoraLoaderModelOnly",
+            "inputs": {
+                "model": [f"unet_{part}", 0],
+                "lora_name": names[f"wan-i2v-lora-v1-{part}"],
+                "strength_model": 1.0,
+            },
+        }
+        model[part] = [f"lora_{part}", 0]
+    # The person's own add-ons: the high-noise file on the high expert, the low on the low.
+    for i, entry in enumerate(params.get("loras") or (), 1):
+        for part in ("high", "low"):
+            if not entry.get(part):
+                continue
+            g[f"xlora_{part}{i}"] = {
+                "class_type": "LoraLoaderModelOnly",
+                "inputs": {
+                    "model": model[part],
+                    "lora_name": entry[part],
+                    "strength_model": float(entry["strength"]),
+                },
+            }
+            model[part] = [f"xlora_{part}{i}", 0]
+    g |= {
+        "shift_high": {
+            "class_type": "ModelSamplingSD3",
+            "inputs": {"model": model["high"], "shift": 8.0},
+        },
+        "shift_low": {
+            "class_type": "ModelSamplingSD3",
+            "inputs": {"model": model["low"], "shift": 8.0},
+        },
+        "clip": {
+            "class_type": "CLIPLoader",
+            "inputs": {"clip_name": names["wan-umt5"], "type": "wan", "device": "default"},
+        },
+        "text": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["clip", 0], "text": prompt}},
+        "negative": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["clip", 0], "text": ""}},
+        "vae": {"class_type": "VAELoader", "inputs": {"vae_name": names["wan-vae"]}},
+        "start": {"class_type": "LoadImage", "inputs": {"image": start}},
+        # The embedding must be made at the size the clip is made at.
+        "camera": {
+            "class_type": "WanCameraEmbedding",
+            "inputs": {
+                "camera_pose": CAMERA_MOVES[move],
+                "width": w,
+                "height": h,
+                "length": frames,
+                "speed": float(_v(params, "camera_speed", 1.0)),
+            },
+        },
+        "frames": {
+            "class_type": "WanCameraImageToVideo",
+            "inputs": {
+                "positive": ["text", 0],
+                "negative": ["negative", 0],
+                "vae": ["vae", 0],
+                "width": w,
+                "height": h,
+                "length": frames,
+                "batch_size": 1,
+                "start_image": ["start", 0],
+                "camera_conditions": ["camera", 0],
+            },
+        },
+    }
     common = {
         "steps": 4,
         "cfg": 1.0,
@@ -894,7 +1414,7 @@ def hunyuan15(*, prompt, seed, aspect, names, settings, hw, prefix, images, para
             "inputs": {
                 "model": ["shift", 0],
                 "seed": seed,
-                "steps": 8,
+                "steps": int(_v(params, "steps", 8)),
                 "cfg": 1.0,
                 "sampler_name": "euler",
                 "scheduler": "simple",
@@ -941,7 +1461,7 @@ def hunyuan15(*, prompt, seed, aspect, names, settings, hw, prefix, images, para
                     "latent": ["upscaled", 0],
                     "start_image": ["start", 0],
                     "clip_vision_output": ["seen", 0],
-                    "noise_augmentation": 0.7,
+                    "noise_augmentation": float(_v(params, "sr_noise", 0.7)),
                 },
             },
             "sample_sr": {
@@ -1017,7 +1537,7 @@ def ltx(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, **
             "class_type": "CLIPLoader",
             "inputs": {"clip_name": part["text_encoder"], "type": "ltxv", "device": "default"},
         }
-    sampler = settings.get("sampler", "euler")
+    sampler = _v(params, "sampler", settings.get("sampler", "euler"))
     g: dict = {
         "unet": unet,
         "clip": clip,
@@ -1069,7 +1589,10 @@ def ltx(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, **
         }
         g[key] = {
             "class_type": "LTXVPreprocess",
-            "inputs": {"image": [f"{key}_fit", 0], "img_compression": 18},
+            "inputs": {
+                "image": [f"{key}_fit", 0],
+                "img_compression": int(_v(params, "motion", 18)),
+            },
         }
         return [key, 0]
 
@@ -1082,7 +1605,7 @@ def ltx(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, **
                 "vae": ["vae", 0],
                 "image": first,
                 "latent": latent,
-                "strength": 0.7,
+                "strength": float(_v(params, "start_strength", 0.7)),
                 "bypass": False,
             },
         }
@@ -1097,7 +1620,7 @@ def ltx(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, **
                 "latent": latent,
                 "image": frame("last", end),
                 "frame_idx": -1,
-                "strength": 0.7,
+                "strength": float(_v(params, "end_strength", 0.7)),
             },
         }
         positive, negative, latent = ["last_in", 0], ["last_in", 1], ["last_in", 2]
@@ -1174,26 +1697,34 @@ def ltx(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, **
             "temporal_overlap": 16,
         },
     }
-    g["sound"] = {
-        "class_type": "LTXVAudioVAEDecode",
-        "inputs": {"samples": ["split2", 1], "audio_vae": ["audio_vae", 0]},
-    }
-    _save_video(g, ["decode", 0], 24, params, names, prefix, audio=["sound", 0])
+    audio = None
+    if _v(params, "sound", True):
+        g["sound"] = {
+            "class_type": "LTXVAudioVAEDecode",
+            "inputs": {"samples": ["split2", 1], "audio_vae": ["audio_vae", 0]},
+        }
+        audio = ["sound", 0]
+    _save_video(g, ["decode", 0], 24, params, names, prefix, audio=audio)
     return g, "save"
 
 
 def _save_video(g: dict, frames, fps: int, params: dict, names: dict, prefix: str, audio=None):
-    """Optional 2x FILM interpolation, then the clip (with its sound, if any)."""
+    """Optional FILM interpolation (2x unless asked for more), then the clip, with its sound."""
     if params.get("smooth"):
+        times = int(_v(params, "interpolation", 2))
         g["interp_model"] = {
             "class_type": "FrameInterpolationModelLoader",
             "inputs": {"model_name": names["film"]},
         }
         g["interp"] = {
             "class_type": "FrameInterpolate",
-            "inputs": {"interp_model": ["interp_model", 0], "images": frames, "multiplier": 2},
+            "inputs": {
+                "interp_model": ["interp_model", 0],
+                "images": frames,
+                "multiplier": times,
+            },
         }
-        frames, fps = ["interp", 0], fps * 2
+        frames, fps = ["interp", 0], fps * times
     g["video"] = {"class_type": "CreateVideo", "inputs": {"images": frames, "fps": fps}}
     if audio:
         g["video"]["inputs"]["audio"] = audio
@@ -1256,9 +1787,17 @@ def _trellis_core(g: dict, *, unet: str, cond, seed: int, names: dict, params: d
     # "resolution" is set by the engine when it steps down from High after running out of memory
     res = int(params.get("resolution") or DETAIL.get(params.get("detail", "standard"), 1024))
     textures = params.get("textures", True)
-    faces = int(params.get("faces") or FACES[0])
-    if faces not in FACES:
-        raise ValueError(f"faces must be one of {', '.join(map(str, FACES))}.")
+    if params.get("triangles") is not None:  # the advanced count replaces the three presets
+        faces = int(params["triangles"])
+        if not 5_000 <= faces <= 1_000_000:
+            raise ValueError("triangles must be between 5000 and 1000000.")
+    else:
+        faces = int(params.get("faces") or FACES[0])
+        if faces not in FACES:
+            raise ValueError(f"faces must be one of {', '.join(map(str, FACES))}.")
+    steps = int(_v(params, "steps", 12))
+    guidance = float(_v(params, "guidance", 7.5))
+    texture_size = int(_v(params, "texture_size", 2048))
     g["shape_vae"] = {
         "class_type": "VAELoader",
         "inputs": {"vae_name": names["trellis2-shape-vae"]},
@@ -1287,7 +1826,7 @@ def _trellis_core(g: dict, *, unet: str, cond, seed: int, names: dict, params: d
             "inputs": {
                 "model": model,
                 "seed": seed,
-                "steps": 12,
+                "steps": steps,
                 "cfg": cfg,
                 "sampler_name": "euler",
                 "scheduler": "normal",
@@ -1301,7 +1840,7 @@ def _trellis_core(g: dict, *, unet: str, cond, seed: int, names: dict, params: d
     ss_model = guided("ss", [unet, 0], 0.7, 5.0)
     shape_model = guided("shape", [unet, 0], 0.5, None)
     g["empty"] = {"class_type": "EmptyTrellis2LatentStructure", "inputs": {"batch_size": 1}}
-    ksampler("sample_structure", ss_model, [cond, 0], [cond, 1], ["empty", 0], 7.5)
+    ksampler("sample_structure", ss_model, [cond, 0], [cond, 1], ["empty", 0], guidance)
     g["structure"] = {
         "class_type": "VaeDecodeStructureTrellis2",
         "inputs": {"samples": ["sample_structure", 0], "vae": ["shape_vae", 0], "resolution": "32"},
@@ -1316,7 +1855,7 @@ def _trellis_core(g: dict, *, unet: str, cond, seed: int, names: dict, params: d
         ["shape_stage", 0],
         ["shape_stage", 1],
         ["shape_stage", 2],
-        7.5,
+        guidance,
     )
     g["upsample"] = {
         "class_type": "Trellis2UpsampleStage",
@@ -1328,7 +1867,14 @@ def _trellis_core(g: dict, *, unet: str, cond, seed: int, names: dict, params: d
             "target_resolution": res,
         },
     }
-    ksampler("sample_detail", shape_model, ["upsample", 0], ["upsample", 1], ["upsample", 2], 7.5)
+    ksampler(
+        "sample_detail",
+        shape_model,
+        ["upsample", 0],
+        ["upsample", 1],
+        ["upsample", 2],
+        guidance,
+    )
     g["shape"] = {
         "class_type": "VaeDecodeShapeTrellis",
         "inputs": {"samples": ["sample_detail", 0], "vae": ["shape_vae", 0]},
@@ -1345,8 +1891,8 @@ def _trellis_core(g: dict, *, unet: str, cond, seed: int, names: dict, params: d
             "band": 1.0,
             "project_back": 0.0,
             "fix_poles": False,
-            "smooth_iters": 3,
-            "drop_small_components": 0.01,
+            "smooth_iters": int(_v(params, "smoothing", 3)),
+            "drop_small_components": float(_v(params, "keep_small", 0.01)),
             "precluster_max_verts": 20_000_000,
         },
     }
@@ -1360,7 +1906,7 @@ def _trellis_core(g: dict, *, unet: str, cond, seed: int, names: dict, params: d
     }
     g["smooth"] = {
         "class_type": "MeshSmoothNormals",
-        "inputs": {"mesh": ["decimate", 0], "crease_angle": 180.0},
+        "inputs": {"mesh": ["decimate", 0], "crease_angle": float(_v(params, "crease", 180.0))},
     }
     final = ["smooth", 0]
     if textures:
@@ -1397,7 +1943,7 @@ def _trellis_core(g: dict, *, unet: str, cond, seed: int, names: dict, params: d
             "inputs": {
                 "mesh": final,
                 "segmenter": "pec",
-                "resolution": 2048,
+                "resolution": texture_size,
                 "padding": 1,
                 "weld_distance": 0.0002,
             },
@@ -1407,7 +1953,7 @@ def _trellis_core(g: dict, *, unet: str, cond, seed: int, names: dict, params: d
             "inputs": {
                 "mesh": ["unwrap", 0],
                 "voxel_colors": ["colors", 0],
-                "texture_size": 2048,
+                "texture_size": texture_size,
                 "reference_mesh": ["shape", 0],
             },
         }
@@ -1416,7 +1962,7 @@ def _trellis_core(g: dict, *, unet: str, cond, seed: int, names: dict, params: d
             "inputs": {
                 "low_poly": ["unwrap", 0],
                 "high_poly": ["remesh", 0],
-                "resolution": 2048,
+                "resolution": texture_size,
                 "cage_distance": 0.05,
                 "ignore_backfaces": True,
             },
@@ -1554,6 +2100,67 @@ def pixal3d_mv(*, seed, names, prefix, images, params, **_):
     return g, save
 
 
+def pixal3d_single(*, seed, names, prefix, images, params, **_):
+    """Pixal3D from one picture, as ComfyUI's template builds it: the object is cut out
+    and padded 1.1, MoGe-2 estimates the camera's field of view from that crop, and
+    Pixal3D conditions on both. Finishing is the same as the other 3D builders."""
+    if not images.get("front"):
+        raise ValueError("Add a picture of the object.")
+    g: dict = {}
+    bg = _bg_model(g, names)
+    image, mask = _cutout(g, "front", images["front"], bg)
+    g["crop"] = {
+        "class_type": "ImageCropToMask",
+        "inputs": {
+            "images": image,
+            "masks": mask,
+            "width": 1024,
+            "height": 1024,
+            "pad_factor": 1.1,
+            "grow_mask": 0,
+            "background": "#000000",
+        },
+    }
+    g["moge"] = {
+        "class_type": "LoadMoGeModel",
+        "inputs": {"model_name": names["moge2-vitl-normal"]},
+    }
+    g["geometry"] = {
+        "class_type": "MoGeInference",
+        "inputs": {
+            "moge_model": ["moge", 0],
+            "image": ["crop", 0],
+            "resolution_level": 9,
+            "fov_x_degrees": 0.0,  # recover it from the picture
+            "batch_size": 4,
+            "force_projection": True,
+            "apply_mask": True,
+            "refine_steps": 3,  # MoGe-3 only; the node's default
+        },
+    }
+    g["fov"] = {
+        "class_type": "MoGeGeometryToFOV",
+        "inputs": {"moge_geometry": ["geometry", 0], "axis": "horizontal", "unit": "degrees"},
+    }
+    g["unet"] = {
+        "class_type": "UNETLoader",
+        "inputs": {"unet_name": names["pixal3d-int8"], "weight_dtype": "default"},
+    }
+    g["dino"] = {"class_type": "CLIPVisionLoader", "inputs": {"clip_name": names["dinov3-naf"]}}
+    g["cond"] = {
+        "class_type": "Pixal3DConditioning",
+        "inputs": {
+            "clip_vision_model": ["dino", 0],
+            "image": ["crop", 0],
+            "camera_angle_x": ["fov", 0],
+        },
+    }
+    save = _trellis_core(
+        g, unet="unet", cond="cond", seed=seed, names=names, params=params, prefix=prefix
+    )
+    return g, save
+
+
 # The views helper runs several of these in a row (ComfyEngine._run_views).
 # Asking for a straight-on front view returns a picture that already is one almost
 # unchanged, and changes one taken from above. (Asking only to "lower the camera"
@@ -1659,12 +2266,20 @@ def views_level(*, names, image: str, seed: int, prefix: str):
     return g
 
 
-def views_back(*, names, image: str, attempt: int, seed: int, prefix: str):
-    """A back view for the front, the pair framed for Pixal3D, and the mirror check."""
+def views_back(
+    *, names, image: str, attempt: int, seed: int, prefix: str, back_words: str | None = None
+):
+    """A back view for the front, the pair framed for Pixal3D, and the mirror check.
+
+    `back_words` (optional) describes what the back looks like; it follows the fixed wording.
+    """
     g: dict = {}
     bg = _bg_model(g, names)
     front, front_mask = _cutout(g, "front", image, bg)
-    back = _qwen_edit_nodes(g, names, front, BACK_PROMPTS[attempt % len(BACK_PROMPTS)], seed)
+    prompt = BACK_PROMPTS[attempt % len(BACK_PROMPTS)]
+    if back_words and back_words.strip():
+        prompt = f"{prompt} {back_words.strip()}"
+    back = _qwen_edit_nodes(g, names, front, prompt, seed)
     g["mask_back"] = {
         "class_type": "RemoveBackground",
         "inputs": {"bg_removal_model": [bg, 0], "image": back},
@@ -1714,6 +2329,7 @@ MODEL3D_PROGRESS = {
 BUILDERS = {
     "z-image-nunchaku": z_image,
     "z-image-native": z_image_native,
+    "z-image-control": z_image_control,
     "flux-nunchaku": flux,
     "qwen-image-nunchaku": qwen_image,
     "krea2": krea2,
@@ -1722,32 +2338,53 @@ BUILDERS = {
     "seedvr2": seedvr2,
     "seedvr2-video": seedvr2_video,
     "wan22": wan22,
+    "wan22-camera": wan22_camera,
     "hunyuan15": hunyuan15,
     "ltx": ltx,
     "trellis2": trellis2,
     "pixal3d-mv": pixal3d_mv,
+    "pixal3d-single": pixal3d_single,
 }
-MODEL3D = {"trellis2", "pixal3d-mv"}
+MODEL3D = {"trellis2", "pixal3d-mv", "pixal3d-single"}
 
 # The uploaded pictures (and clips) each workflow reads, by parameter name.
 IMAGE_INPUTS = {
+    "z-image-control": ("guide",),
     "flux-nunchaku": ("image1",),
-    "qwen-edit": ("image1", "image2", "image3"),
+    "qwen-edit": ("image1", "image2", "image3", "mask"),
     "kontext": ("image1",),
     "seedvr2": ("image1",),
     "seedvr2-video": ("video",),
     "wan22": ("start", "end"),
+    "wan22-camera": ("start",),
     "hunyuan15": ("start",),
     "ltx": ("start", "end"),
     "trellis2": ("front",),
     "pixal3d-mv": ("front", "back"),
+    "pixal3d-single": ("front",),
     "views3d": ("image1",),
 }
-PROMPT_OPTIONAL = {"seedvr2", "seedvr2-video", "trellis2", "pixal3d-mv", "views3d"}
+PROMPT_OPTIONAL = {
+    "seedvr2",
+    "seedvr2-video",
+    "trellis2",
+    "pixal3d-mv",
+    "pixal3d-single",
+    "views3d",
+}
 # Run with ComfyUI's dynamic VRAM (see ComfyEngine.ensure_running). The 3D
 # workflows were measured with it; the views helper shares it so that going from
 # views to a build does not restart ComfyUI (Nunchaku's Qwen loader is fine with it).
-DYNAMIC_VRAM = {"wan22", "hunyuan15", "ltx", "trellis2", "pixal3d-mv", "views3d"}
+DYNAMIC_VRAM = {
+    "wan22",
+    "wan22-camera",
+    "hunyuan15",
+    "ltx",
+    "trellis2",
+    "pixal3d-mv",
+    "pixal3d-single",
+    "views3d",
+}
 
 
 def describe_error(data: dict) -> str:

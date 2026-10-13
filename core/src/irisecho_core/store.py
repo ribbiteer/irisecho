@@ -159,6 +159,12 @@ class Store:
                 parent = Path(link["path"]).parent
                 if parent not in dirs:
                     dirs.append(parent)
+        if category == "loras":
+            # The person's own add-ons in a linked models folder (ComfyUI keeps them in loras/).
+            for root in self.linked_dirs:
+                sub = root / "loras"
+                if sub not in dirs and sub.is_dir():
+                    dirs.append(sub)
         return dirs
 
     # --- linked folders ----------------------------------------------------

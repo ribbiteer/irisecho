@@ -447,8 +447,54 @@ async def run_jobs(
     return 1 if failures else 0
 
 
+def describe_control(c: dict) -> str:
+    """One line: type, range or choices, and the recommended value."""
+    if c["type"] in ("int", "float"):
+        kind = f"{c['type']} {c.get('min')}..{c.get('max')}"
+    elif c["type"] == "choice":
+        kind = "one of " + ", ".join(str(o["value"]) or '"" (any)' for o in c.get("options", []))
+    elif c["type"] == "loras":
+        shape = (
+            '{"high": FILE, "low": FILE, "strength": 1}'
+            if c.get("pair")
+            else '{"file": FILE, "strength": 1}'
+        )
+        kind = f"list of up to 3 {shape}"
+    else:
+        kind = c["type"]
+    default = json.dumps(c.get("default"))
+    return f"{kind}; recommended {default}" + (" (expert)" if c.get("tier") == "expert" else "")
+
+
+def parse_sets(items: list[str]) -> dict:
+    """`--set name=value` pairs: a value that reads as JSON (12, 0.5, true, [...]) is taken as
+    that, anything else as text. The app checks each against the model's controls."""
+    out = {}
+    for item in items or []:
+        name, sep, value = item.partition("=")
+        if not sep or not name.strip():
+            raise SystemExit(f"--set takes NAME=VALUE, got: {item}")
+        try:
+            out[name.strip()] = json.loads(value)
+        except ValueError:
+            out[name.strip()] = value
+    return out
+
+
+def add_set(p) -> None:
+    p.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="an advanced control, for example --set steps=12 (see `irisecho models --controls`)",
+    )
+
+
 def generate(args, model_id: str, param_list: list[dict], accept_license: bool = False) -> int:
     """What every generating command does once it knows its jobs."""
+    sets = parse_sets(getattr(args, "set", None))
+    param_list = [{**p, **sets} for p in param_list]
 
     async def go(backend):
         with contextlib.redirect_stdout(sys.stderr if args.json else sys.stdout):
@@ -500,6 +546,20 @@ def cmd_info(args) -> int:
 def cmd_models(args) -> int:
     async def go(backend):
         rows = await backend.models()
+        if args.controls:
+            m = next((r for r in rows if r["id"] == args.controls), None)
+            if m is None:
+                print(f"No model {args.controls}.", file=sys.stderr)
+                return 2
+            if args.json:
+                print(json.dumps(m.get("controls", []), indent=2))
+                return 0
+            if not m.get("controls"):
+                print(f"{m['id']} has no advanced controls.")
+            for c in m.get("controls", []):
+                print(f"{c['name']:<16} {describe_control(c)}")
+                print(f"{'':<16} {c['label']}: {c.get('help', '')}")
+            return 0
         if args.json:
             print(json.dumps(rows, indent=2))
             return 0
@@ -758,6 +818,11 @@ def cmd_image(args) -> int:
         upload = f"{uuid.uuid4().hex}{src.suffix.lower()}"
         shutil.copyfile(src, paths.sub("uploads") / upload)
         extra.update(image1=upload, denoise=args.denoise)
+    if args.guide:
+        extra.update(guide=stage_upload(Path(args.guide)), guide_type=args.guide_type)
+    elif args.model == "z-image-control":
+        print("z-image-control needs --guide PICTURE.", file=sys.stderr)
+        return 2
     params = [
         {
             "prompt": args.prompt,
@@ -809,11 +874,14 @@ def cmd_3d(args) -> int:
         "faces": args.faces,
         "seed": args.seed,
     }
+    build.update(parse_sets(args.set))
 
     async def go(backend):
         notes = sys.stderr if args.json else sys.stdout
         model, params = args.model, {**build, "front": front}
         with contextlib.redirect_stdout(notes):
+            if back and model == "pixal3d-single":
+                raise CliError("--back goes with Pixal3D; pixal3d-single builds from one picture.")
             if back:
                 model, params["back"] = "pixal3d", back
             elif model in ("auto", "pixal3d"):
@@ -947,6 +1015,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("models", help="list models and whether they are ready")
     p.add_argument("--json", action="store_true", help="everything known about each model")
+    p.add_argument(
+        "--controls", metavar="MODEL", help="list a model's advanced controls (for --set)"
+    )
     p.set_defaults(fn=cmd_models)
 
     p = sub.add_parser("setup", help="install and download everything a model needs")
@@ -967,6 +1038,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--raw", action="store_true", help="skip silence trim and loudness matching")
     p.add_argument("--out", help="copy results into this folder")
     p.add_argument("--json", action="store_true", help="one JSON object per job on stdout")
+    add_set(p)
     p.set_defaults(fn=cmd_say)
 
     p = sub.add_parser("clone", help="speak in a voice cloned from a short clip")
@@ -985,6 +1057,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--raw", action="store_true", help="skip silence trim and loudness matching")
     p.add_argument("--out", help="copy results into this folder")
     p.add_argument("--json", action="store_true", help="one JSON object per job on stdout")
+    add_set(p)
     p.set_defaults(fn=cmd_clone)
 
     p = sub.add_parser("music", help="compose music from style tags, or a cue sheet")
@@ -1005,6 +1078,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--seed", type=int)
     p.add_argument("--out", help="copy results into this folder")
     p.add_argument("--json", action="store_true", help="one JSON object per job on stdout")
+    add_set(p)
     p.set_defaults(fn=cmd_music)
 
     p = sub.add_parser("sfx", help="make sound effects from a description, or a cue sheet")
@@ -1017,6 +1091,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--accept-license", action="store_true")
     p.add_argument("--out", help="copy results into this folder")
     p.add_argument("--json", action="store_true", help="one JSON object per job on stdout")
+    add_set(p)
     p.set_defaults(fn=cmd_sfx)
 
     p = sub.add_parser("image", help="make images from a prompt")
@@ -1030,9 +1105,17 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--from", dest="source", help="redraw this picture (FLUX models)")
     p.add_argument("--denoise", type=float, default=0.2, help="how much --from changes, 0.05-1")
     p.add_argument("--size", help="WIDTHxHEIGHT, for example 1920x1088 (FLUX models)")
+    p.add_argument("--guide", help="a picture to follow (z-image-control)")
+    p.add_argument(
+        "--guide-type",
+        default="canny",
+        choices=["canny", "depth", "pose", "as_is"],
+        help="what --guide gives: outlines, depth or pose; as_is if it already is such a map",
+    )
     p.add_argument("--accept-license", action="store_true")
     p.add_argument("--out", help="copy results into this folder")
     p.add_argument("--json", action="store_true", help="one JSON object per job on stdout")
+    add_set(p)
     p.set_defaults(fn=cmd_image)
 
     p = sub.add_parser("3d", help="make a 3D model from a picture")
@@ -1041,9 +1124,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--model",
         default="auto",
-        choices=["auto", "pixal3d", "trellis2"],
+        choices=["auto", "pixal3d", "trellis2", "pixal3d-single"],
         help="auto: a matching back view and Pixal3D when the picture is at eye level, "
-        "else TRELLIS.2 from the picture alone (default)",
+        "else TRELLIS.2 from the picture alone (default); pixal3d-single: Pixal3D from "
+        "the picture alone",
     )
     p.add_argument("--detail", default="standard", choices=["standard", "high"])
     p.add_argument("--no-textures", action="store_true", help="shape only, faster")
@@ -1063,6 +1147,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--accept-license", action="store_true")
     p.add_argument("--out", help="write the model into this folder")
     p.add_argument("--json", action="store_true", help="one JSON object on stdout")
+    add_set(p)
     p.set_defaults(fn=cmd_3d)
 
     p = sub.add_parser("write", help="improve a prompt, or describe a picture as one")

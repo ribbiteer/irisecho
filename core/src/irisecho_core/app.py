@@ -15,7 +15,7 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 
-from irisecho_core import hardware, paths, registry, settings
+from irisecho_core import controls, hardware, metadata, paths, registry, settings
 from irisecho_core.db import HIDDEN_KINDS, Database
 from irisecho_core.downloads import DownloadManager
 from irisecho_core.engines import build_engines
@@ -115,6 +115,7 @@ class App:
             "engine": model.engine,
             "summary": model.summary,
             "prompt_style": model.settings.get("prompt_style"),
+            "controls": [c.public() for c in model.controls],
             "page": files[0].page if files else "",
             "license": {
                 "id": lic.id,
@@ -315,6 +316,7 @@ class App:
         status = self.model_status(model)
         if status["needs"]:
             raise NotReady(f"{model.name} is not ready yet.", status["needs"])
+        params, warnings = controls.check(model, params)
         job = {
             "id": uuid.uuid4().hex[:12],
             "model": model.id,
@@ -334,7 +336,10 @@ class App:
             self.db.prune(model.kind, keep=40)
         self.queue.put_nowait(job["id"])
         self._emit_job(job["id"])
-        return self.db.get(job["id"])
+        out = self.db.get(job["id"])
+        if warnings:
+            out = {**out, "warnings": warnings}
+        return out
 
     def _emit_job(self, job_id: str) -> None:
         job = self.db.get(job_id)
@@ -367,6 +372,19 @@ class App:
         self.db.delete(job_id)
         self.bus.publish("job.deleted", {"id": job_id})
         return True
+
+    @staticmethod
+    def _embed_settings(model: ModelSpec, params: dict, outputs: list[dict]) -> None:
+        """The person asked for settings in their pictures (privacy switch off)."""
+        for out in outputs:
+            path = Path(out.get("path", ""))
+            if out.get("type") != "image" or path.suffix.lower() != ".png":
+                continue
+            size = (out["width"], out["height"]) if out.get("width") else None
+            try:
+                metadata.embed(path, model, params, out.get("seed", params.get("seed")), size)
+            except OSError:
+                pass  # the picture itself is fine; only the extra text is missing
 
     def stem_for(self, job: dict) -> tuple[Path, str]:
         text = job["params"].get("prompt") or job["params"].get("text") or job["model"]
@@ -443,6 +461,8 @@ class App:
             outputs = await engine.run(ctx)
             if ctx.cancelled.is_set():
                 raise asyncio.CancelledError
+            if not self.settings.strip_metadata:
+                self._embed_settings(model, job["params"], outputs)
             self.db.update(
                 job_id,
                 status="done",

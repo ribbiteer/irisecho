@@ -3,9 +3,10 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
-from irisecho_core.engines import uvenv
+from irisecho_core.engines import audioformat, uvenv
 from irisecho_core.engines.base import RunContext
 from irisecho_core.engines.worker import WorkerEngine
 
@@ -56,6 +57,41 @@ def voice_options() -> list[dict]:
     ]
 
 
+MAX_BLEND = 5
+# A voice may be named by its id (af_bella) or the name shown in the list (Bella).
+BY_NAME = {**{vid: vid for vid in VOICES}, **{label.lower(): vid for vid, label in VOICES.items()}}
+
+
+def parse_blend(text: str) -> list[tuple[str, float]]:
+    """A voice mix such as "Bella:0.6, Sky:0.4" or "af_bella,af_sky" (equal parts).
+
+    Returns (voice, weight) pairs; a voice named twice has its weights added.
+    """
+    mix: dict[str, float] = {}
+    for item in str(text).split(","):
+        item = item.strip()
+        if not item:
+            continue
+        name, sep, weight = item.partition(":")
+        name = BY_NAME.get(name.strip().lower(), "")
+        if not name:
+            raise ValueError(f"Voice mix: unknown voice {item.partition(':')[0].strip()!r}.")
+        w = 1.0
+        if sep:
+            try:
+                w = float(weight)
+            except ValueError:
+                raise ValueError(f"Voice mix: {weight.strip()!r} is not a weight.") from None
+        if not math.isfinite(w) or w <= 0:
+            raise ValueError(f"Voice mix: the weight of {name} must be above zero.")
+        mix[name] = mix.get(name, 0.0) + w
+    if not mix:
+        raise ValueError("Voice mix: name at least one voice.")
+    if len(mix) > MAX_BLEND:
+        raise ValueError(f"Voice mix: use at most {MAX_BLEND} voices.")
+    return list(mix.items())
+
+
 class KokoroEngine(WorkerEngine):
     id = "kokoro"
     name = "Kokoro"
@@ -87,7 +123,10 @@ class KokoroEngine(WorkerEngine):
 
     async def run(self, ctx: RunContext) -> list[dict]:
         p = ctx.params
-        voice = p.get("voice") or "af_heart"
+        blend = (p.get("blend") or "").strip()
+        mix = parse_blend(blend) if blend else None
+        # A mix replaces the single voice; the first voice in it sets the language.
+        voice = mix[0][0] if mix else p.get("voice") or "af_heart"
         if voice not in VOICES:
             raise ValueError(f"unknown voice {voice}")
         text = (p.get("text") or "").strip()
@@ -103,17 +142,21 @@ class KokoroEngine(WorkerEngine):
             },
         )
         clean = p.get("clean", True)
-        out = ctx.output(0, "wav")
-        result = await self.call(
-            ctx,
-            "speak",
-            {
-                "text": text,
-                "voice": str(ctx.files[f"kokoro-voices/{voice}.pt"]),
-                "lang": voice[0],
-                "speed": float(p.get("speed") or 1.0),
-                "clean": bool(clean),
-                "out": str(out),
-            },
-        )
+        _, ext, fmt = audioformat.pick(p)
+        out = ctx.output(0, ext)
+        request = {
+            "text": text,
+            "voice": str(ctx.files[f"kokoro-voices/{voice}.pt"]),
+            "lang": voice[0],
+            "speed": float(p.get("speed") or 1.0),
+            "clean": bool(clean),
+            "out": str(out),
+            **fmt,
+        }
+        if mix:
+            del request["voice"]
+            request["voices"] = [
+                [str(ctx.files[f"kokoro-voices/{name}.pt"]), weight] for name, weight in mix
+            ]
+        result = await self.call(ctx, "speak", request)
         return [{"path": str(out), "type": "audio", "duration": result.get("duration")}]

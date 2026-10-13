@@ -10,6 +10,13 @@ import re
 
 import numpy as np
 
+# Output formats a job may ask for: name -> (container, sample format, file extension).
+AUDIO_FORMATS = {
+    "wav16": ("WAV", "PCM_16", "wav"),
+    "wav24": ("WAV", "PCM_24", "wav"),
+    "flac": ("FLAC", "PCM_24", "flac"),
+}
+
 
 def _level(audio: np.ndarray) -> np.ndarray:
     return np.abs(audio) if audio.ndim == 1 else np.max(np.abs(audio), axis=1)
@@ -304,3 +311,13 @@ def _split_long(sentence: str, limit: int) -> list[str]:
             else:
                 out.append(line)
     return out
+
+
+def write_audio(path, audio: np.ndarray, sr: int, fmt: str = "wav16") -> None:
+    """Write `audio` as one of AUDIO_FORMATS (16-bit WAV unless asked otherwise)."""
+    import soundfile as sf  # in every audio engine's environment; the rest needs only numpy
+
+    if fmt not in AUDIO_FORMATS:
+        raise ValueError(f"unknown audio format {fmt}")
+    container, subtype, _ = AUDIO_FORMATS[fmt]
+    sf.write(path, audio, sr, subtype=subtype, format=container)

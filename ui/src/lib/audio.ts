@@ -13,7 +13,7 @@ export function looksLikeAudio(file: File): boolean {
 }
 
 /** The file as is when the server reads its format, otherwise a 16-bit mono WAV of it. */
-export async function readableAudio(file: File): Promise<File> {
+export async function readableAudio(file: File, options: { seconds?: number; stereo?: boolean } = {}): Promise<File> {
   if (READABLE.has(file.type)) return file;
   const Ctx = window.AudioContext ?? (window as any).webkitAudioContext;
   if (!Ctx) throw new Error("This browser cannot read that recording. Use a WAV or MP3 file.");
@@ -27,35 +27,45 @@ export async function readableAudio(file: File): Promise<File> {
     ctx.close();
   }
   const name = file.name.replace(/\.[^.]+$/, "") + ".wav";
-  return new File([encodeWav(decoded)], name, { type: "audio/wav" });
+  const wav = encodeWav(decoded, options.seconds ?? KEEP_SECONDS, !!options.stereo);
+  return new File([wav], name, { type: "audio/wav" });
 }
 
-function encodeWav(buffer: AudioBuffer): Blob {
+// Mono and 30 s for a voice sample; music and sounds to start from keep their channels and their length.
+function encodeWav(buffer: AudioBuffer, seconds: number, stereo: boolean): Blob {
   const rate = buffer.sampleRate;
-  const length = Math.min(buffer.length, rate * KEEP_SECONDS);
-  const mono = new Float32Array(length);
+  const length = Math.min(buffer.length, Math.floor(rate * seconds));
+  const channels = stereo ? Math.min(2, buffer.numberOfChannels) : 1;
+  const mixed: Float32Array[] = [];
+  for (let k = 0; k < channels; k++) mixed.push(new Float32Array(length));
   for (let c = 0; c < buffer.numberOfChannels; c++) {
     const data = buffer.getChannelData(c);
-    for (let i = 0; i < length; i++) mono[i] += data[i] / buffer.numberOfChannels;
+    // Without stereo every channel is averaged into the one; with it, channel 0 is left and the rest right.
+    const target = mixed[stereo ? Math.min(c, 1) : 0];
+    const share = stereo ? 1 : 1 / buffer.numberOfChannels;
+    for (let i = 0; i < length; i++) target[i] += data[i] * share;
   }
-  const out = new DataView(new ArrayBuffer(44 + length * 2));
+  const bytes = length * channels * 2;
+  const out = new DataView(new ArrayBuffer(44 + bytes));
   const text = (at: number, s: string) => [...s].forEach((ch, i) => out.setUint8(at + i, ch.charCodeAt(0)));
   text(0, "RIFF");
-  out.setUint32(4, 36 + length * 2, true);
+  out.setUint32(4, 36 + bytes, true);
   text(8, "WAVE");
   text(12, "fmt ");
   out.setUint32(16, 16, true);
   out.setUint16(20, 1, true); // PCM
-  out.setUint16(22, 1, true); // mono
+  out.setUint16(22, channels, true);
   out.setUint32(24, rate, true);
-  out.setUint32(28, rate * 2, true);
-  out.setUint16(32, 2, true);
+  out.setUint32(28, rate * channels * 2, true);
+  out.setUint16(32, channels * 2, true);
   out.setUint16(34, 16, true);
   text(36, "data");
-  out.setUint32(40, length * 2, true);
+  out.setUint32(40, bytes, true);
   for (let i = 0; i < length; i++) {
-    const s = Math.max(-1, Math.min(1, mono[i]));
-    out.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    for (let k = 0; k < channels; k++) {
+      const s = Math.max(-1, Math.min(1, mixed[k][i]));
+      out.setInt16(44 + (i * channels + k) * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
   }
   return new Blob([out.buffer], { type: "audio/wav" });
 }

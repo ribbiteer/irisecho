@@ -1,8 +1,13 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
   import ActionBar from "../ActionBar.svelte";
+  import AdvancedControls from "../AdvancedControls.svelte";
+  import BoxSelect from "../BoxSelect.svelte";
+  import { uploadUrl } from "../../lib/api";
   import PromptTools from "../PromptTools.svelte";
   import ImageDrop from "../ImageDrop.svelte";
+  import SeedField from "../SeedField.svelte";
+  import { controlParams, nextSeed, reuseCommon } from "../../lib/controls";
   import { app, submit } from "../../lib/state.svelte";
   import type { Studio } from "../../lib/studios";
   import type { Model } from "../../lib/types";
@@ -15,7 +20,13 @@
   let image3 = $state<string | null>(null);
   let prompt = $state("");
   let count = $state(1);
+  let fixedSeed = $state(false);
+  let seed = $state(Math.floor(Math.random() * 1e9));
   let sending = $state(false);
+  // Advanced, Qwen Edit only: change only an area of Picture 1; the rest stays exactly as it is.
+  let regionOn = $state(false);
+  let box = $state<number[] | null>(null);
+  const region = $derived(multi && !!app.settings?.advanced && regionOn && !!image1 && !!box);
 
   $effect(() => {
     const r = app.reuse;
@@ -24,6 +35,13 @@
       image1 = r.params.image1 ?? null;
       image2 = r.params.image2 ?? null;
       image3 = r.params.image3 ?? null;
+      box = Array.isArray(r.params.box) ? r.params.box : null;
+      regionOn = !!box;
+      const { seed: s } = reuseCommon(model, r);
+      if (s != null) {
+        seed = s;
+        fixedSeed = true;
+      }
       app.reuse = null;
     }
   });
@@ -37,7 +55,9 @@
         image1,
         image2: multi ? image2 : null,
         image3: multi ? image3 : null,
-        seed: Math.floor(Math.random() * 2 ** 50),
+        seed: nextSeed(fixedSeed, seed, i),
+        ...(region ? { box } : {}),
+        ...controlParams(model, { image1, box: region ? box : null }),
       });
     }
     sending = false;
@@ -67,6 +87,22 @@
     </div>
   {/if}
 
+  {#if multi && app.settings?.advanced && image1}
+    <div class="field">
+      <span class="label">
+        Change only an area
+        <button class="switch" role="switch" aria-checked={regionOn} aria-label="Change only an area" onclick={() => (regionOn = !regionOn)}
+        ></button>
+      </span>
+      {#if regionOn}
+        <BoxSelect src={uploadUrl(image1)} bind:box />
+        <p class="tip">
+          {box ? "Only the marked area changes; everything outside it stays exactly as it is." : "Drag a rectangle over the area to change."}
+        </p>
+      {/if}
+    </div>
+  {/if}
+
   <div class="field">
     <label class="label" for="change">What should change?</label>
     <textarea
@@ -82,14 +118,19 @@
     <p class="tip">Name only what should change; the rest is kept.</p>
   </div>
 
-  <div class="field">
-    <span class="label">Versions</span>
-    <div class="chips">
-      {#each [1, 2, 3, 4] as n (n)}
-        <button class="chip num" aria-pressed={count === n} onclick={() => (count = n)}>{n}</button>
-      {/each}
+  <div class="row">
+    <div class="field">
+      <span class="label">Versions</span>
+      <div class="chips">
+        {#each [1, 2, 3, 4] as n (n)}
+          <button class="chip num" aria-pressed={count === n} onclick={() => (count = n)}>{n}</button>
+        {/each}
+      </div>
     </div>
+    <SeedField bind:fixed={fixedSeed} bind:seed />
   </div>
+
+  <AdvancedControls {model} context={{ image1 }} />
 
   <ActionBar
     {model}
@@ -119,6 +160,11 @@
   .tip {
     font-size: 12px;
     color: var(--text-4);
+  }
+  .row {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 22px;
   }
   .num {
     width: 34px;

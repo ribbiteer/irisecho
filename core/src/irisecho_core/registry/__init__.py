@@ -82,6 +82,67 @@ class Variant:
         return all(getattr(hw, key, None) == value for key, value in self.when.items())
 
 
+CONTROL_TYPES = ("int", "float", "choice", "bool", "text", "loras")
+
+
+@dataclass(frozen=True)
+class Control:
+    """A setting the advanced section of a form offers for one model.
+
+    Leaving it out of a job's params gives the model's recommended behaviour, which
+    is `default`: builders fall back to exactly what they did before the control
+    existed, so a job without advanced params runs the same graph as always.
+    """
+
+    name: str
+    type: str
+    label: str
+    default: object = None
+    help: str = ""
+    tier: str = "advanced"  # advanced | expert
+    min: float | None = None
+    max: float | None = None
+    step: float | None = None
+    options: tuple = ()  # choice values, or {value, label} dicts
+    unit: str = ""
+    needs: str = ""  # shown only when this other param is set (e.g. image1)
+    family: str = ""  # loras: which LoRA family fits this model
+    pair: bool = False  # loras: high- and low-noise files (Wan)
+
+    def values(self) -> list:
+        return [o["value"] if isinstance(o, dict) else o for o in self.options]
+
+    def public(self) -> dict:
+        out = {"name": self.name, "type": self.type, "label": self.label, "default": self.default}
+        for key in ("help", "tier", "min", "max", "step", "unit", "needs", "family"):
+            value = getattr(self, key)
+            if value not in ("", None):
+                out[key] = value
+        if self.options:
+            out["options"] = [
+                o if isinstance(o, dict) else {"value": o, "label": str(o)} for o in self.options
+            ]
+        if self.pair:
+            out["pair"] = True
+        return out
+
+
+def _control(model_id: str, raw: dict) -> Control:
+    if raw.get("type") not in CONTROL_TYPES:
+        raise ValueError(
+            f"model {model_id}: control {raw.get('name')} has unknown type {raw.get('type')}"
+        )
+    c = Control(**{**raw, "options": tuple(raw.get("options") or ())})
+    if c.tier not in ("advanced", "expert"):
+        raise ValueError(f"model {model_id}: control {c.name} has unknown tier {c.tier}")
+    if c.type == "choice" and c.default not in c.values():
+        raise ValueError(f"model {model_id}: control {c.name} default is not one of its options")
+    if c.type in ("int", "float") and c.default is not None:
+        if (c.min is not None and c.default < c.min) or (c.max is not None and c.default > c.max):
+            raise ValueError(f"model {model_id}: control {c.name} default is outside its range")
+    return c
+
+
 @dataclass(frozen=True)
 class ModelSpec:
     id: str
@@ -92,9 +153,13 @@ class ModelSpec:
     summary: str
     variants: tuple[Variant, ...]
     settings: dict = field(default_factory=dict)
+    controls: tuple[Control, ...] = ()
 
     def variant_for(self, hw: Hardware) -> Variant | None:
         return next((v for v in self.variants if v.matches(hw)), None)
+
+    def control(self, name: str) -> Control | None:
+        return next((c for c in self.controls if c.name == name), None)
 
 
 @dataclass(frozen=True)
@@ -185,7 +250,11 @@ def load(path: Path = HERE / "models.yaml", lock_path: Path = HERE / "lock.json"
             summary=m.get("summary", ""),
             variants=variants,
             settings=m.get("settings") or {},
+            controls=tuple(_control(mid, c) for c in m.get("controls") or ()),
         )
+        names = [c.name for c in models[mid].controls]
+        if len(names) != len(set(names)):
+            raise ValueError(f"model {mid} declares a control twice")
     return Registry(licenses=licenses, files=files, groups=groups, models=models)
 
 

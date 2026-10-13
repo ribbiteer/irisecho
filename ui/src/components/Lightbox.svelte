@@ -8,6 +8,7 @@
   import Heart from "@lucide/svelte/icons/heart";
   import Maximize from "@lucide/svelte/icons/maximize-2";
   import Repeat from "@lucide/svelte/icons/repeat-2";
+  import SkipForward from "@lucide/svelte/icons/skip-forward";
   import Trash from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
   import Box from "@lucide/svelte/icons/box";
@@ -18,6 +19,7 @@
   import CircleCheck from "@lucide/svelte/icons/circle-check";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import Viewer3D from "./Viewer3D.svelte";
+  import JobSettings from "./JobSettings.svelte";
   import { api, exportUrl, outputUrl } from "../lib/api";
   import { ago, elapsed } from "../lib/format";
   import { app, fail, modelById, submit, toast } from "../lib/state.svelte";
@@ -57,6 +59,8 @@
     }
   }
   function reuse() {
+    // The same model too, so its advanced values come back with it.
+    if (model) app.chosen[job.kind] = job.model;
     app.reuse = job;
     app.studio = job.kind;
     app.view = "create";
@@ -127,6 +131,68 @@
     }
     return [w, h];
   });
+  // Continue a clip: its last frame becomes the first frame of the next one (advanced mode).
+  const canContinue = $derived(
+    !!app.settings?.advanced &&
+      job.kind === "video" &&
+      out?.type === "video" &&
+      !!model?.options.video?.frames.includes("start"),
+  );
+  let continuing = $state(false);
+  async function lastFrame(): Promise<Blob> {
+    const res = await fetch(outputUrl(job, lb.index), { credentials: "same-origin" });
+    if (!res.ok) throw new Error("That clip is no longer available.");
+    const url = URL.createObjectURL(await res.blob());
+    try {
+      const video = document.createElement("video");
+      video.muted = true;
+      video.preload = "auto";
+      const ready = new Promise<void>((resolve, reject) => {
+        video.onloadedmetadata = () => resolve();
+        video.onerror = () => reject(new Error("The browser could not read that clip."));
+      });
+      video.src = url;
+      await ready;
+      const seeked = new Promise<void>((resolve, reject) => {
+        video.onseeked = () => resolve();
+        video.onerror = () => reject(new Error("The browser could not read that clip."));
+      });
+      video.currentTime = Math.max(0, video.duration - 0.05);
+      await seeked;
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext("2d")!.drawImage(video, 0, 0);
+      return await new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Could not take the last frame."))), "image/png"),
+      );
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+  async function continueClip() {
+    if (!canContinue || continuing) return;
+    continuing = true;
+    try {
+      const form = new FormData();
+      form.append("file", new File([await lastFrame()], "last-frame.png", { type: "image/png" }));
+      const up = await api<{ id: string }>("/uploads", { form });
+      // The form opens as for "use these settings again", but starts from the last frame
+      // and draws a new seed (the old one would repeat the same motion).
+      const params: Record<string, any> = { ...job.params, start: up.id, end: null };
+      delete params.seed;
+      app.chosen[job.kind] = job.model;
+      app.reuse = { ...job, params, outputs: [] };
+      app.studio = job.kind;
+      app.view = "create";
+      close();
+    } catch (e) {
+      fail(e);
+    } finally {
+      continuing = false;
+    }
+  }
+
   let redrawing = $state(false);
   async function redraw() {
     if (!redrawSize || !krea || redrawing) return;
@@ -244,6 +310,8 @@
       <div><dt>Made</dt><dd>{ago(job.created)}</dd></div>
     </dl>
 
+    <JobSettings {job} {model} />
+
     {#if is3d}
       <div class="export">
         <span class="label">Export</span>
@@ -268,6 +336,16 @@
 
     <div class="actions">
       <button class={is3d ? "btn" : "btn primary"} onclick={reuse}><Repeat size={16} /> Use these settings again</button>
+      {#if canContinue}
+        <button
+          class="btn"
+          onclick={continueClip}
+          disabled={continuing}
+          title="Takes the last frame of this clip and opens the video form with it as the first frame, to carry the scene on. Colours and faces can drift after a few clips."
+        >
+          <SkipForward size={16} /> Continue from last frame
+        </button>
+      {/if}
       {#if krea?.ready && redrawSize}
         <button
           class="btn"

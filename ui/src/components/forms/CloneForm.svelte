@@ -3,9 +3,12 @@
   import FileAudio from "@lucide/svelte/icons/file-audio";
   import X from "@lucide/svelte/icons/x";
   import ActionBar from "../ActionBar.svelte";
+  import AdvancedControls from "../AdvancedControls.svelte";
+  import SeedField from "../SeedField.svelte";
   import Waveform from "../Waveform.svelte";
   import { api, uploadUrl } from "../../lib/api";
   import { looksLikeAudio, readableAudio } from "../../lib/audio";
+  import { controlParams, reuseCommon } from "../../lib/controls";
   import { app, fail, submit } from "../../lib/state.svelte";
   import type { Studio } from "../../lib/studios";
   import type { Model } from "../../lib/types";
@@ -26,6 +29,9 @@
   let clean = $state(true);
   let consent = $state(false);
   let sending = $state(false);
+  let fixedSeed = $state(false);
+  let seed = $state(Math.floor(Math.random() * 1e9));
+  const advanced = $derived(!!app.settings?.advanced);
   let textarea: HTMLTextAreaElement;
 
   $effect(() => {
@@ -37,6 +43,11 @@
       exaggeration = r.params.exaggeration ?? 0.5;
       cfg = r.params.cfg ?? 0.5;
       clean = r.params.clean ?? true;
+      const { seed: s } = reuseCommon(model, r);
+      if (s != null) {
+        seed = s;
+        fixedSeed = true;
+      }
       app.reuse = null;
     }
   });
@@ -92,7 +103,17 @@
     if (!lines.length || !ref || !consent || sending) return;
     sending = true;
     for (const line of lines) {
-      await submit(model, { text: line, ref: ref.id, consent, takes, exaggeration, cfg, clean });
+      await submit(model, {
+        text: line,
+        ref: ref.id,
+        consent,
+        takes,
+        exaggeration,
+        cfg,
+        clean,
+        ...(fixedSeed ? { seed: Number(seed) } : {}),
+        ...controlParams(model),
+      });
     }
     sending = false;
   }
@@ -173,7 +194,7 @@
     <div class="dials">
       <div class="field">
         <span class="label">Intensity <span class="mono value">{exaggeration.toFixed(2)}</span></span>
-        <input type="range" min="0.25" max="1.5" step="0.05" bind:value={exaggeration} aria-label="Intensity" />
+        <input type="range" min="0.25" max={advanced ? 2 : 1.5} step="0.05" bind:value={exaggeration} aria-label="Intensity" />
       </div>
       <div class="field">
         <span class="label">Pacing guide <span class="mono value">{cfg.toFixed(2)}</span></span>
@@ -183,14 +204,17 @@
     </div>
   {/if}
 
-  <div class="field">
-    <span class="label">Takes of each line</span>
-    <div class="chips">
-      {#each [1, 2, 3, 4] as n (n)}
-        <button class="chip num" aria-pressed={takes === n} onclick={() => (takes = n)}>{n}</button>
-      {/each}
+  <div class="row">
+    <div class="field">
+      <span class="label">Takes of each line</span>
+      <div class="chips">
+        {#each [1, 2, 3, 4] as n (n)}
+          <button class="chip num" aria-pressed={takes === n} onclick={() => (takes = n)}>{n}</button>
+        {/each}
+      </div>
+      <p class="tip">The liveliest take is listed first. Take 2 uses the seed plus one, and so on.</p>
     </div>
-    <p class="tip">The liveliest take is listed first.</p>
+    <SeedField bind:fixed={fixedSeed} bind:seed />
   </div>
 
   <label class="toggle">
@@ -200,6 +224,8 @@
       <small>Every line lands at the same level.</small>
     </span>
   </label>
+
+  <AdvancedControls {model} />
 
   <label class="consent">
     <input type="checkbox" bind:checked={consent} />
@@ -305,6 +331,11 @@
   .tip {
     font-size: 12px;
     color: var(--text-4);
+  }
+  .row {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 22px;
   }
   .num {
     width: 34px;

@@ -4,9 +4,8 @@
 from __future__ import annotations
 
 import numpy as np
-import soundfile as sf
 import torch
-from irisecho_audio import normalize, trim
+from irisecho_audio import normalize, trim, write_audio
 from irisecho_worker import Reporter, serve
 from kokoro import KModel, KPipeline
 
@@ -34,13 +33,23 @@ def pipeline(lang: str) -> KPipeline:
     return state["pipelines"][lang]
 
 
+def blend(pipe: KPipeline, mix: list) -> torch.FloatTensor:
+    """The weighted average of voicepacks (the pipeline alone only averages them equally)."""
+    total = float(sum(w for _, w in mix))
+    packs = [pipe.load_single_voice(path) * (float(w) / total) for path, w in mix]
+    return torch.stack(packs).sum(dim=0)
+
+
 def speak(params: dict, report: Reporter) -> dict:
     if state["model"] is None:
         raise RuntimeError("load was not called")
     pipe = pipeline(params["lang"])
+    voice = params.get("voice")
+    if params.get("voices"):
+        voice = blend(pipe, params["voices"])
     chunks = []
     report.progress(0.05, "Speaking")
-    for result in pipe(params["text"], voice=params["voice"], speed=params.get("speed", 1.0)):
+    for result in pipe(params["text"], voice=voice, speed=params.get("speed", 1.0)):
         if result.audio is not None:
             chunks.append(result.audio.detach().cpu().numpy())
     if not chunks:
@@ -48,7 +57,7 @@ def speak(params: dict, report: Reporter) -> dict:
     audio = np.concatenate(chunks).astype(np.float32)
     if params.get("clean"):
         audio = normalize(trim(audio, SAMPLE_RATE), SAMPLE_RATE)
-    sf.write(params["out"], audio, SAMPLE_RATE, subtype="PCM_16")
+    write_audio(params["out"], audio, SAMPLE_RATE, params.get("format", "wav16"))
     report.progress(1.0, "Done")
     return {"duration": round(len(audio) / SAMPLE_RATE, 3), "sample_rate": SAMPLE_RATE}
 

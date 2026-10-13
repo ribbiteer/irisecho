@@ -258,6 +258,11 @@ select {
     border-color 0.15s,
     background 0.15s;
 }
+/* A short select would clip its text with the input's vertical padding. */
+select.input {
+  padding-top: 0;
+  padding-bottom: 0;
+}
 .input:focus,
 .textarea:focus,
 .select:focus {

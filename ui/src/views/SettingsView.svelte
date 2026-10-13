@@ -217,11 +217,36 @@
     {/if}
 
     <section class="card">
+      <h2>Controls</h2>
+      <div class="setting">
+        <div class="what">
+          <strong>Show advanced controls</strong>
+          <small>
+            Adds a "More controls" section to each studio: steps, guidance, size, add-ons (LoRAs) and more, depending on the
+            model. Each one shows the recommended value and can be put back with one click. Off keeps every form as simple
+            as it is now.
+          </small>
+        </div>
+        <button
+          class="switch"
+          role="switch"
+          aria-checked={app.settings?.advanced}
+          aria-label="Show advanced controls"
+          onclick={() => patch({ advanced: !app.settings?.advanced })}
+        ></button>
+      </div>
+    </section>
+
+    <section class="card">
       <h2>Privacy</h2>
       <div class="setting">
         <div class="what">
           <strong>Keep prompts out of image files</strong>
-          <small>Images are saved without embedded prompts or settings. Those stay in your library on this computer.</small>
+          <small>
+            Images are saved without embedded prompts or settings. Those stay in your library on this computer. Turn this off
+            to write the prompt and settings into each PNG (the A1111 layout that Civitai, Forge and IrisEcho read); file
+            paths and names are never included.
+          </small>
         </div>
         <button
           class="switch"

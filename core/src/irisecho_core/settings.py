@@ -29,6 +29,8 @@ class Settings:
     lan_enabled: bool = False
     # The NVIDIA card to run on, by uuid. Empty picks the card with the most memory.
     gpu: str = ""
+    # Show each form's "More controls" section. Off keeps the forms as simple as before.
+    advanced: bool = False
 
     @property
     def models_path(self) -> Path:

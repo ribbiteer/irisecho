@@ -1,8 +1,11 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
   import ActionBar from "../ActionBar.svelte";
+  import AdvancedControls from "../AdvancedControls.svelte";
   import PromptTools from "../PromptTools.svelte";
   import ImageDrop from "../ImageDrop.svelte";
+  import SeedField from "../SeedField.svelte";
+  import { controlParams, nextSeed, reuseCommon } from "../../lib/controls";
   import { app, submit } from "../../lib/state.svelte";
   import type { Studio } from "../../lib/studios";
   import type { Model, VideoOptions, VideoSize } from "../../lib/types";
@@ -16,6 +19,19 @@
   const takesEnd = $derived(video.frames.includes("end"));
   const fromPicture = $derived(takesStart || takesEnd);
   const ASPECTS = ["16:9", "9:16", "1:1", "4:3", "3:4"];
+  // Camera control (Wan 2.2 camera control): the moves its camera embedding knows.
+  const CAMERA_MOVES: [string, string][] = [
+    ["zoom_in", "Zoom in"],
+    ["zoom_out", "Zoom out"],
+    ["pan_left", "Pan left"],
+    ["pan_right", "Pan right"],
+    ["pan_up", "Pan up"],
+    ["pan_down", "Pan down"],
+    ["clockwise", "Roll clockwise"],
+    ["anticlockwise", "Roll anticlockwise"],
+    ["static", "Hold still"],
+  ];
+  const hasCamera = $derived(model.id === "wan22-camera");
   // 720p peaks at about 11.7 GB (graphs.VIDEO_720P_MIN_MB).
   const fits720 = $derived((app.system?.hardware.vram_mb ?? 0) >= 12000);
   const sizes = $derived(video.sizes.filter((s) => s !== "720p" || fits720 || size === "720p"));
@@ -27,7 +43,15 @@
   let seconds = $state(3);
   let size = $state<VideoSize>("standard");
   let smooth = $state(false);
+  let camera = $state("zoom_in");
   let sending = $state(false);
+  let fixedSeed = $state(false);
+  let seed = $state(Math.floor(Math.random() * 1e9));
+  // Advanced: end where the clip began, so it loops (the first picture is also the last frame).
+  let loop = $state(false);
+  const advanced = $derived(!!app.settings?.advanced);
+  const canLoop = $derived(advanced && takesStart && takesEnd);
+  const endFrame = $derived(takesEnd ? (canLoop && loop && start ? start : end) : null);
 
   $effect(() => {
     const r = app.reuse;
@@ -35,10 +59,19 @@
       prompt = r.params.prompt ?? "";
       start = r.params.start ?? null;
       end = r.params.end ?? null;
+      loop = !!start && start === end;
       aspect = r.params.aspect ?? "16:9";
       seconds = r.params.seconds ?? 3;
       size = r.params.size ?? "standard";
       smooth = !!r.params.smooth;
+      if (r.params.camera) camera = r.params.camera;
+      const { seed: s } = reuseCommon(model, r);
+      if (s != null) {
+        seed = s;
+        fixedSeed = true;
+      } else {
+        fixedSeed = false;
+      }
       app.reuse = null;
     }
   });
@@ -48,7 +81,7 @@
     if (!video.sizes.includes(size)) size = "standard";
   });
 
-  const needsFrame = $derived(!!video.needs_frame && !(takesStart && start) && !(takesEnd && end));
+  const needsFrame = $derived(!!video.needs_frame && !(takesStart && start) && !(takesEnd && endFrame));
   const estimate = $derived.by(() => {
     const base = video.pace[size] ?? 60;
     const min = Math.round((base * seconds) / 60 + 0.4);
@@ -58,15 +91,17 @@
   async function go() {
     if (!prompt.trim() || needsFrame || sending) return;
     sending = true;
+    const frames = { start: takesStart ? start : null, end: endFrame };
     await submit(model, {
       prompt: prompt.trim(),
-      start: takesStart ? start : null,
-      end: takesEnd ? end : null,
+      ...frames,
       aspect,
       seconds,
       size,
       smooth,
-      seed: Math.floor(Math.random() * 2 ** 50),
+      ...(hasCamera ? { camera } : {}),
+      seed: nextSeed(fixedSeed, seed, 0),
+      ...controlParams(model, { ...frames, smooth }),
     });
     sending = false;
   }
@@ -90,8 +125,17 @@
       </span>
       <div class="pair">
         {#if takesStart}<ImageDrop bind:value={start} label="First frame" compact />{/if}
-        {#if takesEnd}<ImageDrop bind:value={end} label="Last frame" compact />{/if}
+        {#if takesEnd && !(canLoop && loop && start)}<ImageDrop bind:value={end} label="Last frame" compact />{/if}
       </div>
+      {#if canLoop}
+        <label class="toggle">
+          <button class="switch" role="switch" aria-checked={loop} aria-label="Loop" onclick={() => (loop = !loop)}></button>
+          <span>
+            <strong>Loop</strong>
+            <small>Ends on the first picture too, so the clip can repeat without a jump.</small>
+          </span>
+        </label>
+      {/if}
       <p class="tip">Clips look best with a first frame. Pictures are cropped to fit the shape below.</p>
     </div>
   {/if}
@@ -111,6 +155,18 @@
       {#if video.sound}This model makes sound too: say what is heard.{/if}
     </p>
   </div>
+
+  {#if hasCamera}
+    <div class="field">
+      <span class="label">Camera move</span>
+      <div class="chips">
+        {#each CAMERA_MOVES as [id, label] (id)}
+          <button class="chip" aria-pressed={camera === id} onclick={() => (camera = id)}>{label}</button>
+        {/each}
+      </div>
+      <p class="tip">How the camera travels through your first frame. Use your words for what else moves.</p>
+    </div>
+  {/if}
 
   <div class="field">
     <span class="label">Shape</span>
@@ -142,6 +198,10 @@
       <small>Doubles the frame rate to {video.fps * 2} fps. Same length.</small>
     </span>
   </label>
+
+  <SeedField bind:fixed={fixedSeed} bind:seed />
+
+  <AdvancedControls {model} context={{ start, end: endFrame, smooth }} />
 
   <ActionBar
     {model}

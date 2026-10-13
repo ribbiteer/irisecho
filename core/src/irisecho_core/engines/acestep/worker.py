@@ -7,11 +7,11 @@ import os
 import random
 
 import numpy as np
-import soundfile as sf
-from irisecho_audio import loop_cut
+from irisecho_audio import loop_cut, write_audio
 from irisecho_worker import Reporter, serve
 
 state: dict = {"dit": None, "llm": None, "key": None, "lm_key": None}
+MAX_SECONDS = 600.0  # the longest ACE-Step makes (inference.py duration range 10-600 s)
 
 
 def load(params: dict, report: Reporter) -> dict:
@@ -49,6 +49,47 @@ def load(params: dict, report: Reporter) -> dict:
     return {}
 
 
+def source_task(params: dict) -> dict:
+    """GenerationParams for a job that starts from a recording (nothing for a plain one).
+
+    cover: task_type "cover" with the recording as src_audio (inference.py:100-105) and
+    audio_cover_strength / cover_noise_strength (:188-189); the length follows the recording.
+    repaint: task_type "repaint" with repainting_start / repainting_end in seconds (:161-162).
+    extend: a repaint whose region starts at the end of the recording and runs `extend_by`
+    seconds past it; the handler pads the recording with silence for that part
+    (core/generation/handler/padding_utils.py:47-58) and the result is the recording plus
+    the new music.
+    """
+    task = params.get("task")
+    if not task:
+        return {}
+    out: dict = {"src_audio": params["source"]}
+    if task == "cover":
+        out["task_type"] = "cover"
+        if params.get("cover_strength") is not None:
+            out["audio_cover_strength"] = float(params["cover_strength"])
+        if params.get("cover_noise") is not None:
+            out["cover_noise_strength"] = float(params["cover_noise"])
+    elif task == "repaint":
+        out["task_type"] = "repaint"
+        out["repainting_start"], out["repainting_end"] = (float(v) for v in params["region"])
+    elif task == "extend":
+        import soundfile as sf
+
+        length = float(sf.info(params["source"]).duration)
+        end = length + float(params["extend_by"])
+        if end > MAX_SECONDS:
+            raise ValueError(
+                f"The recording is {length:.0f} s; adding {params['extend_by']:g} s would pass "
+                f"the {MAX_SECONDS:.0f} s ACE-Step can make."
+            )
+        out["task_type"] = "repaint"
+        out["repainting_start"], out["repainting_end"] = length, end
+    else:
+        raise ValueError(f"Unknown task {task}")
+    return out
+
+
 def compose(params: dict, report: Reporter) -> dict:
     from acestep.inference import GenerationConfig, GenerationParams, generate_music
 
@@ -60,6 +101,24 @@ def compose(params: dict, report: Reporter) -> dict:
     lyrics = params.get("lyrics") or ""
     instrumental = not lyrics.strip()
 
+    # Settings the job set; anything left out keeps ACE-Step's own default
+    # (8 steps, the planner at 0.85 / 0.9, peak-normalised output, key and language
+    # left to the planner).
+    extra: dict = {}
+    for ours, theirs in (
+        ("key", "keyscale"),
+        ("time_signature", "timesignature"),
+        ("vocal_language", "vocal_language"),
+        ("steps", "inference_steps"),
+        ("lm_temperature", "lm_temperature"),
+        ("lm_top_p", "lm_top_p"),
+    ):
+        if params.get(ours) is not None:
+            extra[theirs] = params[ours]
+    if params.get("raw"):
+        extra["enable_normalization"] = False  # skip the -1 dBFS peak normalisation
+    extra.update(source_task(params))
+
     gen = GenerationParams(
         caption=params["caption"],
         lyrics=lyrics if not instrumental else "[inst]",
@@ -69,8 +128,9 @@ def compose(params: dict, report: Reporter) -> dict:
         thinking=bool(params.get("thinking")) and state["llm"] is not None,
         # The turbo model is distilled for a timestep shift of 3; ACE-Step's
         # own app uses 3, while the library default of 1 is for the base model.
-        shift=3.0,
+        shift=params.get("shift", 3.0),
         seed=seeds[0],
+        **extra,
     )
     config = GenerationConfig(
         batch_size=len(outs),
@@ -105,7 +165,7 @@ def compose(params: dict, report: Reporter) -> dict:
         peak = float(np.max(np.abs(audio))) if audio.size else 0.0
         if peak > 0.99:
             audio = audio * (0.99 / peak)
-        sf.write(outs[i], audio, sr, subtype="PCM_16")
+        write_audio(outs[i], audio, sr, params.get("format", "wav16"))
         takes.append(
             {
                 "path": outs[i],

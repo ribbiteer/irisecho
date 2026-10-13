@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 
 from irisecho_core import paths
-from irisecho_core.engines import uvenv
+from irisecho_core.engines import audioformat, uvenv
 from irisecho_core.engines.acestep import group_root
 from irisecho_core.engines.base import RunContext
 from irisecho_core.engines.worker import WorkerEngine
@@ -57,6 +57,29 @@ def upload_path(name: str) -> Path:
     return path
 
 
+# What each variant's generate() takes besides the text and the voice (chatterbox
+# tts.py:208-218 classic, tts_turbo.py:248-260 turbo). Turbo ignores min_p, classic has no top_k.
+SAMPLING = {
+    "classic": ("temperature", "top_p", "min_p", "repetition_penalty"),
+    "turbo": ("temperature", "top_p", "top_k", "repetition_penalty"),
+}
+
+
+def sampling_options(model, variant: str, p: dict) -> dict:
+    """The sampling values a job set, held to the ranges the registry lists for the model."""
+    out: dict = {}
+    for name in SAMPLING["turbo" if variant == "turbo" else "classic"]:
+        value = p.get(name)
+        if value is None:
+            continue
+        c = model.control(name)
+        value = int(value) if name == "top_k" else float(value)
+        if c is not None and c.min is not None and c.max is not None:
+            value = max(c.min, min(c.max, value))
+        out[name] = value
+    return out
+
+
 class ChatterboxEngine(WorkerEngine):
     id = "chatterbox"
     name = "Chatterbox"
@@ -95,23 +118,25 @@ class ChatterboxEngine(WorkerEngine):
         group = "chatterbox-turbo" if variant == "turbo" else "chatterbox"
         folder = group_root(ctx, group) / ("turbo" if variant == "turbo" else "classic")
         takes = max(1, min(4, int(p.get("takes") or 1)))
+        _, ext, fmt = audioformat.pick(p)
         await self.call(
             ctx, "load", {"variant": variant, "dir": str(folder), "device": self.device()}
         )
-        result = await self.call(
-            ctx,
-            "speak",
-            {
-                "text": text,
-                "ref": str(ref),
-                "variant": variant,
-                "exaggeration": float(p.get("exaggeration", 0.5)),
-                "cfg": float(p.get("cfg", 0.5)),
-                "seed": p.get("seed"),
-                "clean": bool(p.get("clean", True)),
-                "outs": [str(ctx.output(i, "wav")) for i in range(takes)],
-            },
-        )
+        request = {
+            "text": text,
+            "ref": str(ref),
+            "variant": variant,
+            "exaggeration": float(p.get("exaggeration", 0.5)),
+            "cfg": float(p.get("cfg", 0.5)),
+            "seed": p.get("seed"),
+            "clean": bool(p.get("clean", True)),
+            "outs": [str(ctx.output(i, ext)) for i in range(takes)],
+            **fmt,
+        }
+        sampling = sampling_options(ctx.model, variant, p)
+        if sampling:
+            request["sampling"] = sampling
+        result = await self.call(ctx, "speak", request)
         return [
             {
                 "path": t["path"],

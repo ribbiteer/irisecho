@@ -4,9 +4,11 @@
   import FolderOpen from "@lucide/svelte/icons/folder-open";
   import Heart from "@lucide/svelte/icons/heart";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
+  import Shuffle from "@lucide/svelte/icons/shuffle";
   import Trash from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
   import Iris from "./Iris.svelte";
+  import JobSettings from "./JobSettings.svelte";
   import Waveform from "./Waveform.svelte";
   import { api, outputUrl } from "../lib/api";
   import { ago } from "../lib/format";
@@ -26,6 +28,35 @@
       await api(path, { body });
     } catch (e) {
       fail(e);
+    }
+  }
+  // Start a new song from this take (advanced mode): the take is uploaded as the recording to cover.
+  const canUseAsSource = $derived(
+    !!app.settings?.advanced && job.kind === "music" && job.status === "done" && !!job.outputs[current],
+  );
+  let preparing = $state(false);
+  async function useAsSource() {
+    if (preparing) return;
+    preparing = true;
+    try {
+      const res = await fetch(outputUrl(job, current), { credentials: "same-origin" });
+      if (!res.ok) throw new Error("That take is no longer available.");
+      const blob = await res.blob();
+      const form = new FormData();
+      form.append("file", new File([blob], "take.wav", { type: blob.type || "audio/wav" }));
+      const up = await api<{ id: string }>("/uploads", { form });
+      const params: Record<string, any> = { ...job.params, source: up.id, task: "cover" };
+      delete params.seed;
+      delete params.region;
+      delete params.extend_by;
+      app.chosen[job.kind] = job.model;
+      app.reuse = { ...job, params, outputs: [] };
+      app.studio = job.kind;
+      app.view = "create";
+    } catch (e) {
+      fail(e);
+    } finally {
+      preparing = false;
     }
   }
   async function remove() {
@@ -73,9 +104,15 @@
             <FolderOpen size={15} />
           </button>
         {/if}
+        {#if canUseAsSource}
+          <button class="btn sm icon ghost" title="Use as source" aria-label="Use this take as the recording to start from" disabled={preparing} onclick={useAsSource}>
+            <Shuffle size={15} />
+          </button>
+        {/if}
         <button class="btn sm icon ghost danger" title="Delete" onclick={remove}><Trash size={15} /></button>
       </div>
     </div>
+    <div class="settings"><JobSettings {job} {model} /></div>
   {:else if job.status === "running" || job.status === "queued"}
     <div class="working">
       <Iris size={38} bars={32} active={job.status === "running"} progress={job.status === "running" ? job.progress : 0} catchlight={false} />
@@ -162,6 +199,9 @@
   }
   .fav {
     color: #ff8fa3;
+  }
+  .settings {
+    margin-top: -2px;
   }
   .working {
     display: flex;

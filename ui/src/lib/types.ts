@@ -58,7 +58,35 @@ export interface Model {
   files: FileStatus[];
   downloads: Download[];
   installing: boolean;
+  controls: Control[];
   options: { voices?: VoiceOption[]; video?: VideoOptions; model3d?: Model3dOptions; [key: string]: unknown };
+}
+
+export type ControlValue = number | string | boolean | LoraEntry[];
+
+export interface LoraEntry {
+  file?: string;
+  high?: string;
+  low?: string;
+  strength: number;
+}
+
+/** An advanced setting a model offers (registry `controls`). Leaving it unset means "recommended". */
+export interface Control {
+  name: string;
+  type: "int" | "float" | "choice" | "bool" | "text" | "loras";
+  label: string;
+  default: ControlValue | null;
+  help?: string;
+  tier?: "advanced" | "expert";
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
+  needs?: string;
+  family?: string;
+  pair?: boolean;
+  options?: { value: string | number; label: string }[];
 }
 
 export type VideoSize = "standard" | "large" | "720p";
@@ -180,6 +208,7 @@ export interface Settings {
   strip_metadata: boolean;
   lan_enabled: boolean;
   gpu: string; // uuid of the chosen card; empty picks automatically
+  advanced: boolean; // show each form's "More controls"
   models_path: string;
   outputs_path: string;
 }

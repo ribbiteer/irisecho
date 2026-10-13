@@ -1,6 +1,8 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
   import ActionBar from "../ActionBar.svelte";
+  import AdvancedControls from "../AdvancedControls.svelte";
+  import { controlParams, reuseCommon } from "../../lib/controls";
   import { app, submit } from "../../lib/state.svelte";
   import type { Studio } from "../../lib/studios";
   import type { Model } from "../../lib/types";
@@ -16,6 +18,7 @@
   let perLine = $state(false);
   let clean = $state(true);
   let sending = $state(false);
+  const advanced = $derived(!!app.settings?.advanced);
 
   $effect(() => {
     const r = app.reuse;
@@ -24,6 +27,7 @@
       voice = r.params.voice ?? voice;
       speed = r.params.speed ?? 1;
       clean = r.params.clean ?? true;
+      reuseCommon(model, r);
       app.reuse = null;
     }
   });
@@ -42,7 +46,7 @@
   async function go() {
     if (!lines.length || sending) return;
     sending = true;
-    for (const line of lines) await submit(model, { text: line, voice, speed, clean });
+    for (const line of lines) await submit(model, { text: line, voice, speed, clean, ...controlParams(model) });
     sending = false;
   }
 
@@ -78,6 +82,12 @@
         ? "Welcome back.\nQuestion one: which planet has the shortest day?\nCorrect! Ten points."
         : "Welcome to the show. Tonight we have three rounds and one very nervous host."}
     ></textarea>
+    {#if advanced}
+      <p class="tip">
+        To fix a pronunciation, write the sounds yourself after the word: [Kokoro](/kˈOkəɹO/). A number after the
+        word, such as [really](+2), stresses it more; a minus sign, less.
+      </p>
+    {/if}
   </div>
 
   <div class="field">
@@ -106,6 +116,8 @@
     </span>
   </label>
 
+  <AdvancedControls {model} />
+
   <ActionBar
     {model}
     label={lines.length > 1 ? `Speak ${lines.length} lines` : "Speak"}
@@ -129,6 +141,10 @@
   }
   .value {
     color: var(--text-2);
+  }
+  .tip {
+    font-size: 12px;
+    color: var(--text-4);
   }
   .toggle {
     display: flex;

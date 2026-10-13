@@ -34,8 +34,21 @@ from fastapi import FastAPI, HTTPException, Request, UploadFile, WebSocket, WebS
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from irisecho_core import __version__, credentials, guide, hardware, lan, mesh3d, paths, settings
+from irisecho_core import (
+    __version__,
+    credentials,
+    guide,
+    hardware,
+    lan,
+    loras,
+    mesh3d,
+    metadata,
+    paths,
+    presets,
+    settings,
+)
 from irisecho_core.app import App, Busy, NotReady
+from irisecho_core.controls import ControlError
 
 WEB = Path(__file__).parent / "web"
 COOKIE = "irisecho_session"
@@ -53,7 +66,7 @@ UPLOAD_TYPES = {
 }
 MAX_UPLOAD = 64 << 20
 # What the standard library may not know (Windows answers from the registry).
-MEDIA_TYPES = {".glb": "model/gltf-binary"}
+MEDIA_TYPES = {".glb": "model/gltf-binary", ".flac": "audio/flac"}
 EXPORT_TYPES = {
     "glb": "model/gltf-binary",
     "stl": "model/stl",
@@ -239,6 +252,32 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
     async def models():
         return core.models()
 
+    @api.get("/api/presets")
+    async def get_presets():
+        return presets.load()
+
+    @api.put("/api/presets")
+    async def put_preset(request: Request):
+        body = await request.json()
+        model = core.registry.models.get(body.get("model", ""))
+        if model is None:
+            raise HTTPException(404, "no such model")
+        try:
+            return presets.put(model, body.get("name", ""), body.get("values") or {})
+        except ControlError as e:
+            raise HTTPException(400, str(e)) from None
+
+    @api.delete("/api/presets")
+    async def delete_preset(model: str, name: str):
+        return presets.delete(model, name)
+
+    @api.get("/api/loras")
+    async def lora_files(family: str = ""):
+        found = await asyncio.to_thread(loras.scan, core.store.category_dirs("loras"))
+        if family:
+            found = [e for e in found if e["family"] in (family, "unknown")]
+        return found
+
     @api.post("/api/models/{model_id}/prepare")
     async def prepare(model_id: str):
         try:
@@ -315,6 +354,8 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
             raise HTTPException(404, str(e)) from None
         except NotReady as e:
             return not_ready(e)
+        except ControlError as e:
+            raise HTTPException(400, str(e)) from None
 
     @api.get("/api/jobs/{job_id}")
     async def job(job_id: str):
@@ -448,6 +489,19 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
             raise HTTPException(404, "no such upload")
         return FileResponse(path)
 
+    @api.get("/api/uploads/{name}/settings")
+    def upload_settings(name: str):
+        """The settings written into an uploaded picture (IrisEcho's own or A1111's)."""
+        path = paths.sub("uploads") / Path(name).name
+        if not path.is_file():
+            raise HTTPException(404, "no such upload")
+        found = metadata.read(path)
+        if not found:
+            raise HTTPException(404, "This picture has no settings in it.")
+        if found.get("model") and found["model"] not in core.registry.models:
+            found["model"] = None
+        return found
+
     # --- settings ----------------------------------------------------------
 
     @api.get("/api/settings")
@@ -464,8 +518,10 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
                 raise HTTPException(409, str(e)) from None
             except ValueError as e:
                 raise HTTPException(400, str(e)) from None
-        allowed = {"outputs_dir", "models_dir", "strip_metadata"}
+        allowed = {"outputs_dir", "models_dir", "strip_metadata", "advanced"}
         changes = {k: v for k, v in body.items() if k in allowed}
+        if "advanced" in changes:
+            changes["advanced"] = changes["advanced"] is True
         for key in ("outputs_dir", "models_dir"):
             if changes.get(key):
                 try:

@@ -8,7 +8,7 @@ import random
 import numpy as np
 import soundfile as sf
 import torch
-from irisecho_audio import normalize, text_chunks, trim
+from irisecho_audio import normalize, text_chunks, trim, write_audio
 from irisecho_worker import Reporter, serve
 
 # Chatterbox speaks at most 1000 speech tokens (about 40 s) per call and drifts
@@ -58,6 +58,8 @@ def speak(params: dict, report: Reporter) -> dict:
     else:
         model.prepare_conditionals(params["ref"], exaggeration=params["exaggeration"])
         kwargs = {"exaggeration": params["exaggeration"], "cfg_weight": params["cfg"]}
+    # Sampling values the job set; anything left out keeps the library's own default.
+    kwargs.update(params.get("sampling") or {})
     gap = np.zeros(int(PAUSE_S * sr), dtype=np.float32)
     takes = []
     for i, out in enumerate(outs):
@@ -78,7 +80,7 @@ def speak(params: dict, report: Reporter) -> dict:
         audio = np.concatenate(pieces)
         if params.get("clean", True):
             audio = normalize(trim(audio, sr), sr)
-        sf.write(out, audio, sr, subtype="PCM_16")
+        write_audio(out, audio, sr, params.get("format", "wav16"))
         takes.append(
             {
                 "path": out,

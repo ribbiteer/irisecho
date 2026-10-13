@@ -103,6 +103,10 @@
   "size": 444473596,
   "sha256": "9ab37426bf4de0567af6b5d21b16151357149139362e6e8992021b8ce356a154"
  },
+ "Comfy-Org/Depth-Anything-3@1aaeea516f22fb2f4c7fae761c8ed470c6cf9f93:geometry_estimation/depth_anything_3_small.safetensors": {
+  "size": 137254980,
+  "sha256": "9c0a53d157c5b315d4c82908a43d93eeaa3a9ac3de9d15c2b4242ef46b5508ad"
+ },
  "Comfy-Org/HunyuanVideo_1.5_repackaged@1405a2b738c29b890cf6d03fc038d8d3e92eeed7:split_files/diffusion_models/hunyuanvideo1.5_480p_i2v_step_distilled_fp8_scaled.safetensors": {
   "size": 8335127098,
   "sha256": "302636263ad01e2659a18b78e96e95f44433b92def7cae1dab29b5105eeb63b1"
@@ -127,9 +131,17 @@
   "size": 5242467968,
   "sha256": "54bd5144df0bbc25dd6ccadfcb826b521445a1b06ae5a42570bdd2974ca87094"
  },
+ "Comfy-Org/MoGe@1484985258ba7ef45c314144fcf0e90924ffbf44:geometry_estimation/moge_2_vitl_normal_fp16.safetensors": {
+  "size": 661859924,
+  "sha256": "cb1a692d03235671e959e81360d7b4d9f44aefadb1f852d6ca6aa17799d5e31f"
+ },
  "Comfy-Org/Pixal3D@f37641be376725d324c56626007cc477f1249a69:clip_vision/dino_v3_L_naf_fp32.safetensors": {
   "size": 1215214176,
   "sha256": "4ad2ec4e0879a5b5b04cd97325cc37da954a7b6edca5170b86510f17f2b2290f"
+ },
+ "Comfy-Org/Pixal3D@f37641be376725d324c56626007cc477f1249a69:diffusion_models/pixal3d_int8_convrot.safetensors": {
+  "size": 5584555824,
+  "sha256": "4621eac3b715484f79303c7152af641fe0b2b14f4d0e3d394fd6922d00f955ec"
  },
  "Comfy-Org/Pixal3D@f37641be376725d324c56626007cc477f1249a69:diffusion_models/pixal3d_multiview_int8_convrot.safetensors": {
   "size": 5584555824,
@@ -143,9 +155,17 @@
   "size": 253806246,
   "sha256": "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f"
  },
+ "Comfy-Org/SDPose@acb43fbe8142b54d9ebd52b720b81dd4e14c8d81:checkpoints/sdpose_wholebody_fp16.safetensors": {
+  "size": 1916645792,
+  "sha256": "63d01f9a7494560693b24767f4469d59c9d3266b31ff0a253e74d1e611442721"
+ },
  "Comfy-Org/SeedVR2@df48879708206a403d2a61acd55578c2e80fd233:diffusion_models/seedvr2_3b_int8_convrot.safetensors": {
   "size": 3458259704,
   "sha256": "c3dec8bcc5916843a8a858572970597462e1f2dc598d6dfd818f6cd40f53a157"
+ },
+ "Comfy-Org/SeedVR2@df48879708206a403d2a61acd55578c2e80fd233:diffusion_models/seedvr2_7b_int8_convrot.safetensors": {
+  "size": 8334897976,
+  "sha256": "5aa0d25fc9d35e449b659d0c9a5dcb22e2a4fa04032101b95a39da42b32c1be6"
  },
  "Comfy-Org/SeedVR2@df48879708206a403d2a61acd55578c2e80fd233:vae/ema_vae_fp16.safetensors": {
   "size": 501324814,
@@ -162,6 +182,22 @@
  "Comfy-Org/TRELLIS.2@430a9d09b2416687018c8fe8edced2ad4858a439:vae/trellis_2_texture_vae_bf16.safetensors": {
   "size": 948461364,
   "sha256": "714e5ebf094a610e12a8e3b5175c18a62f37f6ea4218acb6073644456b73ab0e"
+ },
+ "Comfy-Org/Wan_2.2_ComfyUI_Repackaged@ee6f4a40737a995bf5818954cfce6d59443b0f04:split_files/diffusion_models/wan2.2_fun_camera_high_noise_14B_fp8_scaled.safetensors": {
+  "size": 15301408048,
+  "sha256": "89a99cb5ab29e388f2e24fddac48eab4d88ca339d236c7a8d96aabacd0f525ae"
+ },
+ "Comfy-Org/Wan_2.2_ComfyUI_Repackaged@ee6f4a40737a995bf5818954cfce6d59443b0f04:split_files/diffusion_models/wan2.2_fun_camera_low_noise_14B_fp8_scaled.safetensors": {
+  "size": 15301408048,
+  "sha256": "a2b7b361e3fad907958aa6ad662a3673bad5ffdce14706cffde4baabb98f9020"
+ },
+ "Comfy-Org/Wan_2.2_ComfyUI_Repackaged@ee6f4a40737a995bf5818954cfce6d59443b0f04:split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors": {
+  "size": 1226977424,
+  "sha256": "d176c808d6fc461999b68e321efcb7501b20b8c3797523ed0df14f7d1deff11e"
+ },
+ "Comfy-Org/Wan_2.2_ComfyUI_Repackaged@ee6f4a40737a995bf5818954cfce6d59443b0f04:split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors": {
+  "size": 1226977424,
+  "sha256": "024f21de095bc8fad9809ded3e9e49a2e170dcf27075da8145ba7d60d8aab7f9"
  },
  "Comfy-Org/Wan_2.2_ComfyUI_Repackaged@ee6f4a40737a995bf5818954cfce6d59443b0f04:split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors": {
   "size": 6735906897,
@@ -334,6 +370,10 @@
  "ResembleAI/chatterbox@5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18:ve.safetensors": {
   "size": 5695784,
   "sha256": "f0921cab452fa278bc25cd23ffd59d36f816d7dc5181dd1bef9751a7fb61f63c"
+ },
+ "alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union@01c794d57ff16844b24d0580471fa9d686e7a465:Z-Image-Turbo-Fun-Controlnet-Union.safetensors": {
+  "size": 3101572408,
+  "sha256": "86c085c0d7853f12ce5183499934b54d08371c60f549c5a6b20615cd23989388"
  },
  "comfyanonymous/flux_text_encoders@6af2a98e3f615bdfa612fbd85da93d1ed5f69ef5:clip_l.safetensors": {
   "size": 246144152,

@@ -41,7 +41,48 @@ EXTRA = {
         ("high, openings kept", (), {"detail": "high", "openings": "keep"}),
     ],
     "pixal3d-mv": [("no textures", (), {"textures": False})],
+    "pixal3d-single": [("no textures", (), {"textures": False})],
+    "z-image-control": [
+        ("canny", (), {"guide_type": "canny"}),
+        ("depth", (), {"guide_type": "depth"}),
+        ("pose", (), {"guide_type": "pose"}),
+        ("as is", (), {"guide_type": "as_is"}),
+    ],
+    "wan22-camera": [
+        ("zoom out, 720p, 5 s", (), {"camera": "zoom_out", "size": "720p", "seconds": 5}),
+        ("clockwise", (), {"camera": "clockwise"}),
+    ],
+    "qwen-edit": [("whole picture", ("mask",), {})],
 }
+
+
+def control_cases(model) -> list[tuple[str, dict]]:
+    """Each advanced control at its limits (every choice, both switch states, a sample add-on)."""
+    out = []
+    for c in model.controls:
+        if c.type in ("int", "float"):
+            values = [c.min, c.max]
+        elif c.type == "choice":
+            values = [v for v in c.values() if v != c.default]
+        elif c.type == "bool":
+            values = [not c.default]
+        elif c.type == "loras":
+            one = (
+                {"high": "check.safetensors", "low": "check.safetensors"}
+                if c.pair
+                else {"file": "check.safetensors"}
+            )
+            values = [[{**one, "strength": 0.8}, {**one, "strength": -0.5}]]
+        elif c.type == "text":
+            values = ["with a tail"]
+        else:
+            values = []
+        for v in values:
+            params = {c.name: v}
+            if c.needs:
+                params[c.needs] = [0.25, 0.25, 0.75, 0.75] if c.needs == "box" else True
+            out.append((f"{c.name}={v if c.type != 'loras' else 'loras'}", params))
+    return out
 
 
 def views_graphs(names: dict) -> list[tuple[str, dict]]:
@@ -110,7 +151,9 @@ async def main() -> int:
                     builder = graphs.BUILDERS[variant.workflow]
                     inputs = graphs.IMAGE_INPUTS.get(variant.workflow, ())
                     built = []
-                    for case, leave_out, params in [("", (), {})] + EXTRA.get(variant.workflow, []):
+                    cases = [("", (), {})] + EXTRA.get(variant.workflow, [])
+                    cases += [(label, (), params) for label, params in control_cases(model)]
+                    for case, leave_out, params in cases:
                         images = {k: "check.png" for k in inputs if k not in leave_out}
                         graph, _ = builder(
                             prompt="test",

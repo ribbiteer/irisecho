@@ -2,7 +2,7 @@
 // Application state, kept current by the core's event stream.
 
 import { api, ApiError, connectEvents } from "./api";
-import type { Bootstrap, Download, Engine, Job, Kind, Model, Settings, System } from "./types";
+import type { Bootstrap, ControlValue, Download, Engine, Job, Kind, Model, Settings, System } from "./types";
 
 export type View = "create" | "library" | "models" | "settings";
 
@@ -46,6 +46,12 @@ export const app = $state({
   toasts: [] as Toast[],
   // A job to prefill the composer with ("use these settings again").
   reuse: null as null | Job,
+  // Advanced control values per model for this session (only the changed ones).
+  advanced: {} as Record<string, Record<string, ControlValue>>,
+  // A form's "More controls" section opens by itself after a reuse brings values back.
+  advancedOpen: false,
+  // Saved presets: model id -> preset name -> control values (presets.json in the data folder).
+  presets: null as null | Record<string, Record<string, Record<string, ControlValue>>>,
   // What the Library is showing; mirrored in the address so a search is a link.
   library: { q: "", kind: "all" as Kind | "all", model: "", favorites: false, since: "" },
 });

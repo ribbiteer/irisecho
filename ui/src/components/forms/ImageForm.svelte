@@ -1,9 +1,12 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
-  import Dices from "@lucide/svelte/icons/dices";
   import ActionBar from "../ActionBar.svelte";
+  import AdvancedControls from "../AdvancedControls.svelte";
+  import ImageDrop from "../ImageDrop.svelte";
   import PromptTools from "../PromptTools.svelte";
-  import { app, submit } from "../../lib/state.svelte";
+  import SeedField from "../SeedField.svelte";
+  import { controlParams, nextSeed, reuseCommon, settingsFromPicture } from "../../lib/controls";
+  import { app, fail, submit, toast } from "../../lib/state.svelte";
   import type { Studio } from "../../lib/studios";
   import type { Model } from "../../lib/types";
 
@@ -25,26 +28,64 @@
   let fixedSeed = $state(false);
   let seed = $state(Math.floor(Math.random() * 1e9));
   let sending = $state(false);
+  // Advanced: start from a picture (image to image) and how much of it may change.
+  let image1 = $state<string | null>(null);
+  let denoise = $state(0.2);
+  const advanced = $derived(!!app.settings?.advanced);
+  // Z-Image with a guide picture: the picture is the point of the model, so it is always shown.
+  const guided = $derived(model.id === "z-image-control");
+  let guide = $state<string | null>(null);
+  let guideType = $state("canny");
+  const GUIDE_TYPES: [string, string, string][] = [
+    ["canny", "Outlines", "Follows the edges of your picture: its shapes and lines."],
+    ["depth", "Depth", "Follows how near or far things are in your picture."],
+    ["pose", "Pose", "Follows the people's poses: body, hands and face. Best with people in view."],
+    ["as_is", "Already a map", "Use this if your picture already is an edge, depth or pose map."],
+  ];
 
   $effect(() => {
     const r = app.reuse;
     if (r && r.kind === studio.kind) {
       prompt = r.params.prompt ?? "";
       aspect = r.params.aspect ?? "1:1";
-      if (r.params.seed != null) {
-        seed = r.params.seed;
+      const { seed: s } = reuseCommon(model, r);
+      if (s != null) {
+        seed = s;
         fixedSeed = true;
       }
+      image1 = advanced && !guided ? (r.params.image1 ?? null) : null;
+      if (guided) {
+        guide = r.params.guide ?? null;
+        guideType = r.params.guide_type ?? "canny";
+      }
+      if (r.params.denoise != null) denoise = r.params.denoise;
       app.reuse = null;
     }
   });
 
+  async function readSettings(e: Event & { currentTarget: HTMLInputElement }) {
+    const file = e.currentTarget.files?.[0];
+    e.currentTarget.value = "";
+    if (!file) return;
+    try {
+      toast(await settingsFromPicture(file, studio.kind), "ok");
+    } catch (err) {
+      fail(err);
+    }
+  }
+
   async function go() {
-    if (!prompt.trim() || sending) return;
+    if (!prompt.trim() || sending || (guided && !guide)) return;
     sending = true;
+    const from = guided ? { guide, guide_type: guideType } : advanced && image1 ? { image1, denoise } : {};
     for (let i = 0; i < count; i++) {
-      const s = fixedSeed ? seed + i : Math.floor(Math.random() * 2 ** 50);
-      await submit(model, { prompt: prompt.trim(), aspect, seed: s });
+      await submit(model, {
+        prompt: prompt.trim(),
+        aspect,
+        seed: nextSeed(fixedSeed, seed, i),
+        ...from,
+        ...controlParams(model, from),
+      });
     }
     sending = false;
   }
@@ -103,34 +144,48 @@
         {/each}
       </div>
     </div>
-    <div class="field">
-      <span class="label">
-        Seed
-        <button
-          class="switch"
-          role="switch"
-          aria-checked={fixedSeed}
-          aria-label="Use a fixed seed"
-          onclick={() => (fixedSeed = !fixedSeed)}
-        ></button>
-      </span>
-      {#if fixedSeed}
-        <div class="seed">
-          <input class="input mono" type="number" min="0" bind:value={seed} aria-label="Seed" />
-          <button class="btn icon" title="New seed" onclick={() => (seed = Math.floor(Math.random() * 1e9))}>
-            <Dices size={16} />
-          </button>
-        </div>
-      {:else}
-        <p class="random">Random each time</p>
-      {/if}
-    </div>
+    <SeedField bind:fixed={fixedSeed} bind:seed />
   </div>
+
+  {#if guided}
+    <div class="field">
+      <span class="label">Guide picture</span>
+      <ImageDrop bind:value={guide} label="Add a guide picture" hint="The new image follows its outlines, depth or pose. It is cropped to the shape above." />
+      <div class="chips" aria-label="What the guide gives">
+        {#each GUIDE_TYPES as [id, label] (id)}
+          <button class="chip" aria-pressed={guideType === id} onclick={() => (guideType = id)}>{label}</button>
+        {/each}
+      </div>
+      <p class="tip">{GUIDE_TYPES.find(([id]) => id === guideType)?.[2]}</p>
+    </div>
+  {/if}
+
+  {#if advanced && !guided}
+    <div class="field">
+      <span class="label">Start from a picture <span class="opt">optional</span></span>
+      <ImageDrop bind:value={image1} label="Add a picture" hint="The new image follows its layout and colours." />
+      {#if image1}
+        <div class="denoise">
+          <span>How much to change</span>
+          <input type="range" min="0.05" max="1" step="0.05" bind:value={denoise} aria-label="How much to change" />
+          <span class="mono">{Math.round(denoise * 100)}%</span>
+        </div>
+        <p class="tip">Low keeps the picture and redraws detail; high keeps only its rough layout. The shape follows the picture.</p>
+      {/if}
+      <label class="from-file">
+        <input type="file" accept="image/png" onchange={readSettings} hidden />
+        <span>Read the settings from a picture…</span>
+      </label>
+    </div>
+  {/if}
+
+  <AdvancedControls {model} context={{ image1 }} />
 
   <ActionBar
     {model}
     label={count > 1 ? `Create ${count} images` : "Create image"}
-    disabled={!prompt.trim() || sending}
+    hint={guided && !guide ? "Add a guide picture" : undefined}
+    disabled={!prompt.trim() || sending || (guided && !guide)}
     onsubmit={go}
   />
 </div>
@@ -156,19 +211,23 @@
     justify-content: center;
     padding: 0;
   }
-  .seed {
-    display: flex;
-    gap: 6px;
+  .opt {
+    font-weight: 400;
+    color: var(--text-4);
+    margin-left: 4px;
   }
-  .seed .input {
-    height: 36px;
-    padding: 0 10px;
+  .from-file {
+    align-self: flex-start;
+    font-size: 12px;
+    color: var(--accent-ink);
+    cursor: pointer;
   }
-  .random {
-    height: 30px;
-    display: flex;
+  .denoise {
+    display: grid;
+    grid-template-columns: auto 1fr 44px;
+    gap: 10px;
     align-items: center;
-    color: var(--text-3);
     font-size: 13px;
+    color: var(--text-2);
   }
 </style>

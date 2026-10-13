@@ -26,7 +26,7 @@ from pathlib import Path
 
 import httpx
 
-from irisecho_core import hardware, mesh3d, paths
+from irisecho_core import hardware, loras, mesh3d, paths
 from irisecho_core.engines import uvenv
 from irisecho_core.engines.base import Engine, EngineStartError, RunContext
 from irisecho_core.engines.comfy import graphs, sourcepatch
@@ -140,6 +140,9 @@ CATEGORIES = (
     "clip_vision",
     "latent_upscale_models",
     "background_removal",
+    "model_patches",
+    "geometry_estimation",
+    "checkpoints",
 )
 
 
@@ -196,6 +199,67 @@ def png_size(path: Path) -> tuple[int, int] | None:
     if head[:8] != b"\x89PNG\r\n\x1a\n":
         return None
     return struct.unpack(">II", head[16:24])
+
+
+# The most pixels the picture upscaler is asked to produce (4096 x 4096).
+UPSCALE_MAX_PIXELS = 4096 * 4096
+
+
+def check_upscale_size(width: int, height: int, scale: int, retain: bool) -> None:
+    """Refuse an enlargement that would run for ages or run out of memory."""
+    pixels = width * height * scale * scale
+    if pixels > UPSCALE_MAX_PIXELS and not retain:
+        raise ValueError(
+            f"A {scale}x enlargement of a {width} x {height} picture would be "
+            f"{width * scale} x {height * scale}, more than the {UPSCALE_MAX_PIXELS / 1e6:.1f} "
+            "megapixels this can make. Choose a smaller scale or a smaller picture, "
+            "or keep the original size."
+        )
+
+
+def check_upscale_input(path: Path, params: dict) -> None:
+    from PIL import Image
+
+    try:
+        with Image.open(path) as im:
+            width, height = im.size
+    except Exception:  # unreadable here: let the image engine report it
+        return
+    check_upscale_size(width, height, int(params.get("scale") or 2), bool(params.get("retain")))
+
+
+def lora_hint(ctx: RunContext, error: str) -> str:
+    """A failed job that used add-ons most often failed because one does not fit the model
+    (a FLUX.1 dev add-on on schnell, for example). Say so instead of only ComfyUI's words."""
+    if not ctx.params.get("loras"):
+        return error
+    names = ", ".join(
+        Path(e.get("file") or e.get("high") or e.get("low") or "").stem for e in ctx.params["loras"]
+    )
+    return (
+        f"An add-on probably does not fit {ctx.model.name} ({names}). Try it without, or with an "
+        f"add-on made for this model. ComfyUI said: {error.strip()}"
+    )
+
+
+def box_mask(picture: Path, box, dest: Path) -> None:
+    """A mask the size of the picture, white inside box ([x0, y0, x1, y1] as fractions)."""
+    from PIL import Image, ImageDraw
+
+    try:
+        x0, y0, x1, y1 = (float(v) for v in box)
+    except (TypeError, ValueError):
+        raise ValueError("box takes four numbers: left, top, right, bottom, from 0 to 1.") from None
+    if not (0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1):
+        raise ValueError("box takes four numbers: left, top, right, bottom, from 0 to 1.")
+    with Image.open(picture) as im:
+        w, h = im.size
+    mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(mask).rectangle(
+        [round(x0 * w), round(y0 * h), max(round(x1 * w) - 1, 0), max(round(y1 * h) - 1, 0)],
+        fill=255,
+    )
+    mask.save(dest)
 
 
 class ComfyEngine(Engine):
@@ -456,6 +520,7 @@ class ComfyEngine(Engine):
         if seed is None:
             seed = random.randrange(2**50)
         names = {fid: path.name for fid, path in ctx.files.items()}
+        self._check_loras(ctx)
         staged = self._stage_inputs(ctx, workflow)
 
         def build(params: dict) -> tuple[dict, str]:
@@ -472,13 +537,18 @@ class ComfyEngine(Engine):
             )
 
         try:
+            if workflow == "seedvr2" and "image1" in staged:
+                check_upscale_input(staged["image1"], ctx.params)
             graph, save_node = build(ctx.params)
             await self.ensure_running(ctx.report, ctx.cancelled, workflow in graphs.DYNAMIC_VRAM)
             self.state = "busy"
             try:
                 if workflow in graphs.MODEL3D:
                     return await self._run_model3d(ctx, build, int(seed))
-                found = await self._execute(ctx, graph)
+                try:
+                    found = await self._execute(ctx, graph)
+                except RuntimeError as e:
+                    raise RuntimeError(lora_hint(ctx, str(e))) from e
             finally:
                 self.state = "ready" if self.alive else "idle"
         finally:
@@ -498,6 +568,20 @@ class ComfyEngine(Engine):
             outputs.append(self._image_out(dest, int(seed)))
         ctx.params["seed"] = int(seed)
         return outputs
+
+    def _check_loras(self, ctx: RunContext) -> None:
+        """Every add-on a job names must be in an add-on folder and fit the model."""
+        chosen = ctx.params.get("loras")
+        control = ctx.model.control("loras")
+        if not chosen:
+            return
+        if control is None:
+            raise ValueError(f"{ctx.model.name} does not take add-ons.")
+        dirs = ctx.category_dirs("loras")
+        for entry in chosen:
+            for key in ("file", "high", "low"):
+                if entry.get(key):
+                    loras.resolve(dirs, entry[key], control.family)
 
     async def _run_model3d(self, ctx: RunContext, build, seed: int) -> list[dict]:
         """Build a 3D model. When High detail does not fit in graphics memory, step
@@ -587,6 +671,7 @@ class ComfyEngine(Engine):
                     attempt=attempt,
                     seed=seed + attempt,
                     prefix=f"irisecho/{ctx.job_id}-{attempt}",
+                    back_words=ctx.params.get("back_words"),
                 )
                 found = await self._execute(
                     ctx, graph, {"sample": (lo, lo + 0.2, "Drawing the back")}
@@ -658,6 +743,10 @@ class ComfyEngine(Engine):
             dest = self.io / "input" / f"irisecho_{ctx.job_id}_{key}{src.suffix.lower()}"
             shutil.copyfile(src, dest)
             staged[key] = dest
+        box = ctx.params.get("box")
+        if box is not None and "mask" not in staged and "image1" in staged:
+            staged["mask"] = self.io / "input" / f"irisecho_{ctx.job_id}_mask.png"
+            box_mask(staged["image1"], box, staged["mask"])
         return staged
 
     async def _execute(self, ctx: RunContext, graph: dict, plan: dict | None = None) -> dict:
