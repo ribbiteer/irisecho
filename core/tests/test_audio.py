@@ -68,6 +68,16 @@ def test_normalize_hits_target_and_limits_peaks():
     out = au.normalize(quiet, SR, lufs=-19.0, ceiling_db=-1.0)
     assert abs(au.loudness(out, SR) + 19.0) < 0.3
     assert np.max(np.abs(out)) <= 10 ** (-1 / 20) + 1e-4
+    assert np.max(au.true_level(out)) <= 10 ** (-1 / 20) + 1e-3
+
+
+def test_true_level_sees_peaks_between_samples():
+    # A sine at a quarter of the rate sampled 45 degrees off its peaks reads
+    # 3 dB low on samples; the true peak is the sine's amplitude.
+    t = np.arange(4800)
+    x = np.sin(2 * np.pi * t / 4 + np.pi / 4).astype(np.float32)
+    assert np.max(np.abs(x)) < 0.72
+    assert abs(np.max(au.true_level(x)) - 1.0) < 0.02
 
 
 def test_trim_keeps_quiet_tail_and_fades_cut_edges():

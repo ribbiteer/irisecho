@@ -126,12 +126,26 @@ def loudness(audio: np.ndarray, sr: int) -> float:
     return float(-0.691 + 10 * np.log10(z.mean()))
 
 
+def true_level(audio: np.ndarray, factor: int = 4) -> np.ndarray:
+    """Per-sample peak level including the peaks between samples (BS.1770 true peak).
+
+    Upsamples `factor` times in the frequency domain and keeps the loudest of
+    each sample's sub-samples, across channels.
+    """
+    chans = audio[:, None] if audio.ndim == 1 else audio
+    n = len(chans)
+    if n < 2:
+        return _level(audio)
+    up = np.fft.irfft(np.fft.rfft(chans, axis=0), n * factor, axis=0) * factor
+    return np.abs(up).reshape(n, factor, -1).max(axis=(1, 2))
+
+
 def limit(
     audio: np.ndarray, sr: int, ceiling_db: float = -1.0, window_s: float = 0.005
 ) -> np.ndarray:
-    """Hold peaks under the ceiling with a smooth, fast gain dip around each one."""
+    """Hold true peaks under the ceiling with a smooth, fast gain dip around each one."""
     ceiling = 10 ** (ceiling_db / 20)
-    level = _level(audio)
+    level = true_level(audio)
     if not level.size or float(level.max()) <= ceiling:
         return audio
     half = max(1, int(window_s * sr) // 2)
