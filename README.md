@@ -28,7 +28,7 @@ guidance, your own LoRAs, presets and side-by-side comparisons.
 
 | Studio | What you do | Models |
 |---|---|---|
-| **Image** | Describe a picture; get photos, illustration, lettering that reads; or follow the outlines, depth or pose of a guide picture | Z-Image Turbo (also with a guide picture), FLUX.1 schnell, Qwen-Image, FLUX.1 dev / Krea\*, Krea 2\* |
+| **Image** | Describe a picture; get photos, illustration, lettering that reads; or follow the outlines, depth or pose of a guide picture | Z-Image Turbo (also with a guide picture\*), FLUX.1 schnell, Qwen-Image, FLUX.1 dev / Krea\*, Krea 2\* |
 | **Edit** | Say what should change in a picture, or only in an area you mark; combine up to three | Qwen Edit (fast and careful), FLUX.1 Kontext\* |
 | **Upscale** | Enlarge 2-4× and restore detail, no prompt needed | SeedVR2 3B and 7B |
 | **Video** | 2-5 s clips from text, a first frame, a last frame, or both; camera moves on presets; continue a clip from its last frame; LTX-2.5 makes the sound too | LTX-2.5\*, Wan 2.2 (and Fun Camera), HunyuanVideo 1.5\* |
@@ -38,7 +38,7 @@ guidance, your own LoRAs, presets and side-by-side comparisons.
 | **Music** | Beds, jingles and stingers from a few tags; seamless loops on the bar; cover, repaint or extend a recording | ACE-Step 1.5 |
 | **Sound** | One-shot effects: foley, UI sounds, impacts, ambience; variations of a sound you have | Stable Audio 3 SFX\* |
 
-<sub>\* Opt-in: non-commercial (FLUX.1 dev family), free for commercial use only under $1M a year (Krea 2) or $10M a year (LTX-2.5), not licensed in the EU, UK or South Korea (HunyuanVideo 1.5), gated (Stable Audio and LTX-2.5: accept the publisher's terms on Hugging Face and add a read token), or under Meta's DINOv3 License, accepted in the app (Pixal3D, not offered in the EU, and TRELLIS.2). IrisEcho shows each license and walks you through it.</sub>
+<sub>\* Opt-in: non-commercial (FLUX.1 dev family), free for commercial use only under $1M a year (Krea 2) or $10M a year (LTX-2.5), not licensed in the EU, UK or South Korea (HunyuanVideo 1.5), gated (Stable Audio and LTX-2.5: accept the publisher's terms on Hugging Face and add a read token), under Meta's DINOv3 License, accepted in the app (Pixal3D, not offered in the EU, and TRELLIS.2), or with a pose reader built on Stable Diffusion 2 and its use restrictions, accepted in the app (Z-Image with a guide picture). IrisEcho shows each license and walks you through it.</sub>
 
 **Improve** sits under every picture and video prompt: a small local model
 (Qwen3-VL) rewrites a rough idea the way the chosen model likes it, or describes
