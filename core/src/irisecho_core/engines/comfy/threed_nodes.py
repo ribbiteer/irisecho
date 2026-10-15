@@ -9,6 +9,9 @@ Helpers for the 3D studio, run inside ComfyUI where torch is at hand:
 * IrisEchoViewCheck tells whether a back view really is the front's opposite;
 * IrisEchoSimilarity tells whether an edit changed a picture at all.
 
+and, outside the 3D studio, IrisEchoAlpha settles whether a decoded picture keeps
+its transparency and IrisEchoMarkArea circles the area of an area edit.
+
 Masks follow ComfyUI's convention: 1 where the object is.
 """
 
@@ -187,7 +190,97 @@ class IrisEchoRGBA:
         return (torch.cat([image[..., :3], mask[..., None].clamp(0, 1)], dim=-1),)
 
 
+class IrisEchoAlpha:
+    """A decoded picture's alpha kept only when it is really a cut-out (the same rule as
+    IrisEchoChooseMask: more than 1% of it clear); otherwise the plain colour picture.
+    Qwen-Image 2.1's VAE decodes RGBA, and its ordinary pictures are not quite opaque."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"image": ("IMAGE",)}}
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "settle"
+    CATEGORY = "irisecho"
+
+    def settle(self, image):
+        if image.shape[-1] < 4 or float((image[..., 3] < 0.5).float().mean()) <= 0.01:
+            return (image[..., :3],)
+        return (image,)
+
+
+class IrisEchoMarkArea:
+    """A red ellipse through the corners of the masked area's bounding box, drawn on a
+    copy of the picture. Qwen-Image 2.1 reads coloured circles as "edit here" and
+    removes them; an ellipse through the corners rather than inside the box made it
+    replace the boxed object instead of adding beside it (tested 2026-10-14)."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"image": ("IMAGE",), "mask": ("MASK",)}}
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "mark"
+    CATEGORY = "irisecho"
+
+    def mark(self, image, mask):
+        h, w = image.shape[1:3]
+        m = mask if mask.dim() == 3 else mask[None]
+        if m.shape[-2:] != (h, w):
+            m = F.interpolate(m[:, None].float(), size=(h, w), mode="nearest")[:, 0]
+        x0, y0, x1, y1 = _bbox(m[0])
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        rx, ry = max((x1 - x0) / 2 * 2**0.5, 1.0), max((y1 - y0) / 2 * 2**0.5, 1.0)
+        width = max(4, round(0.005 * max(h, w)))
+        ys = torch.arange(h, device=image.device, dtype=torch.float32)[:, None]
+        xs = torch.arange(w, device=image.device, dtype=torch.float32)[None, :]
+        d = torch.sqrt(((xs - cx) / rx) ** 2 + ((ys - cy) / ry) ** 2)
+        ring = ((d - 1).abs() * min(rx, ry) < width / 2)[None, ..., None]
+        red = torch.zeros_like(image[..., :3])
+        red[..., 0] = 1.0
+        out = image[..., :3].clone()
+        return (torch.where(ring, red, out),)
+
+
+class IrisEchoLoudness:
+    """A clip's sound brought to an integrated loudness (BS.1770), peaks limited at -1 dB,
+    with IrisEcho's own audio code (copied beside this file as irisecho_audio.py)."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "audio": ("AUDIO",),
+                "lufs": ("FLOAT", {"default": -19.0, "min": -40.0, "max": -6.0, "step": 0.5}),
+            }
+        }
+
+    RETURN_TYPES = ("AUDIO",)
+    FUNCTION = "level"
+    CATEGORY = "irisecho"
+
+    def level(self, audio, lufs):
+        import importlib.util
+        from pathlib import Path
+
+        spec = importlib.util.spec_from_file_location(
+            "irisecho_audio", Path(__file__).with_name("irisecho_audio.py")
+        )
+        tools = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tools)
+        wave, sr = audio["waveform"], int(audio["sample_rate"])
+        out = []
+        for clip in wave:  # [channels, samples]
+            data = clip.detach().cpu().float().numpy().T
+            data = tools.normalize(data, sr, float(lufs))
+            out.append(torch.from_numpy(data.T.copy()).to(wave.dtype))
+        return ({"waveform": torch.stack(out), "sample_rate": sr},)
+
+
 NODE_CLASS_MAPPINGS = {
+    "IrisEchoLoudness": IrisEchoLoudness,
+    "IrisEchoAlpha": IrisEchoAlpha,
+    "IrisEchoMarkArea": IrisEchoMarkArea,
     "IrisEchoChooseMask": IrisEchoChooseMask,
     "IrisEchoShade": IrisEchoShade,
     "IrisEchoRGBA": IrisEchoRGBA,

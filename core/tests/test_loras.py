@@ -22,6 +22,14 @@ def write(path, tensors: dict, meta: dict | None = None):
 FLUX = {"transformer.single_transformer_blocks.0.attn.to_q.lora_A.weight": [16, 3072]}
 FLUX_KOHYA = {"lora_unet_double_blocks_0_img_attn_proj.lora_down.weight": [16, 3072]}
 QWEN = {"transformer_blocks.0.img_mlp.net.0.proj.lora_A.weight": [16, 3072]}
+# Key names and widths of Comfy-Org's Qwen-Image 2.1 Turbo LoRA (header only).
+QWEN21 = {
+    "diffusion_model.transformer_blocks.0.attn.to_q.lora_down.weight": [145, 4096],
+    "diffusion_model.transformer_blocks.0.img_mlp.gate_up.lora_down.weight": [190, 4096],
+    "diffusion_model.txt_in.in_layer.lora_down.weight": [192, 4096],
+}
+QWEN21_ATTN = {"transformer.transformer_blocks.3.attn.to_q.lora_A.weight": [32, 4096]}
+FLUX_DIFFUSERS = {"transformer.transformer_blocks.3.attn.to_q.lora_A.weight": [32, 3072]}
 ZIMAGE = {"diffusion_model.layers.0.attention.to_q.lora_A.weight": [32, 3840]}
 LUMINA = {"diffusion_model.layers.0.attention.to_q.lora_A.weight": [32, 2304]}
 WAN14 = {"diffusion_model.blocks.0.self_attn.q.lora_A.weight": [64, 5120]}
@@ -35,6 +43,9 @@ SDXL = {"lora_unet_down_blocks_1_attentions_0_proj_in.lora_down.weight": [8, 640
         (FLUX, "flux"),
         (FLUX_KOHYA, "flux"),
         (QWEN, "qwen-image"),
+        (QWEN21, "qwen-image-21"),
+        (QWEN21_ATTN, "qwen-image-21"),
+        (FLUX_DIFFUSERS, "unknown"),
         (ZIMAGE, "zimage"),
         (LUMINA, "unknown"),
         (WAN14, "wan14b"),

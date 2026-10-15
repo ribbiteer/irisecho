@@ -149,6 +149,8 @@ class App:
             return {"video": model.settings["video"]}
         if "model3d" in model.settings:
             return {"model3d": model.settings["model3d"]}
+        if "edit" in model.settings:
+            return {"edit": model.settings["edit"]}
         return {}
 
     def models(self) -> list[dict]:

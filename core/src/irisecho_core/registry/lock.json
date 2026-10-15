@@ -147,6 +147,18 @@
   "size": 5584555824,
   "sha256": "6b1eb3328930d921d3b57508d9c46cceec1c174dcedeebc14f176ab67d49f477"
  },
+ "Comfy-Org/Qwen-Image-2.1@a8342359c61979b06a8dafb1a47991fe1f30e994:diffusion_models/qwen_image_2.1_turbo_int8_convrot.safetensors": {
+  "size": 7256787829,
+  "sha256": "8144a0182964aa8403ad6dbc011db837304167d235161b9aabaa8532e967314c"
+ },
+ "Comfy-Org/Qwen-Image-2.1@a8342359c61979b06a8dafb1a47991fe1f30e994:text_encoders/qwen3vl_8b_w4a8.safetensors": {
+  "size": 6312105364,
+  "sha256": "7754425e55e7bea2bfde4dde59a4cc236cb44e5ee9c215ea66ef8d47012824eb"
+ },
+ "Comfy-Org/Qwen-Image-2.1@a8342359c61979b06a8dafb1a47991fe1f30e994:vae/qwen_image_2.1_vae_bf16.safetensors": {
+  "size": 675509688,
+  "sha256": "bb21f7473051e1ac368515dd3f2e15cd44d7a11748ee8823e1ddca3e4876b7c9"
+ },
  "Comfy-Org/Qwen-Image_ComfyUI@1f12b17be14c89b026c51a91d67c32f84bb047bc:split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors": {
   "size": 9384670680,
   "sha256": "cb5636d852a0ea6a9075ab1bef496c0db7aef13c02350571e388aea959c5c0b4"

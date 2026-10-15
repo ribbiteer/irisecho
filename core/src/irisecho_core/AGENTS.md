@@ -98,8 +98,18 @@ whole paragraph comes out in one file.
 Speech is trimmed and brought to -19 LUFS with peaks under -1 dBFS (`--raw`
 keeps the model's own output). Music plans tempo, key and form with ACE-Step's
 song planner first, as ACE-Step itself does; `--no-thinking` skips it for faster
-drafts. `--loop` (with `--bpm`) cuts whole bars from the first downbeat it hears
-and blends the seam. Sound effects keep their own loudness, so a pin drop stays
+drafts. What the planner wrote comes back in each output as `plan` (its own
+`caption`, `bpm`, `keyscale`, `timesignature`, `duration`, `language`): the music is
+made from that, so check it when a take ignores part of your tags. The planner
+writes nothing when you set the tempo, key, time signature and duration yourself
+(ACE-Step then skips planning), so those jobs have no `plan`; it never rewrites
+lyrics. Words like "no drums" are a weak way to keep something out: leave the
+instrument unmentioned instead. `--loop` (with
+`--bpm`) cuts whole bars from the first downbeat it hears and blends the seam.
+Songs often end a few seconds early, padded with near-silence; the `trim_end`
+control cuts that tail. Video sound and picture: `video_quality` (`high`, `max`)
+encodes finer than the compact default, and `even_sound` on `ltx25` brings quiet
+ambience up to -19 LUFS. Sound effects keep their own loudness, so a pin drop stays
 quieter than an explosion; only the silence the model pads with is trimmed.
 
 ### 3D models
@@ -163,8 +173,8 @@ Job `params` by kind of model:
 
 | Kind | Models | Params |
 |---|---|---|
-| image | `z-image-turbo`, `flux-schnell`, `qwen-image-fast`, `qwen-image`, `flux-dev`, `flux-krea`, `krea-2`, `z-image-control` | `prompt`, `aspect`, `seed`; `image1` and `denoise` (0.05 to 1, default 0.2) to start from a picture; `z-image-control` needs a `guide` picture and takes `guide_type` (`canny`, `depth`, `pose`, or `as_is` for a ready-made map) |
-| edit | `qwen-edit-fast`, `qwen-edit`, `flux-kontext` | `prompt`, `image1` (and `image2`, `image3` for the Qwen models), `seed`; `box` or `mask` to change only an area (Qwen models) |
+| image | `z-image-turbo`, `flux-schnell`, `qwen-image-fast`, `qwen-image`, `flux-dev`, `flux-krea`, `krea-2`, `qwen-image-21`, `z-image-control` | `prompt`, `aspect`, `seed`; `image1` and `denoise` (0.05 to 1, default 0.2) to start from a picture; `z-image-control` needs a `guide` picture and takes `guide_type` (`canny`, `depth`, `pose`, or `as_is` for a ready-made map) |
+| edit | `qwen-edit-fast`, `qwen-edit`, `qwen-image-21-edit`, `flux-kontext` | `prompt`, `image1` (and `image2`, `image3` for `qwen-edit` and `qwen-edit-fast`; up to `image10` for `qwen-image-21-edit`), `seed`; `box` or `mask` to change only an area (Qwen models) |
 | upscale | `seedvr2`, `seedvr2-7b` | `image1`, `scale` (2, 3 or 4), `retain` (true keeps the original size), `seed` |
 | video | `ltx25`, `wan22-t2v`, `wan22-i2v`, `wan22-i2v-1022`, `hunyuan15-i2v`, `wan22-camera` | `prompt`, `aspect`, `seconds` (2 to 5), `size` (`standard`, `large`, or `720p` on a 12 GB card; `hunyuan15-i2v` has no `large`), `smooth`, and a `start` and/or `end` frame: required for the `i2v` models (`hunyuan15-i2v` takes `start` only), optional for `ltx25`; `wan22-camera` needs `start` and takes `camera` (`static`, `pan_up`, `pan_down`, `pan_left`, `pan_right`, `zoom_in`, `zoom_out`, `clockwise`, `anticlockwise`) |
 | voice | `kokoro` | `text`, `voice`, `speed`, `clean` |
@@ -252,11 +262,16 @@ nothing.
   with the model family each fits (`flux`, `zimage`, `wan14b`, ...) and any
   trigger words. Up to 3 per job, strength -2 to 2. Wan takes pairs:
   `{"high": FILE, "low": FILE, "strength": 1}`. A file made for another family
-  is refused. Qwen-Image and Qwen Edit take no add-ons.
-- Changing only an area (`qwen-edit`, `qwen-edit-fast`): `box` `[left, top,
-  right, bottom]` as fractions of Picture 1, or `mask` (an upload id of a picture,
-  white where it may change). Outside the area the result is Picture 1's own
-  pixels.
+  is refused. Qwen-Image and Qwen Edit take no add-ons; Qwen-Image 2.1 takes
+  add-ons made for 2.1 (family `qwen-image-21`).
+- Changing only an area (`qwen-edit`, `qwen-edit-fast`, `qwen-image-21-edit`): `box`
+  `[left, top, right, bottom]` as fractions of Picture 1, or `mask` (an upload id
+  of a picture, white where it may change). Outside the area the result is
+  Picture 1's own pixels. `qwen-image-21-edit` takes up to three boxes as a list
+  (`[[...], [...]]`): the model is shown a red, a blue and a green circle around
+  them, in that order, so the prompt can say "the mug in the red circle".
+- `qwen-image-21-edit` reads every picture with its transparency: a transparent PNG can
+  be edited and stays transparent, and "remove the background" gives a cut-out.
 - Presets: `GET /api/presets`, `PUT /api/presets` with `{"model", "name",
   "values"}`, `DELETE /api/presets?model=M&name=N`. They are kept in
   `presets.json` in the data folder.
@@ -286,6 +301,15 @@ nothing.
 | `qwen-edit` | `shift` | 2 to 5 | 3.0 | Shift. Higher favours overall shapes, lower favours fine detail. |
 | `qwen-edit` | `sampler` | euler, res_multistep, dpmpp_2m | euler | Sampler. The method that removes noise at each step. "euler" is what this model was tuned with. |
 | `qwen-edit` | `scheduler` | simple, beta, sgm_uniform, normal | simple | Scheduler. How the steps are spread from noise to finish. "simple" is what this model was tuned with. |
+| `qwen-image-21-edit` | `steps` | 4 to 12 | 8 | Steps. More is slower and sometimes finer. This model is tuned for 8; other counts stretch its schedule to fit. |
+| `qwen-image-21-edit` | `megapixels` | 0.5 to 4.0 | 1.1 | Working size. The size the picture is edited at. The result comes out at this size, in the picture's own shape; up to 4 MP fits a 12 GB card. |
+| `qwen-image-21-edit` | `feather` | 0 to 31 (with `box`) | 12 | Soft edge. How gradually the changed area blends into the rest when you change only an area. 0 is a hard edge. |
+| `qwen-image-21-edit` | `ref_megapixels` | 0.25 to 2.0 (with `image2`) | 1.1 | Size of the other pictures. The size Pictures 2 and up are read at. Unset, up to three of them follow the working size and more share 3.3 MP between them (0.37 MP each for nine), which keeps a ten-picture edit to about a minute on a 12 GB card. Smaller is quicker, with less of their fine detail. |
+| `qwen-image-21-edit` | `transparent` | bool | false | Keep transparency. Saves the result with a transparent background when the edit asks for one, such as 'remove the background'. Off, a result keeps transparency only when part of it really came out clear. Changing only an area always gives an opaque picture. |
+| `qwen-image-21-edit` | `loras` | up to 3 {file, strength}, strength -2 to 2 | none | Add-ons (LoRA). Styles, characters or concepts trained for Qwen-Image 2.1. Add-ons for the first Qwen-Image do not fit it. |
+| `qwen-image-21-edit` | `cache` | auto, gpu, cpu, off | auto | Reference memory. Where the model keeps what it read from the prompt and pictures between steps. auto uses spare graphics memory, then RAM; off reads them again at every step, slower but the plainest. |
+| `qwen-image-21-edit` | `sampler` | euler, res_multistep, dpmpp_2m | euler | Sampler. The method that removes noise at each step. "euler" is what this model was tuned with. |
+| `qwen-image-21-edit` | `scheduler` | shipped, simple, beta, normal, sgm_uniform | shipped | Scheduler. How the steps are spread from noise to finish. This model ships with a schedule of its own; the others were not tested by its makers. |
 | `flux-kontext` | `guidance` | 1.5 to 4 | 2.5 | Follow the prompt. Higher sticks closer to your words and adds contrast; lower looks more natural. |
 | `flux-kontext` | `steps` | 12 to 40 | 20 | Steps. More is slower and sometimes finer. 20 is recommended. |
 | `flux-kontext` | `loras` | up to 3 {file, strength}, strength -2 to 2 | none | Add-ons (LoRA). Styles, characters or concepts trained for FLUX.1. Put .safetensors files in the loras folder of your models folder. |
@@ -296,6 +320,7 @@ nothing.
 | `seedvr2-7b` | `color` | lab, wavelet, adain, none | lab | Colour matching. How the colours of the result are matched to your picture. "True to the original" is safest; "Keep the new detail" lets the restored texture win where they disagree; "No correction" shows the raw result. |
 | `seedvr2-7b` | `tile` | 512, 768, 1024 | 512 | Tile size. The size of the pieces a big picture is worked in. Bigger pieces mean fewer visible seams but need more graphics memory; go back to 512 if it runs out. |
 | `seedvr2-video` | `color` | lab, wavelet, adain, none | lab | Colour matching. How the colours of the result are matched to your picture. "True to the original" is safest; "Keep the new detail" lets the restored texture win where they disagree; "No correction" shows the raw result. |
+| `seedvr2-video` | `video_quality` | standard, high, max | standard | Video quality. How finely the clip is encoded. Standard is compact (about 2 to 3 Mbps at 720p) and can show blocks in fine texture and bands in smooth skies; High keeps them clean at about twice the size; Very high is for editing and grading afterwards, at about three times. |
 | `pixal3d` | `triangles` | 5000 to 1000000 | 500000 | Exact triangle count. Overrides the triangle choice above. Game models are usually 5,000 to 50,000; 3D printing 200,000 or more. Very low counts can fail to export. |
 | `pixal3d` | `texture_size` | 1024, 2048 | 2048 | Texture size. The width of the painted surface in pixels. 1024 makes a smaller file; 2048 keeps finer print. |
 | `pixal3d` | `smoothing` | 0 to 8 | 3 | Surface smoothing. Rounds off the bumps of the raw shape. Lower keeps sharp edges and any streaks; higher gives a softer, more organic surface. |
@@ -324,27 +349,35 @@ nothing.
 | `ltx25` | `sound` | bool | true | Make sound. Switch off for a silent clip. |
 | `ltx25` | `sampler` | euler_ancestral, euler | euler_ancestral | Sampler. The method that removes noise at each step. euler_ancestral is what this model was tuned with; euler is steadier between seeds. |
 | `ltx25` | `interpolation` | 2, 4 (with `smooth`) | 2 | Smoothing amount. How many frames the Smooth option adds between each pair. 4x is silkier and takes longer, and the file gets larger. |
+| `ltx25` | `even_sound` | bool | false | Even out the sound level. LTX makes ambience such as water, wind or birds very quietly (around -50 LUFS, close to silent) while speech comes out loud. This brings the sound to the level IrisEcho uses for speech, with peaks kept below -1 dB. |
+| `ltx25` | `video_quality` | standard, high, max | standard | Video quality. How finely the clip is encoded. Standard is compact (about 2 to 3 Mbps at 720p) and can show blocks in fine texture and bands in smooth skies; High keeps them clean at about twice the size; Very high is for editing and grading afterwards, at about three times. |
 | `wan22-i2v` | `loras` | up to 3 {high, low, strength}, strength -2 to 2 | none | Add-ons (LoRA). Camera, style or motion add-ons made for Wan 2.2 14B. Each needs a high-noise and a low-noise file (put them in the loras folder of your models folder). |
 | `wan22-i2v` | `interpolation` | 2, 4 (with `smooth`) | 2 | Smoothing amount. How many frames the Smooth option adds between each pair. 4x is silkier and takes longer, and the file gets larger. |
+| `wan22-i2v` | `video_quality` | standard, high, max | standard | Video quality. How finely the clip is encoded. Standard is compact (about 2 to 3 Mbps at 720p) and can show blocks in fine texture and bands in smooth skies; High keeps them clean at about twice the size; Very high is for editing and grading afterwards, at about three times. |
 | `wan22-i2v-1022` | `distill_high` | 0.5 to 1.4 | 1.0 | Speed-up strength, high noise. Strength of the four-step speed-up on the first half of the clip's making, which sets the motion. Lowering it (0.6 to 0.8) is the usual fix when the motion looks slow. |
 | `wan22-i2v-1022` | `distill_low` | 0.5 to 1.4 | 1.0 | Speed-up strength, low noise. Strength of the four-step speed-up on the second half, which sets the fine detail. Change it only if the details look off. |
 | `wan22-i2v-1022` | `loras` | up to 3 {high, low, strength}, strength -2 to 2 | none | Add-ons (LoRA). Camera, style or motion add-ons made for Wan 2.2 14B. Each needs a high-noise and a low-noise file (put them in the loras folder of your models folder). |
 | `wan22-i2v-1022` | `interpolation` | 2, 4 (with `smooth`) | 2 | Smoothing amount. How many frames the Smooth option adds between each pair. 4x is silkier and takes longer, and the file gets larger. |
+| `wan22-i2v-1022` | `video_quality` | standard, high, max | standard | Video quality. How finely the clip is encoded. Standard is compact (about 2 to 3 Mbps at 720p) and can show blocks in fine texture and bands in smooth skies; High keeps them clean at about twice the size; Very high is for editing and grading afterwards, at about three times. |
 | `wan22-t2v` | `distill_high` | 0.5 to 1.4 | 1.0 | Speed-up strength, high noise. Strength of the four-step speed-up on the first half of the clip's making, which sets the motion. Lowering it (0.6 to 0.8) is the usual fix when the motion looks slow. |
 | `wan22-t2v` | `distill_low` | 0.5 to 1.4 | 1.0 | Speed-up strength, low noise. Strength of the four-step speed-up on the second half, which sets the fine detail. Change it only if the details look off. |
 | `wan22-t2v` | `loras` | up to 3 {high, low, strength}, strength -2 to 2 | none | Add-ons (LoRA). Camera, style or motion add-ons made for Wan 2.2 14B. Each needs a high-noise and a low-noise file (put them in the loras folder of your models folder). |
 | `wan22-t2v` | `interpolation` | 2, 4 (with `smooth`) | 2 | Smoothing amount. How many frames the Smooth option adds between each pair. 4x is silkier and takes longer, and the file gets larger. |
+| `wan22-t2v` | `video_quality` | standard, high, max | standard | Video quality. How finely the clip is encoded. Standard is compact (about 2 to 3 Mbps at 720p) and can show blocks in fine texture and bands in smooth skies; High keeps them clean at about twice the size; Very high is for editing and grading afterwards, at about three times. |
 | `wan22-camera` | `camera_speed` | 0.2 to 3.0 | 1.0 | Camera speed. How far the camera travels over the clip. 1 is the usual; lower is a gentle drift, higher a bigger move that can smear the scene. Does nothing for a static camera. |
 | `wan22-camera` | `loras` | up to 3 {high, low, strength}, strength -2 to 2 | none | Add-ons (LoRA). Camera, style or motion add-ons made for Wan 2.2 14B. Each needs a high-noise and a low-noise file (put them in the loras folder of your models folder). |
 | `wan22-camera` | `interpolation` | 2, 4 (with `smooth`) | 2 | Smoothing amount. How many frames the Smooth option adds between each pair. 4x is silkier and takes longer, and the file gets larger. |
+| `wan22-camera` | `video_quality` | standard, high, max | standard | Video quality. How finely the clip is encoded. Standard is compact (about 2 to 3 Mbps at 720p) and can show blocks in fine texture and bands in smooth skies; High keeps them clean at about twice the size; Very high is for editing and grading afterwards, at about three times. |
 | `hunyuan15-i2v` | `steps` | 8, 12 | 8 | Steps. 12 is the other value the makers recommend; it takes about half as long again for a possible gain in finish. |
 | `hunyuan15-i2v` | `sr_noise` | 0.4 to 0.9 | 0.7 | 720p re-imagining. Only used by the 720p size. Lower stays closer to the first pass; higher lets the sharpening pass invent more. |
 | `hunyuan15-i2v` | `interpolation` | 2, 4 (with `smooth`) | 2 | Smoothing amount. How many frames the Smooth option adds between each pair. 4x is silkier and takes longer, and the file gets larger. |
+| `hunyuan15-i2v` | `video_quality` | standard, high, max | standard | Video quality. How finely the clip is encoded. Standard is compact (about 2 to 3 Mbps at 720p) and can show blocks in fine texture and bands in smooth skies; High keeps them clean at about twice the size; Very high is for editing and grading afterwards, at about three times. |
 | `ace-step` | `key` | none, C major, C minor, C# major, C# minor, D major, D minor, D# major, D# minor, E major, E minor, F major, F minor, F# major, F# minor, G major, G minor, G# major, G# minor, A major, A minor, A# major, A# minor, B major, B minor | none | Key. The musical key. Any lets the song planner choose. Useful when the music must fit with other tracks. |
 | `ace-step` | `time_signature` | none, 2, 3, 4, 6 | none | Time signature. The beat pattern: 4/4 for most pop and dance, 3/4 for waltzes, 6/8 for a rolling feel. Any lets the song planner choose. |
 | `ace-step` | `vocal_language` | unknown, en, zh, ja, ko, es, fr, de, it, pt, ru (with `lyrics`) | unknown | Language of the lyrics. Set it when the singing comes out in the wrong language; otherwise the language is detected from the lyrics. |
 | `ace-step` | `raw` | bool | false | Raw output. Skips ACE-Step's final level-setting (it raises or lowers each song to peak at -1 dB). Loops are still cut as asked, and a song that would clip is turned down just enough. |
 | `ace-step` | `format` | wav16, wav24, flac | wav16 | File format. 16-bit WAV is the usual. 24-bit WAV keeps more detail for editing; FLAC is lossless and about half the size. |
+| `ace-step` | `trim_end` | bool | false | Trim the silent ending. ACE-Step often finishes a song a few seconds early and fills the rest with near-silence. This cuts that tail, keeping half a second with a short fade. Loops keep their exact length. |
 | `ace-step` | `steps` | 1 to 20 | 8 | Steps. More is slower. This model is tuned for 8; fewer is a quick draft. |
 | `ace-step` | `shift` | 1 to 5 | 3.0 | Shift. How the steps are spread from noise to finished music. This model is tuned for 3. |
 | `ace-step` | `lm_temperature` | 0 to 2 (with `thinking`) | 0.85 | Planner variety. How adventurous the song planner is. Lower plans more predictably, higher more surprisingly. Only used while planning is on. |
@@ -399,6 +432,13 @@ nothing.
 | `qwen-image` | `shift` | 2 to 5 | 3.0 | Shift. Higher if pictures come out blurry or dark, lower for more fine detail. |
 | `qwen-image` | `sampler` | euler, res_multistep, dpmpp_2m | euler | Sampler. The method that removes noise at each step. "euler" is what this model was tuned with. |
 | `qwen-image` | `scheduler` | simple, beta, sgm_uniform, normal | simple | Scheduler. How the steps are spread from noise to finish. "simple" is what this model was tuned with. |
+| `qwen-image-21` | `steps` | 4 to 12 | 8 | Steps. More is slower and sometimes finer. This model is tuned for 8; other counts stretch its schedule to fit. |
+| `qwen-image-21` | `megapixels` | 0.5 to 4.0 | 1.7 | Size. How many pixels. Bigger takes longer; this model is made for up to 4 MP, which a 12 GB card fits in about half a minute. |
+| `qwen-image-21` | `trained_sizes` | bool | false | Use the trained sizes. Qwen-Image 2.1's own 4 MP size for each shape (2048 x 2048, 2752 x 1536 for 16:9 and so on), instead of the Size above. |
+| `qwen-image-21` | `transparent` | bool | false | Transparent background. Makes a cut-out on a clear background, saved as a PNG with transparency. Describe only the subject. |
+| `qwen-image-21` | `loras` | up to 3 {file, strength}, strength -2 to 2 | none | Add-ons (LoRA). Styles, characters or concepts trained for Qwen-Image 2.1. Add-ons for the first Qwen-Image do not fit it. |
+| `qwen-image-21` | `sampler` | euler, res_multistep, dpmpp_2m | euler | Sampler. The method that removes noise at each step. "euler" is what this model was tuned with. |
+| `qwen-image-21` | `scheduler` | shipped, simple, beta, normal, sgm_uniform | shipped | Scheduler. How the steps are spread from noise to finish. This model ships with a schedule of its own; the others were not tested by its makers. |
 | `flux-dev` | `guidance` | 1 to 6 | 3.5 | Follow the prompt. Higher sticks closer to your words and adds contrast; lower looks more natural. |
 | `flux-dev` | `steps` | 8 to 40 | 20 | Steps. More is slower and sometimes finer. 20 is recommended. |
 | `flux-dev` | `megapixels` | 0.5 to 2.0 | 1.0 | Size. How many pixels. Bigger takes longer and can repeat things in the picture; about 2 MP is the most a 12 GB card fits. |

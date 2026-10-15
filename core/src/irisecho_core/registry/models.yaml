@@ -45,6 +45,7 @@ repos:
   Comfy-Org/Depth-Anything-3: 1aaeea516f22fb2f4c7fae761c8ed470c6cf9f93
   Comfy-Org/SDPose: acb43fbe8142b54d9ebd52b720b81dd4e14c8d81
   Comfy-Org/MoGe: 1484985258ba7ef45c314144fcf0e90924ffbf44
+  Comfy-Org/Qwen-Image-2.1: a8342359c61979b06a8dafb1a47991fe1f30e994
 
 licenses:
   apache-2.0:
@@ -63,6 +64,16 @@ licenses:
     summary: >-
       Free for personal, research and other non-commercial use. Commercial use
       of the model needs a license from Black Forest Labs.
+  qwen-research:
+    name: Qwen Research License
+    url: https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE
+    commercial: false
+    accept: true
+    summary: >-
+      For research and evaluation only; any commercial use needs a separate
+      license from Qwen (Hangzhou Tongyi Laboratory). Sharing the model files
+      needs a copy of the license and its notice. Qwen can end the license if its
+      terms are broken; it is governed by the laws of China.
   stability-community:
     name: Stability AI Community License
     url: https://huggingface.co/stabilityai/stable-audio-3-small-sfx/blob/main/LICENSE.md
@@ -367,6 +378,19 @@ files:
     repo: Comfy-Org/Krea-2
     path: text_encoders/qwen3vl_4b_fp8_scaled.safetensors
     category: text_encoders
+  # Qwen-Image 2.1 Turbo: one model for pictures and edits, ComfyUI's own int8 kernels (CUDA 13)
+  qwen21-turbo-int8:
+    repo: Comfy-Org/Qwen-Image-2.1
+    path: diffusion_models/qwen_image_2.1_turbo_int8_convrot.safetensors
+    category: diffusion_models
+  qwen3vl-8b-w4a8:
+    repo: Comfy-Org/Qwen-Image-2.1
+    path: text_encoders/qwen3vl_8b_w4a8.safetensors
+    category: text_encoders
+  qwen21-vae:
+    repo: Comfy-Org/Qwen-Image-2.1
+    path: vae/qwen_image_2.1_vae_bf16.safetensors
+    category: vae
   qwen-image-8step-int4:
     repo: nunchaku-ai/nunchaku-qwen-image
     path: svdq-int4_r32-qwen-image-lightningv1.1-8steps.safetensors
@@ -671,6 +695,44 @@ x-controls:
     default: 1.15
     label: Shift
     help: Higher spends more of the steps on overall shapes, lower on fine detail.
+  video-quality: &video-quality
+    name: video_quality
+    type: choice
+    default: standard
+    options:
+      - {value: standard, label: Standard}
+      - {value: high, label: High}
+      - {value: max, label: Very high}
+    label: Video quality
+    help: "How finely the clip is encoded. Standard is compact (about 2 to 3 Mbps at 720p) and can show blocks in fine texture and bands in smooth skies; High keeps them clean at about twice the size; Very high is for editing and grading afterwards, at about three times."
+  qwen21-steps: &qwen21-steps
+    name: steps
+    type: int
+    min: 4
+    max: 12
+    default: 8
+    label: Steps
+    help: "More is slower and sometimes finer. This model is tuned for 8; other counts stretch its schedule to fit."
+  qwen21-loras: &qwen21-loras
+    name: loras
+    type: loras
+    family: qwen-image-21
+    default: []
+    label: Add-ons (LoRA)
+    help: Styles, characters or concepts trained for Qwen-Image 2.1. Add-ons for the first Qwen-Image do not fit it.
+  qwen21-scheduler: &qwen21-scheduler
+    name: scheduler
+    type: choice
+    tier: expert
+    default: shipped
+    options:
+      - {value: shipped, label: The model's own}
+      - {value: simple, label: simple}
+      - {value: beta, label: beta}
+      - {value: normal, label: normal}
+      - {value: sgm_uniform, label: sgm_uniform}
+    label: Scheduler
+    help: How the steps are spread from noise to finish. This model ships with a schedule of its own; the others were not tested by its makers.
 
 models:
   qwen-edit-fast:
@@ -679,7 +741,7 @@ models:
     engine: comfy
     license: apache-2.0
     summary: Change a picture by describing the change. Four steps, about fifteen seconds.
-    settings: {prompt_style: qwen-edit, steps: 4, cfg: 1.0}
+    settings: {prompt_style: qwen-edit, steps: 4, cfg: 1.0, edit: {pictures: 3, areas: 1}}
     variants:
       - when: {backend: cuda, quant: int4}
         workflow: qwen-edit
@@ -702,7 +764,7 @@ models:
     engine: comfy
     license: apache-2.0
     summary: The careful version. Eight steps for finished work; combine up to three pictures.
-    settings: {prompt_style: qwen-edit, steps: 8, cfg: 1.0}
+    settings: {prompt_style: qwen-edit, steps: 8, cfg: 1.0, edit: {pictures: 3, areas: 1}}
     variants:
       - when: {backend: cuda, quant: int4}
         workflow: qwen-edit
@@ -719,13 +781,35 @@ models:
       - *qwen-sampler
       - *scheduler
 
+  qwen-image-21-edit:
+    name: Qwen-Image 2.1
+    kind: edit
+    engine: comfy
+    license: qwen-research
+    summary: Qwen-Image 2.1 editing a picture, up to 4 MP. Combine up to ten pictures, or change up to three marked areas. Non-commercial.
+    settings: {prompt_style: qwen-image-21-edit, steps: 8, cfg: 1.0, edit: {pictures: 10, areas: 3}}
+    variants:
+      - when: {backend: cuda, cuda_tag: cu130}
+        workflow: qwen21-edit
+        files: [qwen21-turbo-int8, qwen3vl-8b-w4a8, qwen21-vae]
+    controls:
+      - *qwen21-steps
+      - {name: megapixels, type: float, min: 0.5, max: 4.0, step: 0.1, default: 1.1, unit: MP, label: Working size, help: "The size the picture is edited at. The result comes out at this size, in the picture's own shape; up to 4 MP fits a 12 GB card."}
+      - {name: feather, type: int, min: 0, max: 31, default: 12, unit: px, needs: box, label: Soft edge, help: "How gradually the changed area blends into the rest when you change only an area. 0 is a hard edge."}
+      - {name: ref_megapixels, type: float, tier: expert, min: 0.25, max: 2.0, step: 0.05, default: 1.1, unit: MP, needs: image2, label: Size of the other pictures, help: "The size Pictures 2 and up are read at. Unset, up to three of them follow the working size and more share 3.3 MP between them (0.37 MP each for nine), which keeps a ten-picture edit to about a minute on a 12 GB card. Smaller is quicker, with less of their fine detail."}
+      - {name: transparent, type: bool, default: false, label: Keep transparency, help: "Saves the result with a transparent background when the edit asks for one, such as 'remove the background'. Off, a result keeps transparency only when part of it really came out clear. Changing only an area always gives an opaque picture."}
+      - *qwen21-loras
+      - {name: cache, type: choice, tier: expert, default: auto, options: [auto, gpu, cpu, "off"], label: Reference memory, help: "Where the model keeps what it read from the prompt and pictures between steps. auto uses spare graphics memory, then RAM; off reads them again at every step, slower but the plainest."}
+      - *qwen-sampler
+      - *qwen21-scheduler
+
   flux-kontext:
     name: FLUX.1 Kontext
     kind: edit
     engine: comfy
     license: flux-dev-nc
     summary: Restyle or retouch while keeping what matters. Say only what should change. Non-commercial.
-    settings: {prompt_style: kontext, steps: 20, guidance: 2.5}
+    settings: {prompt_style: kontext, steps: 20, guidance: 2.5, edit: {pictures: 1, areas: 0}}
     variants:
       - when: {backend: cuda, quant: int4}
         workflow: kontext
@@ -790,6 +874,7 @@ models:
         files: [seedvr2-3b, seedvr2-vae]
     controls:
       - *upscale-color
+      - *video-quality
 
   pixal3d:
     name: Pixal3D
@@ -898,6 +983,8 @@ models:
       - {name: sound, type: bool, default: true, label: Make sound, help: "Switch off for a silent clip."}
       - {name: sampler, type: choice, tier: expert, default: euler_ancestral, options: [euler_ancestral, euler], label: Sampler, help: "The method that removes noise at each step. euler_ancestral is what this model was tuned with; euler is steadier between seeds."}
       - &video-interpolation {name: interpolation, type: choice, needs: smooth, default: 2, options: [{value: 2, label: "2x (default)"}, {value: 4, label: "4x (slower)"}], label: Smoothing amount, help: "How many frames the Smooth option adds between each pair. 4x is silkier and takes longer, and the file gets larger."}
+      - {name: even_sound, type: bool, default: false, label: Even out the sound level, help: "LTX makes ambience such as water, wind or birds very quietly (around -50 LUFS, close to silent) while speech comes out loud. This brings the sound to the level IrisEcho uses for speech, with peaks kept below -1 dB."}
+      - *video-quality
 
   wan22-i2v:
     name: Wan 2.2 from a picture
@@ -918,6 +1005,7 @@ models:
     controls:
       - &wan-loras {name: loras, type: loras, family: wan14b, pair: true, default: [], label: Add-ons (LoRA), help: "Camera, style or motion add-ons made for Wan 2.2 14B. Each needs a high-noise and a low-noise file (put them in the loras folder of your models folder)."}
       - *video-interpolation
+      - *video-quality
 
   wan22-i2v-1022:
     name: Wan 2.2 camera moves
@@ -939,6 +1027,7 @@ models:
       - &wan-distill-low {name: distill_low, type: float, min: 0.5, max: 1.4, step: 0.05, default: 1.0, label: "Speed-up strength, low noise", help: "Strength of the four-step speed-up on the second half, which sets the fine detail. Change it only if the details look off."}
       - *wan-loras
       - *video-interpolation
+      - *video-quality
 
   wan22-t2v:
     name: Wan 2.2 from text
@@ -960,6 +1049,7 @@ models:
       - *wan-distill-low
       - *wan-loras
       - *video-interpolation
+      - *video-quality
 
   wan22-camera:
     name: Wan 2.2 camera control
@@ -979,6 +1069,7 @@ models:
       - {name: camera_speed, type: float, min: 0.2, max: 3.0, step: 0.1, default: 1.0, label: Camera speed, help: "How far the camera travels over the clip. 1 is the usual; lower is a gentle drift, higher a bigger move that can smear the scene. Does nothing for a static camera."}
       - *wan-loras
       - *video-interpolation
+      - *video-quality
 
   hunyuan15-i2v:
     name: HunyuanVideo 1.5 from a picture
@@ -998,6 +1089,7 @@ models:
       - {name: steps, type: choice, default: 8, options: [{value: 8, label: "8 steps (default)"}, {value: 12, label: "12 steps (slower)"}], label: Steps, help: "12 is the other value the makers recommend; it takes about half as long again for a possible gain in finish."}
       - {name: sr_noise, type: float, tier: expert, min: 0.4, max: 0.9, step: 0.05, default: 0.7, label: 720p re-imagining, help: "Only used by the 720p size. Lower stays closer to the first pass; higher lets the sharpening pass invent more."}
       - *video-interpolation
+      - *video-quality
 
   ace-step:
     name: ACE-Step 1.5
@@ -1078,6 +1170,7 @@ models:
         label: Raw output
         help: "Skips ACE-Step's final level-setting (it raises or lowers each song to peak at -1 dB). Loops are still cut as asked, and a song that would clip is turned down just enough."
       - *audio-format
+      - {name: trim_end, type: bool, default: false, label: Trim the silent ending, help: "ACE-Step often finishes a song a few seconds early and fills the rest with near-silence. This cuts that tail, keeping half a second with a short fade. Loops keep their exact length."}
       - {name: steps, type: int, tier: expert, min: 1, max: 20, default: 8, label: Steps, help: "More is slower. This model is tuned for 8; fewer is a quick draft."}
       - {name: shift, type: float, tier: expert, min: 1, max: 5, step: 0.1, default: 3.0, label: Shift, help: "How the steps are spread from noise to finished music. This model is tuned for 3."}
       - {name: lm_temperature, type: float, tier: expert, min: 0, max: 2, step: 0.05, default: 0.85, needs: thinking, label: Planner variety, help: "How adventurous the song planner is. Lower plans more predictably, higher more surprisingly. Only used while planning is on."}
@@ -1289,6 +1382,26 @@ models:
       - {name: shift, type: float, tier: expert, min: 2, max: 5, step: 0.1, default: 3.0, label: Shift, help: "Higher if pictures come out blurry or dark, lower for more fine detail."}
       - *qwen-sampler
       - *scheduler
+
+  qwen-image-21:
+    name: Qwen-Image 2.1
+    kind: image
+    engine: comfy
+    license: qwen-research
+    summary: Qwen's newer model. Long, exact lettering and fine detail up to 4 MP in eight steps. Non-commercial.
+    settings: {prompt_style: qwen-image-21, steps: 8, cfg: 1.0}
+    variants:
+      - when: {backend: cuda, cuda_tag: cu130}
+        workflow: qwen21-image
+        files: [qwen21-turbo-int8, qwen3vl-8b-w4a8, qwen21-vae]
+    controls:
+      - *qwen21-steps
+      - {name: megapixels, type: float, min: 0.5, max: 4.0, step: 0.1, default: 1.7, unit: MP, label: Size, help: "How many pixels. Bigger takes longer; this model is made for up to 4 MP, which a 12 GB card fits in about half a minute."}
+      - {name: trained_sizes, type: bool, default: false, label: Use the trained sizes, help: "Qwen-Image 2.1's own 4 MP size for each shape (2048 x 2048, 2752 x 1536 for 16:9 and so on), instead of the Size above."}
+      - {name: transparent, type: bool, default: false, label: Transparent background, help: "Makes a cut-out on a clear background, saved as a PNG with transparency. Describe only the subject."}
+      - *qwen21-loras
+      - *qwen-sampler
+      - *qwen21-scheduler
 
   flux-dev:
     name: FLUX.1 dev

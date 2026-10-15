@@ -77,8 +77,43 @@ EDIT_MANY = (
     "'Picture 3' exactly. End the sentence there: write no 'keep' or 'keeping' clause and "
     "no list of what stays the same, because such lists stop the action."
 )
+# Qwen-Image 2.1 edits, after Qwen's own rewriter for it: change exactly what is
+# named, at full strength, and keep the rest with one clause that names kinds of
+# things (repainting what stays makes it drift).
+QWEN21_EDIT_ONE = (
+    "Write one paragraph of plain text, 25 to 80 words, that starts with a verb (Replace, "
+    "Change, Add, Remove, Move, Turn) and states what changes: the thing, where it is in "
+    "the picture, and what it becomes, with its size, color, material and position as "
+    "exact facts. Make the change complete and clearly visible. Refer to the thing by "
+    "what it is and where it sits. Describe only what changes, then close with one "
+    "clause: 'Keep everything else in the picture unchanged', adding by kind alone the "
+    "face, pose or photographic look if they could drift."
+)
+# Several pictures: each gets a role. IrisEcho turns 'Picture 2' into the tag the
+# model reads (<image2>) before encoding.
+QWEN21_EDIT_MANY = (
+    "Write one paragraph, 30 to 120 words, that starts with the action and gives every "
+    "picture its own role in its own clause. Usually Picture 1 is the canvas whose scene "
+    "and framing stay, and each other picture gives one named thing: 'Place the [person or "
+    "object] from Picture 2 [where, doing what] in the [scene] of Picture 1.' To dress a "
+    "person, name each garment or accessory with its picture: 'the [person] from Picture 1 "
+    "wears the [item] from Picture 2 and the [item] from Picture 3'. When the pictures are "
+    "people or things to bring together and the draft names no canvas, describe the new "
+    "scene they share in two sentences and say who or what comes from which picture. Keep "
+    "every object the draft names, even when a picture shows something else in its place. "
+    "For a person taken from a picture, point at the picture ('the woman from Picture 2') "
+    "and describe her no further. When there is a canvas, close with one clause that keeps "
+    "it: 'Keep the [backdrop, light, framing] of Picture 1 unchanged.' Write each picture "
+    "as 'Picture' and its number, exactly."
+)
+QWEN21_EDIT_TEXT = (
+    "Put every word that should appear in the picture inside straight double quotes, "
+    "complete and unshortened, in the language the draft gives it, or else the language "
+    "of the text already in the picture. Say where the text sits and give it the "
+    "lettering style, color and size the picture already uses."
+)
 # A draft that names a second or third picture is a multi-picture edit.
-MULTI = re.compile(r"\b(picture|image|pic|photo)\s*[23]\b", re.IGNORECASE)
+MULTI = re.compile(r"\b(picture|image|pic|photo)\s*([2-9]|10)\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -92,6 +127,7 @@ class Style:
     guide_multi: str = ""  # used instead of both when the edit combines several pictures
     text_guide: str = ""  # added only when the draft is about words in the picture
     audio: bool = False  # the prompt describes a sound
+    max_tokens: int = 300  # room for the reply; long-prompt styles need more
 
 
 STYLES: dict[str, Style] = {
@@ -205,6 +241,66 @@ STYLES: dict[str, Style] = {
                 "only as the draft does or as they look: an invented color or pattern "
                 "overrides what the picture shows."
             ),
+        ),
+        Style(
+            "qwen-image-21",
+            "Qwen-Image 2.1",
+            edit=False,
+            video=False,
+            max_tokens=480,
+            guide=(
+                "Target: Qwen-Image 2.1, which was trained on long, calm descriptions of a "
+                "finished picture, written as someone looking at it would. Write one "
+                "paragraph of full present-tense sentences, 140 to 230 words. Open with: "
+                "'The image is a [style] [photograph, poster, illustration, painting, 3D "
+                "render, infographic or logo] of [subject], [background and palette].' Then "
+                "walk the frame and give every thing its place. With several parts: the "
+                "background and surface, then the top, then left, center and right, then "
+                "the bottom. With one subject: the background, the subject's pose and place "
+                "in the frame, its face or front, its clothing or surface, then what it holds "
+                "or touches. Open some sentences with the place ('In the upper left', 'Across "
+                "the lower third'). Write small counts as words, give colors a modifier (deep "
+                "navy, pale cream) and objects their material (brushed metal, coarse linen). "
+                "For a person give build, posture, where they look, expression, hair and each "
+                "garment's color and material, and age as a life stage (child, young adult, "
+                f"elderly). {LIGHT} Put the light in a sentence of its own, then close with "
+                "one sentence on the whole composition, palette and mood, and stop there. "
+                "Where the draft leaves things open, decide them and state them as facts. "
+                "Write in English."
+            ),
+            text_guide=(
+                "Qwen-Image 2.1 sets lettering well, including long strings and small "
+                "print. Walk the text in reading order: for each string give its place and "
+                "how it looks (weight, color, case, size, material), then the exact words "
+                "in straight double quotes, in their own language and script: 'a bold white "
+                "headline across the top reads \"[WORDS]\"'. Copy the draft's words character "
+                "for character. Write a second line of a string as 'a second line reads' "
+                "rather than a line break. If the draft names text only in general, invent "
+                "concrete wording."
+            ),
+        ),
+        Style(
+            "qwen-image-21-edit",
+            "Qwen-Image 2.1",
+            edit=True,
+            video=False,
+            guide=(
+                "Target: Qwen-Image 2.1 editing, which changes a supplied picture by one "
+                f"instruction. {QWEN21_EDIT_ONE} If the request is vague, decide the "
+                "specifics and state them. Describe things in the picture only as the draft "
+                "does: an invented color or pattern overrides what the picture shows."
+            ),
+            guide_with_image=(
+                "Target: Qwen-Image 2.1 editing, which changes the attached picture by one "
+                "instruction. Look at the picture first and name things by their place and "
+                f"role in it. {QWEN21_EDIT_ONE} Mention colors and patterns only for what "
+                "changes: a described detail reads to the model as an order to redraw it."
+            ),
+            guide_multi=(
+                "Target: Qwen-Image 2.1 editing, which combines up to ten pictures into "
+                f"one; the result has Picture 1's size. {QWEN21_EDIT_MANY}"
+            ),
+            text_guide=QWEN21_EDIT_TEXT,
         ),
         Style(
             "kontext",

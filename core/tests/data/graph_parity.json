@@ -4422,7 +4422,7 @@
        0
       ],
       "temporal_overlap": 8,
-      "temporal_size": 64,
+      "temporal_size": 4096,
       "tile_size": 512,
       "vae": [
        "vae",
@@ -4703,7 +4703,7 @@
        0
       ],
       "temporal_overlap": 8,
-      "temporal_size": 64,
+      "temporal_size": 4096,
       "tile_size": 512,
       "vae": [
        "vae",
@@ -4907,7 +4907,7 @@
        0
       ],
       "temporal_overlap": 8,
-      "temporal_size": 64,
+      "temporal_size": 4096,
       "tile_size": 512,
       "vae": [
        "vae",

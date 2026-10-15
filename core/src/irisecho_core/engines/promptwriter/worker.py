@@ -33,9 +33,9 @@ def load(params: dict, report: Reporter) -> dict:
     return {"device": device}
 
 
-def open_image(path: str) -> Image.Image:
+def open_image(path: str, side: int = MAX_SIDE) -> Image.Image:
     image = Image.open(path).convert("RGB")
-    image.thumbnail((MAX_SIDE, MAX_SIDE))
+    image.thumbnail((side, side))
     return image
 
 
@@ -44,7 +44,8 @@ def write(params: dict, report: Reporter) -> dict:
     if model is None:
         raise RuntimeError("load was not called")
     report.progress(0.1, "Writing")
-    content = [{"type": "image", "image": open_image(p)} for p in params["images"]]
+    side = int(params.get("max_side", MAX_SIDE))
+    content = [{"type": "image", "image": open_image(p, side)} for p in params["images"]]
     content.append({"type": "text", "text": params["user"]})
     messages = [
         {"role": "system", "content": [{"type": "text", "text": params["system"]}]},

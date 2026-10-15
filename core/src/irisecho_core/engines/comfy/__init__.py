@@ -242,24 +242,68 @@ def lora_hint(ctx: RunContext, error: str) -> str:
     )
 
 
+# Several marked areas are circled in these colours, in order: the colours of Qwen's
+# own example ("the watch in the blue circle, the hair in the red circle ...").
+AREA_COLOURS = ((255, 0, 0), (0, 90, 255), (0, 200, 60))
+
+
+def boxes_of(box) -> list[tuple[float, float, float, float]]:
+    """One [x0, y0, x1, y1] (fractions) or a list of them."""
+    many = box if box and isinstance(box[0], (list, tuple)) else [box]
+    out = []
+    for b in many:
+        try:
+            x0, y0, x1, y1 = (float(v) for v in b)
+        except (TypeError, ValueError):
+            raise ValueError(
+                "box takes four numbers: left, top, right, bottom, from 0 to 1."
+            ) from None
+        if not (0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1):
+            raise ValueError("box takes four numbers: left, top, right, bottom, from 0 to 1.")
+        out.append((x0, y0, x1, y1))
+    return out
+
+
 def box_mask(picture: Path, box, dest: Path) -> None:
-    """A mask the size of the picture, white inside box ([x0, y0, x1, y1] as fractions)."""
+    """A mask the size of the picture, white inside every box."""
     from PIL import Image, ImageDraw
 
-    try:
-        x0, y0, x1, y1 = (float(v) for v in box)
-    except (TypeError, ValueError):
-        raise ValueError("box takes four numbers: left, top, right, bottom, from 0 to 1.") from None
-    if not (0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1):
-        raise ValueError("box takes four numbers: left, top, right, bottom, from 0 to 1.")
+    boxes = boxes_of(box)
     with Image.open(picture) as im:
         w, h = im.size
     mask = Image.new("L", (w, h), 0)
-    ImageDraw.Draw(mask).rectangle(
-        [round(x0 * w), round(y0 * h), max(round(x1 * w) - 1, 0), max(round(y1 * h) - 1, 0)],
-        fill=255,
-    )
+    for x0, y0, x1, y1 in boxes:
+        ImageDraw.Draw(mask).rectangle(
+            [round(x0 * w), round(y0 * h), max(round(x1 * w) - 1, 0), max(round(y1 * h) - 1, 0)],
+            fill=255,
+        )
     mask.save(dest)
+
+
+def mark_areas(picture: Path, box, dest: Path) -> None:
+    """The picture with an ellipse through the corners of each box, red, blue, green.
+
+    Qwen-Image 2.1 reads coloured circles as "edit here" and removes them as it edits;
+    an ellipse through the corners made it replace the boxed object rather than add one
+    beside it (tested 2026-10-14). Transparency is kept for the model to see.
+    """
+    from PIL import Image, ImageDraw
+
+    with Image.open(picture) as im:
+        im = im.convert("RGBA" if "A" in im.getbands() else "RGB")
+    w, h = im.size
+    width = max(4, round(0.005 * max(w, h)))
+    draw = ImageDraw.Draw(im)
+    for (x0, y0, x1, y1), colour in zip(boxes_of(box), AREA_COLOURS, strict=False):
+        cx, cy = (x0 + x1) / 2 * w, (y0 + y1) / 2 * h
+        rx = max((x1 - x0) / 2 * w * 2**0.5 - width / 2, 1)
+        ry = max((y1 - y0) / 2 * h * 2**0.5 - width / 2, 1)
+        draw.ellipse(
+            [cx - rx, cy - ry, cx + rx, cy + ry],
+            outline=colour + ((255,) if im.mode == "RGBA" else ()),
+            width=width,
+        )
+    im.save(dest)
 
 
 class ComfyEngine(Engine):
@@ -381,6 +425,11 @@ class ComfyEngine(Engine):
                 dest = self.src / "custom_nodes" / folder
                 dest.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(Path(__file__).parent / source, dest / "__init__.py")
+            # IrisEchoLoudness levels sound with the code the audio engines use.
+            shutil.copyfile(
+                Path(__file__).parent.parent / "protocol" / "irisecho_audio.py",
+                self.src / "custom_nodes" / "irisecho_3d" / "irisecho_audio.py",
+            )
             try:
                 # Installs from before a patch was added get it here, without a reinstall.
                 patch_comfy(self.src)
@@ -747,6 +796,9 @@ class ComfyEngine(Engine):
         if box is not None and "mask" not in staged and "image1" in staged:
             staged["mask"] = self.io / "input" / f"irisecho_{ctx.job_id}_mask.png"
             box_mask(staged["image1"], box, staged["mask"])
+            if "mark" in graphs.IMAGE_INPUTS.get(workflow, ()):
+                staged["mark"] = self.io / "input" / f"irisecho_{ctx.job_id}_mark.png"
+                mark_areas(staged["image1"], box, staged["mark"])
         return staged
 
     async def _execute(self, ctx: RunContext, graph: dict, plan: dict | None = None) -> dict:

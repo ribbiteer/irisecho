@@ -72,6 +72,8 @@ def compose_options(model, p: dict) -> dict:
         out["lm_top_p"] = _bounded(model, "lm_top_p", p["lm_top_p"])
     if p.get("raw"):
         out["raw"] = True
+    if p.get("trim_end"):
+        out["trim_end"] = True
     return out
 
 
@@ -214,7 +216,16 @@ class AceStepEngine(WorkerEngine):
             **source,
         }
         result = await self.call(ctx, "compose", request)
+        # With planning on, what the planner wrote (its caption, lyrics, tempo, key ...) is
+        # what the music was made from, so it goes back with each take.
+        plan = {"plan": result["plan"]} if result.get("plan") else {}
         return [
-            {"path": o["path"], "type": "audio", "duration": o["duration"], "seed": o.get("seed")}
+            {
+                "path": o["path"],
+                "type": "audio",
+                "duration": o["duration"],
+                "seed": o.get("seed"),
+                **plan,
+            }
             for o in result["takes"]
         ]

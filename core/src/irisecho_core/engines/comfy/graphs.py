@@ -11,6 +11,7 @@ negative prompt at all.
 from __future__ import annotations
 
 import math
+import re
 
 ASPECTS = {
     "1:1": (1, 1),
@@ -814,6 +815,296 @@ def _region_mask(g: dict, mask: str, picture: list, feather: int) -> list:
     return ["mask_soft", 0]
 
 
+# Qwen-Image 2.1's own sizes (its model card's table), all about 4 MP.
+QWEN21_SIZES = {
+    "1:1": (2048, 2048),
+    "16:9": (2752, 1536),
+    "9:16": (1536, 2752),
+    "4:3": (2400, 1792),
+    "3:4": (1792, 2400),
+    "3:2": (2528, 1696),
+    "2:3": (1696, 2528),
+}
+# Turbo's schedule: `sample_sigmas` in its model_index.json. Diffusers appends the final 0;
+# ComfyUI's own Turbo templates write it out. The model card says other schedules were
+# not evaluated, and ComfyUI's simple scheduler at the model's shift gives a different curve.
+QWEN21_SIGMAS = (1.0, 0.978453, 0.95418, 0.926626, 0.89508, 0.845148, 0.704534, 0.414568)
+# "Picture 2" (how IrisEcho names pictures) -> "<image2>", the tag the text encoder
+# puts before each picture and the one Qwen's own prompt rewriter writes.
+PICTURE_TAG = re.compile(r"(?<!<)\b(?:picture|image)\s*(10|[1-9])\b(?!>)", re.IGNORECASE)
+# Up to ten pictures in one edit (Qwen's own limit for 2.1).
+QWEN21_SLOTS = tuple(f"image{i}" for i in range(1, 11))
+# Megapixels Pictures 2 onward share by default (see _qwen21).
+REF_BUDGET_MP = 3.3
+
+
+def qwen21_sigmas(steps: int, denoise: float = 1.0) -> str:
+    """The shipped schedule, or the same curve stretched to another step count.
+
+    Starting from a picture, the curve is scaled to begin at `denoise`, so it changes
+    as much as the same setting does on the other models. Cutting the shipped
+    schedule instead (SplitSigmasDenoise) would start 0.2 at 0.70 and run nothing
+    below about 0.06: its steps are crowded near 1.
+    """
+    last = len(QWEN21_SIGMAS) - 1
+    if steps == len(QWEN21_SIGMAS):
+        values = list(QWEN21_SIGMAS)
+    else:
+        values = []
+        for i in range(steps):
+            x = i * last / (steps - 1)
+            lo = min(int(x), last - 1)
+            t = x - lo
+            values.append(round(QWEN21_SIGMAS[lo] * (1 - t) + QWEN21_SIGMAS[lo + 1] * t, 6))
+    if denoise < 1.0:
+        values = [round(v * denoise, 6) for v in values]
+    return ", ".join(str(v) for v in values) + ", 0"
+
+
+def qwen21_prompt(prompt: str, slots: list[str], transparent: bool = False) -> str:
+    """slots: the pictures given, in order (image1, image3 when Picture 2 is empty).
+    The model numbers them as it sees them, so Picture 3 is then <image2>."""
+    if len(slots) > 1:
+        tags = {int(s[5:]): i for i, s in enumerate(slots, 1)}
+        prompt = PICTURE_TAG.sub(
+            lambda m: f"<image{tags[int(m[1])]}>" if int(m[1]) in tags else m[0], prompt
+        )
+    pictures = len(slots)
+    if transparent and not pictures:
+        # The model card's wording for a picture with an alpha channel.
+        prompt = (
+            f"This is an RGBA image with transparency. {prompt.strip().rstrip('.')}. "
+            "The image has alpha channel and the background is transparent."
+        )
+    return prompt
+
+
+def qwen21_image(**kw):
+    return _qwen21(edit=False, **kw)
+
+
+def qwen21_edit(**kw):
+    return _qwen21(edit=True, **kw)
+
+
+def _qwen21(
+    *, edit, prompt, seed, names, settings, hw, prefix, aspect="1:1", images=None, params=None, **_
+):
+    """Qwen-Image 2.1 Turbo, as ComfyUI's own Turbo templates run it: ManualSigmas,
+    euler, cfg 1. An edit hands its pictures to the text encoder, each scaled here to
+    the working size on a 32-pixel grid and passed at that size (resolution 0), so the
+    result lines up with Picture 1 and an area edit can be pasted back exactly. A
+    picture to start from (image kind) is image to image, as for the other models.
+
+    The VAE decodes four channels. A plain picture comes out with a near-opaque alpha
+    (250 of 255 here and there), which IrisEchoAlpha drops unless the picture really
+    is a cut-out; the transparent control keeps it as is.
+    """
+    params = params or {}
+    images = images or {}
+    slots = [s for s in QWEN21_SLOTS if edit and images.get(s)]
+    region = images.get("mask") if edit else None
+    if edit and not images.get("image1"):
+        raise ValueError("Add the picture to edit.")
+    init = None if edit else images.get("image1")
+    transparent = bool(params.get("transparent"))
+    g: dict = {
+        "unet": {
+            "class_type": "UNETLoader",
+            "inputs": {"unet_name": names["qwen21-turbo-int8"], "weight_dtype": "default"},
+        },
+        "clip": {
+            "class_type": "CLIPLoader",
+            "inputs": {
+                "clip_name": names["qwen3vl-8b-w4a8"],
+                "type": "qwen_image",
+                "device": "default",
+            },
+        },
+        "vae": {"class_type": "VAELoader", "inputs": {"vae_name": names["qwen21-vae"]}},
+    }
+    model = _add_loras(g, ["unet", 0], params.get("loras"), "LoraLoaderModelOnly", "strength_model")
+    cache = params.get("cache")
+    if cache and cache != "auto":
+        g["cache"] = {
+            "class_type": "QwenImage21Cache",
+            "inputs": {"model": model, "device": cache, "dtype": "default"},
+        }
+        model = ["cache", 0]
+    encode = {
+        "clip": ["clip", 0],
+        "prompt": qwen21_prompt(prompt, slots, transparent),
+        "negative_prompt": "",
+        "resolution": 0,
+    }
+    soft = None  # the area to keep, for an area edit
+    if slots:
+        mp = float(_v(params, "megapixels", 1.1))
+        if abs(mp - 1.0) < 1e-6:
+            # A 1024 x 1024 grid makes edits noisy all over (ComfyUI issue 16435); one
+            # grid step either side is clean.
+            mp = 1.05
+        # Pictures 2 onward share a budget: what the text encoder reads grows with their
+        # total size, and on a 12 GB card ten pictures at 1.1 MP stalled it for 20 minutes
+        # while 3 x 1.1 MP took 52 s and 9 x 0.25 MP 28 s (2026-10-15). So up to three
+        # others keep the working size, and more share 3.3 MP (0.37 MP each for nine).
+        others = len(slots) - 1
+        shared = max(0.25, round(REF_BUDGET_MP / others, 2)) if others else mp
+        ref_mp = float(_v(params, "ref_megapixels", min(mp, shared)))
+
+        def scaled(key: str, name: str, size: float) -> list:
+            # LoadImage splits a PNG's transparency off as a mask; joined back, the model
+            # sees (and can keep editing) a transparent picture, as Qwen shows it doing.
+            g[f"load{key}"] = {"class_type": "LoadImage", "inputs": {"image": name}}
+            g[f"rgba{key}"] = {
+                "class_type": "JoinImageWithAlpha",
+                "inputs": {"image": [f"load{key}", 0], "alpha": [f"load{key}", 1]},
+            }
+            g[f"scale{key}"] = {
+                "class_type": "ImageScaleToTotalPixels",
+                "inputs": {
+                    "image": [f"rgba{key}", 0],
+                    "upscale_method": "lanczos",
+                    "megapixels": size,
+                    "resolution_steps": 32,
+                },
+            }
+            return [f"scale{key}", 0]
+
+        for i, slot in enumerate(slots, 1):
+            encode[f"images.image_{i}"] = scaled(str(i), images[slot], mp if i == 1 else ref_mp)
+        encode["vae"] = ["vae", 0]
+        if region:
+            # The model is shown where to act: a coloured circle around each area on its
+            # copy of Picture 1, which it removes as it edits (its makers' own way of
+            # marking local edits). Without it the box only chose what to paste back,
+            # and a prompt like "replace it" changed nothing (tested 2026-10-14). The
+            # engine draws the circles (one colour per area); a mask given without
+            # boxes gets one red circle here.
+            soft = _region_mask(g, region, ["scale1", 0], int(_v(params, "feather", 12)))
+            if images.get("mark"):
+                encode["images.image_1"] = scaled("mark", images["mark"], mp)
+            else:
+                g["mark"] = {
+                    "class_type": "IrisEchoMarkArea",
+                    "inputs": {"image": ["scale1", 0], "mask": ["mask_load", 0]},
+                }
+                encode["images.image_1"] = ["mark", 0]
+        latent = ["text", 2]
+    elif init:
+        g["init"] = {"class_type": "LoadImage", "inputs": {"image": init}}
+        g["init_scale"] = {
+            "class_type": "ImageScaleToTotalPixels",
+            "inputs": {
+                "image": ["init", 0],
+                "upscale_method": "lanczos",
+                "megapixels": float(_v(params, "megapixels", 1.7)),
+                "resolution_steps": 32,
+            },
+        }
+        g["latent"] = {
+            "class_type": "VAEEncode",
+            "inputs": {"pixels": ["init_scale", 0], "vae": ["vae", 0]},
+        }
+        latent = ["latent", 0]
+    else:
+        if params.get("trained_sizes") and aspect in QWEN21_SIZES:
+            w, h = QWEN21_SIZES[aspect]
+        else:
+            w, h = size_on_grid(aspect, _budget(params, 1335), 32)
+        g["latent"] = {
+            "class_type": "EmptyLatentImage",
+            "inputs": {"width": w, "height": h, "batch_size": 1},
+        }
+        latent = ["latent", 0]
+    g["text"] = {"class_type": "TextEncodeQwenImage21", "inputs": encode}
+    steps = int(_v(params, "steps", settings.get("steps", 8)))
+    scheduler = _v(params, "scheduler", "shipped")
+    denoise = _denoise(params) if init else 1.0
+    if scheduler == "shipped":
+        g["sigmas"] = {
+            "class_type": "ManualSigmas",
+            "inputs": {"sigmas": qwen21_sigmas(steps, denoise)},
+        }
+    else:
+        g["sigmas"] = {
+            "class_type": "BasicScheduler",
+            "inputs": {"model": model, "scheduler": scheduler, "steps": steps, "denoise": denoise},
+        }
+    g["guider"] = {
+        "class_type": "CFGGuider",
+        "inputs": {
+            "model": model,
+            "positive": ["text", 0],
+            "negative": ["text", 1],
+            "cfg": float(settings.get("cfg", 1.0)),
+        },
+    }
+    g["sampler"] = {
+        "class_type": "KSamplerSelect",
+        "inputs": {"sampler_name": _v(params, "sampler", "euler")},
+    }
+    g["noise"] = {"class_type": "RandomNoise", "inputs": {"noise_seed": seed}}
+    g["sample"] = {
+        "class_type": "SamplerCustomAdvanced",
+        "inputs": {
+            "noise": ["noise", 0],
+            "guider": ["guider", 0],
+            "sampler": ["sampler", 0],
+            "sigmas": ["sigmas", 0],
+            "latent_image": latent,
+        },
+    }
+    save = _finish(g, ["vae", 0], prefix)
+    if region:
+        # As Qwen Edit: the whole picture is edited and only the area is kept, pasted
+        # with a soft edge over Picture 1 on the same grid (always opaque).
+        g["rgb"] = {"class_type": "SplitImageWithAlpha", "inputs": {"image": ["decode", 0]}}
+        g["base"] = {"class_type": "SplitImageWithAlpha", "inputs": {"image": ["scale1", 0]}}
+        g["paste"] = {
+            "class_type": "ImageCompositeMasked",
+            "inputs": {
+                "destination": ["base", 0],
+                "source": ["rgb", 0],
+                "x": 0,
+                "y": 0,
+                "resize_source": False,
+                "mask": soft,
+            },
+        }
+        g["save"]["inputs"]["images"] = ["paste", 0]
+    elif not transparent:
+        g["alpha"] = {"class_type": "IrisEchoAlpha", "inputs": {"image": ["decode", 0]}}
+        g["save"]["inputs"]["images"] = ["alpha", 0]
+    if slots:
+        # The 32-pixel grid rounds each side on its own, so the edit comes out a little
+        # stretched (a 3:4 menu at 1.1 MP: 928 x 1248, 0.85% taller); the model's result
+        # lines up exactly with that. Back to Picture 1's own shape at the same size, it
+        # lines up with the original.
+        g["shape_ref"] = {
+            "class_type": "ImageScaleToTotalPixels",
+            "inputs": {
+                "image": ["load1", 0],
+                "upscale_method": "lanczos",
+                "megapixels": mp,
+                "resolution_steps": 1,
+            },
+        }
+        g["shape"] = {"class_type": "GetImageSize", "inputs": {"image": ["shape_ref", 0]}}
+        g["reshape"] = {
+            "class_type": "ImageScale",
+            "inputs": {
+                "image": g["save"]["inputs"]["images"],
+                "upscale_method": "lanczos",
+                "width": ["shape", 0],
+                "height": ["shape", 1],
+                "crop": "disabled",
+            },
+        }
+        g["save"]["inputs"]["images"] = ["reshape", 0]
+    return g, save
+
+
 def kontext(*, prompt, seed, names, settings, hw, prefix, images, params=None, **_):
     params = params or {}
     if not images.get("image1"):
@@ -1059,12 +1350,7 @@ def seedvr2_video(*, seed, names, prefix, images, params, **_):
         },
         "save": {
             "class_type": "SaveVideo",
-            "inputs": {
-                "video": ["video", 0],
-                "filename_prefix": prefix,
-                "format": "auto",
-                "codec": "auto",
-            },
+            "inputs": video_save_inputs(prefix, params),
         },
     }
     return g, "save"
@@ -1481,6 +1767,10 @@ def hunyuan15(*, prompt, seed, aspect, names, settings, hw, prefix, images, para
             },
         }
         latent = ["sample_sr", 0]
+    # Tiled in space only. Split in time (64 frames, 8 overlapping) the two halves of a
+    # 4 s clip met at about 2.5 s in a full-frame grid with a ghosted double image, and
+    # the official template's larger overlap only moved the dip; the whole clip in one
+    # piece is clean at every frame, fits 12 GB and decodes faster (2026-10-15).
     g["decode"] = {
         "class_type": "VAEDecodeTiled",
         "inputs": {
@@ -1488,7 +1778,7 @@ def hunyuan15(*, prompt, seed, aspect, names, settings, hw, prefix, images, para
             "vae": ["vae", 0],
             "tile_size": 512,
             "overlap": 64,
-            "temporal_size": 64,
+            "temporal_size": 4096,
             "temporal_overlap": 8,
         },
     }
@@ -1704,8 +1994,37 @@ def ltx(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, **
             "inputs": {"samples": ["split2", 1], "audio_vae": ["audio_vae", 0]},
         }
         audio = ["sound", 0]
+        if params.get("even_sound"):
+            # LTX makes ambience (water, wind, birds) very quietly: -57 to -49 LUFS where a
+            # spoken line peaks near 0 dB. Brought to the level IrisEcho uses for speech.
+            g["level"] = {
+                "class_type": "IrisEchoLoudness",
+                "inputs": {"audio": audio, "lufs": -19.0},
+            }
+            audio = ["level", 0]
     _save_video(g, ["decode", 0], 24, params, names, prefix, audio=audio)
     return g, "save"
+
+
+# Video quality: CRF for H.264 (lower is finer and larger). "standard" leaves SaveVideo on
+# auto, libx264's own CRF 23, which put 720p clips at about 2 to 3 Mbps with blocky
+# knitwear and banded skies at 100-200 %.
+VIDEO_CRF = {"high": 16, "max": 10}
+
+
+def video_save_inputs(prefix: str, params: dict | None) -> dict:
+    quality = (params or {}).get("video_quality") or "standard"
+    inputs = {"video": ["video", 0], "filename_prefix": prefix, "format": "auto", "codec": "auto"}
+    if quality in VIDEO_CRF:
+        inputs = {
+            "video": ["video", 0],
+            "filename_prefix": prefix,
+            "format": "mp4",
+            "format.codec": "h264",
+            "format.codec.encoding": "re-encode",
+            "format.codec.encoding.crf": float(VIDEO_CRF[quality]),
+        }
+    return inputs
 
 
 def _save_video(g: dict, frames, fps: int, params: dict, names: dict, prefix: str, audio=None):
@@ -1730,12 +2049,7 @@ def _save_video(g: dict, frames, fps: int, params: dict, names: dict, prefix: st
         g["video"]["inputs"]["audio"] = audio
     g["save"] = {
         "class_type": "SaveVideo",
-        "inputs": {
-            "video": ["video", 0],
-            "filename_prefix": prefix,
-            "format": "auto",
-            "codec": "auto",
-        },
+        "inputs": video_save_inputs(prefix, params),
     }
 
 
@@ -2334,6 +2648,8 @@ BUILDERS = {
     "qwen-image-nunchaku": qwen_image,
     "krea2": krea2,
     "qwen-edit": qwen_edit,
+    "qwen21-image": qwen21_image,
+    "qwen21-edit": qwen21_edit,
     "kontext": kontext,
     "seedvr2": seedvr2,
     "seedvr2-video": seedvr2_video,
@@ -2352,6 +2668,8 @@ IMAGE_INPUTS = {
     "z-image-control": ("guide",),
     "flux-nunchaku": ("image1",),
     "qwen-edit": ("image1", "image2", "image3", "mask"),
+    "qwen21-image": ("image1",),
+    "qwen21-edit": (*QWEN21_SLOTS, "mask", "mark"),
     "kontext": ("image1",),
     "seedvr2": ("image1",),
     "seedvr2-video": ("video",),

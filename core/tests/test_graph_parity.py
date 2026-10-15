@@ -22,7 +22,14 @@ HW = SimpleNamespace(gpus=[SimpleNamespace(compute_cap=8.9)], vram_mb=12282, bac
 
 # Models added after the snapshot was taken; their graphs have tests of their own
 # (test_new_models.py). Nothing they add may change the graphs of the models above.
-ADDED_LATER = {"z-image-control", "seedvr2-7b", "pixal3d-single", "wan22-camera"}
+ADDED_LATER = {
+    "z-image-control",
+    "seedvr2-7b",
+    "pixal3d-single",
+    "wan22-camera",
+    "qwen-image-21",
+    "qwen-image-21-edit",
+}
 
 
 def cases() -> list[tuple[str, str, dict, dict]]:

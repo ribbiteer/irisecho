@@ -53,6 +53,16 @@ EXTRA = {
         ("clockwise", (), {"camera": "clockwise"}),
     ],
     "qwen-edit": [("whole picture", ("mask",), {})],
+    "qwen21-image": [
+        ("text only", ("image1",), {}),
+        ("start picture", (), {"denoise": 0.4}),
+        ("trained size", ("image1",), {"trained_sizes": True}),
+    ],
+    "qwen21-edit": [
+        ("whole picture", ("mask", "mark"), {}),
+        ("one picture", (*(f"image{i}" for i in range(2, 11)), "mask", "mark"), {}),
+        ("area, circled in the graph", ("mark",), {}),
+    ],
 }
 
 
@@ -107,7 +117,19 @@ def check(graph: dict, info: dict) -> list[str]:
         req = spec["input"].get("required", {})
         opt = spec["input"].get("optional", {})
         declared = {**req, **opt}
-        for name in req:
+        for name, decl in req.items():
+            if decl[0] == "COMFY_AUTOGROW_V3":
+                # A growing list of inputs, passed as name.slot (images.image_1, ...).
+                grown = [k for k in node["inputs"] if k.startswith(f"{name}.")]
+                allowed = decl[1]["template"]["names"]
+                problems += [
+                    f"{nid} {cls}: no input slot {k}"
+                    for k in grown
+                    if k.split(".", 1)[1] not in allowed
+                ]
+                if len(grown) < decl[1]["template"].get("min", 0):
+                    problems.append(f"{nid} {cls}: too few {name}")
+                continue
             if name not in node["inputs"]:
                 problems.append(f"{nid} {cls}: missing required input {name}")
         for name, value in node["inputs"].items():

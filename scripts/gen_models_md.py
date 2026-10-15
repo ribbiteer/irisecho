@@ -91,6 +91,9 @@ def render() -> str:
         "- TRELLIS.2 and Pixal3D read pictures with Meta's DINOv3 (the file in",
         "  Comfy-Org/Pixal3D), which is under the DINOv3 License; IrisEcho asks you to",
         "  accept it before downloading.",
+        "- Qwen-Image 2.1, for pictures and edits, is under the Qwen Research License, for",
+        "  research and evaluation only, unlike the Apache-2.0 Qwen-Image and Qwen Edit.",
+        "  Anyone passing the model files on must include the license and its notice.",
         "",
     ]
     return "\n".join(lines)

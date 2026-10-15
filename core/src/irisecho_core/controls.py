@@ -27,7 +27,7 @@ BASE: dict[str, set[str]] = {
         "guide",
         "guide_type",
     },
-    "edit": {"prompt", "image1", "image2", "image3", "seed", "box", "mask"},
+    "edit": {"prompt", *(f"image{i}" for i in range(1, 11)), "seed", "box", "mask"},
     "upscale": {"image1", "scale", "retain", "seed"},
     "video": {"prompt", "aspect", "seconds", "size", "smooth", "start", "end", "seed", "camera"},
     "video-upscale": {"video", "short_side", "seed"},
@@ -208,7 +208,39 @@ def check(model: ModelSpec, params: dict) -> tuple[dict, list[str]]:
         if key not in base:
             warnings.append(f"{model.name} does not use '{key}'; it was ignored.")
         out[key] = value
+    if model.kind == "edit":
+        _check_edit(model, out)
     return out, warnings
+
+
+def _check_edit(model: ModelSpec, params: dict) -> None:
+    """Pictures and marked areas within what the model takes (registry settings.edit);
+    `box` is one [left, top, right, bottom] or a list of them, as fractions of Picture 1."""
+    limits = model.settings.get("edit") or {}
+    pictures, areas = int(limits.get("pictures", 3)), int(limits.get("areas", 1))
+    extra = [k for k, v in params.items() if v and k.startswith("image") and int(k[5:]) > pictures]
+    if extra:
+        raise ControlError(
+            f"{model.name} takes up to {pictures} picture{'s' if pictures != 1 else ''}."
+        )
+    box = params.get("box")
+    if box is None:
+        return
+    boxes = box if box and isinstance(box[0], list) else [box]
+    if not areas:
+        raise ControlError(f"{model.name} edits the whole picture; it cannot change only an area.")
+    if len(boxes) > areas:
+        raise ControlError(
+            f"{model.name} changes up to {areas} marked area{'s' if areas != 1 else ''}."
+        )
+    for b in boxes:
+        if (
+            not isinstance(b, list)
+            or len(b) != 4
+            or not all(isinstance(v, (int, float)) for v in b)
+            or not (0 <= b[0] < b[2] <= 1 and 0 <= b[1] < b[3] <= 1)
+        ):
+            raise ControlError("box takes four numbers: left, top, right, bottom, from 0 to 1.")
 
 
 def opt(params: dict, settings: dict, name: str, fallback=None):

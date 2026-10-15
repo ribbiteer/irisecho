@@ -84,7 +84,7 @@ class PromptWriterEngine(WorkerEngine):
             raise ValueError(f"unknown target model {target}")
         style = STYLES[style_for(target, model.settings)]
         image_paths = []
-        for name in images[:3]:
+        for name in images[:10]:
             path = paths.sub("uploads") / Path(str(name)).name
             if not path.is_file():
                 raise ValueError("That picture is no longer available; add it again.")
@@ -101,7 +101,9 @@ class PromptWriterEngine(WorkerEngine):
                 "user": user_prompt(style, mode, text, len(image_paths)),
                 "images": image_paths,
                 "beams": BEAMS,
-                "max_new_tokens": 300,
+                "max_new_tokens": style.max_tokens,
+                # Many pictures at once: smaller copies keep the 4B writer within memory.
+                "max_side": 1024 if len(image_paths) <= 3 else 640,
             },
         )
         prompt = clean(result["text"])

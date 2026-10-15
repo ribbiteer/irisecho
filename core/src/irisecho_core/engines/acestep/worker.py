@@ -162,6 +162,8 @@ def compose(params: dict, report: Reporter) -> dict:
         sr = int(item.get("sample_rate") or 48000)
         if params.get("loop") and params.get("bpm"):
             audio = loop_cut(audio, sr, int(params["bpm"]))
+        elif params.get("trim_end"):
+            audio = trim_end(audio, sr)
         peak = float(np.max(np.abs(audio))) if audio.size else 0.0
         if peak > 0.99:
             audio = audio * (0.99 / peak)
@@ -176,7 +178,49 @@ def compose(params: dict, report: Reporter) -> dict:
     if not takes:
         raise RuntimeError("ACE-Step did not return any music.")
     report.progress(1.0, "Done")
-    return {"takes": takes}
+    return {"takes": takes, "plan": planned(result)}
+
+
+# What the planner (5 Hz LM) decided, when it ran: generate_music keeps it in
+# extra_outputs["lm_metadata"] (inference.py) and conditions the music on it. The
+# planner writes nothing when the job sets bpm, key, time signature and duration
+# (llm_inference.py has_all_metas): lm_metadata then only echoes them, with no
+# caption, so there is no plan to report. It never rewrites lyrics.
+PLAN_KEYS = ("caption", "bpm", "keyscale", "timesignature", "duration", "language")
+
+
+def planned(result) -> dict:
+    meta = (getattr(result, "extra_outputs", None) or {}).get("lm_metadata") or {}
+    if not isinstance(meta, dict) or not str(meta.get("caption") or "").strip():
+        return {}
+    out = {}
+    for key in PLAN_KEYS:
+        value = meta.get(key)
+        if isinstance(value, (str, int, float)) and str(value).strip() not in ("", "N/A", "None"):
+            out[key] = value
+    return out
+
+
+def trim_end(audio: np.ndarray, sr: int, floor_db: float = -45.0) -> np.ndarray:
+    """Cut a near-silent tail (ACE-Step often finishes a song several seconds early and
+    pads the rest quietly), keeping half a second of it with a short fade."""
+    window = max(1, int(sr * 0.05))
+    mono = audio.mean(axis=1) if audio.ndim > 1 else audio
+    frames = len(mono) // window
+    if not frames:
+        return audio
+    rms = np.sqrt((mono[: frames * window].reshape(frames, window) ** 2).mean(axis=1))
+    loud = np.nonzero(rms > 10 ** (floor_db / 20))[0]
+    if not loud.size:
+        return audio
+    end = min(len(audio), (int(loud[-1]) + 1) * window + int(sr * 0.5))
+    if end >= len(audio) - sr:  # less than a second to gain: leave it as made
+        return audio
+    out = audio[:end].copy()
+    fade = min(len(out), int(sr * 0.3))
+    ramp = np.linspace(1.0, 0.0, fade, dtype=out.dtype)
+    out[-fade:] *= ramp[:, None] if out.ndim > 1 else ramp
+    return out
 
 
 if __name__ == "__main__":

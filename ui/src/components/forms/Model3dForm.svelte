@@ -39,7 +39,7 @@
   let description = $state("");
   let candidates = $state<string[]>([]); // job ids of the pictures being made
   const imageModel = $derived(
-    ["z-image-turbo", "qwen-image-fast", "flux-schnell", "qwen-image", "krea-2", "flux-krea", "flux-dev"]
+    ["z-image-turbo", "qwen-image-fast", "flux-schnell", "qwen-image", "qwen-image-21", "krea-2", "flux-krea", "flux-dev"]
       .map((id) => modelById(id))
       .find((m) => m?.ready) ?? modelsOf("image").find((m) => m.ready),
   );

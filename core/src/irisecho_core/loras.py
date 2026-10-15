@@ -16,7 +16,7 @@ from collections import Counter
 from pathlib import Path
 
 # Families a model can declare in its `loras` control.
-FAMILIES = ("flux", "zimage", "wan14b", "qwen-image", "ltx", "sd")
+FAMILIES = ("flux", "zimage", "wan14b", "qwen-image", "qwen-image-21", "ltx", "sd")
 MAX_HEADER = 64 * 1024 * 1024
 
 _cache: dict[tuple[str, int, int], dict] = {}
@@ -59,7 +59,21 @@ def family_of(header: dict) -> str:
     keys = [k for k in header if k != "__metadata__"]
     text = "\n".join(keys)
     if "img_mlp" in text or "txt_mlp" in text or "qwen" in arch:
+        # Qwen-Image 2.1 is a different, single-stream model: 4096 wide (the first
+        # Qwen-Image is 3072), a fused gate_up feed-forward and no text-side layers.
+        if (
+            _dim(header, r"attn[._]to_q") == 4096
+            or re.search(r"img_mlp[._](gate_up|gate_layer)", text)
+            or re.search(r"txt_in[._]in_layer", text)
+        ) and not re.search(r"txt_mlp|img_mod|add_q_proj", text):
+            return "qwen-image-21"
         return "qwen-image"
+    # An attention-only Qwen-Image 2.1 add-on: block names like FLUX's diffusers form,
+    # but 4096 wide (FLUX is 3072).
+    if re.search(r"transformer_blocks[._]\d+[._]attn[._]to_q", text) and (
+        _dim(header, r"transformer_blocks[._]\d+[._]attn[._]to_q") == 4096
+    ):
+        return "qwen-image-21"
     if (
         "double_blocks" in text
         or "single_blocks" in text

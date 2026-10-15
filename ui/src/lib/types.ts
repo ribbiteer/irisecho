@@ -59,7 +59,14 @@ export interface Model {
   downloads: Download[];
   installing: boolean;
   controls: Control[];
-  options: { voices?: VoiceOption[]; video?: VideoOptions; model3d?: Model3dOptions; [key: string]: unknown };
+  options: {
+    voices?: VoiceOption[];
+    video?: VideoOptions;
+    model3d?: Model3dOptions;
+    /** Edit models (registry settings.edit): pictures in all, and marked areas (0: whole picture only). */
+    edit?: { pictures: number; areas: number };
+    [key: string]: unknown;
+  };
 }
 
 export type ControlValue = number | string | boolean | LoraEntry[];

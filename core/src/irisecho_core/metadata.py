@@ -22,9 +22,7 @@ from irisecho_core.registry import ModelSpec
 PNG = b"\x89PNG\r\n\x1a\n"
 # Params that are files on this computer, not settings.
 FILE_PARAMS = {
-    "image1",
-    "image2",
-    "image3",
+    *(f"image{i}" for i in range(1, 11)),
     "guide",
     "start",
     "end",

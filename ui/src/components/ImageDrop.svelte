@@ -51,25 +51,48 @@
     tag = "",
     hint = "",
     compact = false,
-  }: { value: string | null; label: string; tag?: string; hint?: string; compact?: boolean } = $props();
+    onmore,
+  }: {
+    value: string | null;
+    label: string;
+    tag?: string;
+    hint?: string;
+    compact?: boolean;
+    /** Several files may be chosen at once: the first fills this slot, the rest go here. */
+    onmore?: (ids: string[]) => void;
+  } = $props();
 
   let busy = $state(false);
   let pad = $state(false);
   let box = $state<HTMLElement>();
   let padEl = $state<HTMLElement>();
 
-  async function upload(file: File) {
+  async function send(file: File): Promise<string | null> {
     if (!file.type.startsWith("image/")) {
       fail("Use a PNG, JPEG or WebP picture.");
-      return;
+      return null;
     }
+    const form = new FormData();
+    form.append("file", file);
+    return (await api<{ id: string }>("/uploads", { form })).id;
+  }
+
+  async function upload(file: File, more: File[] = []) {
     busy = true;
     try {
-      const form = new FormData();
-      form.append("file", file);
-      const r = await api<{ id: string }>("/uploads", { form });
-      value = r.id;
+      const id = await send(file);
+      if (!id) return;
+      const rest: string[] = [];
+      for (const f of more) {
+        const extra = await send(f);
+        if (extra) rest.push(extra);
+      }
+      value = id;
       pad = false;
+      if (rest.length) {
+        await tick(); // this slot's picture first, so the rest follow it in order
+        onmore?.(rest);
+      }
     } catch (e) {
       fail(e);
     } finally {
@@ -108,6 +131,8 @@
 
   function onPadPaste(e: ClipboardEvent) {
     e.preventDefault();
+    e.stopPropagation(); // the page-wide Ctrl+V handler would take it a second time
+    (e.currentTarget as HTMLElement).blur();
     const file = imageIn(e.clipboardData);
     if (file) upload(file);
     else fail("There is no picture on the clipboard. Copy one, then try again.");
@@ -127,16 +152,35 @@
         type="file"
         accept="image/png,image/jpeg,image/webp"
         class="sr-only"
+        multiple={!!onmore}
         onchange={(e) => {
-          const f = (e.currentTarget as HTMLInputElement).files?.[0];
-          if (f) upload(f);
+          const [f, ...more] = [...((e.currentTarget as HTMLInputElement).files ?? [])];
+          if (f) upload(f, more);
         }}
       />
       <ImagePlus size={compact ? 18 : 22} />
       <strong>{busy ? "Adding…" : label}</strong>
       {#if hint && !compact}<small>{hint}</small>{/if}
     </label>
-    {#if pad}
+    {#if !canRead}
+      <!-- No clipboard access (an iPhone or iPad on plain HTTP): the control itself is the
+           paste target, so one press and hold brings up the system's Paste. Focusing a
+           separate pad from script after a tap is ignored by iOS, which made it take two
+           tries. Kept empty so the hold offers Paste rather than selecting a word. -->
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+      <div
+        class="hold btn sm ghost"
+        class:busy
+        contenteditable="true"
+        inputmode="none"
+        role="textbox"
+        tabindex="0"
+        aria-label="Hold to paste a picture"
+        data-label={busy ? "Adding…" : "Hold to paste"}
+        onpaste={onPadPaste}
+        onbeforeinput={(e) => e.preventDefault()}
+      ></div>
+    {:else if pad}
       <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <div
         class="pad"
@@ -212,6 +256,28 @@
     cursor: text;
     caret-color: transparent;
     outline: none;
+  }
+  .hold {
+    min-width: 108px;
+    min-height: 34px;
+    border: 1px solid var(--line-3);
+    justify-content: center;
+    cursor: text;
+    caret-color: transparent;
+    outline: none;
+    -webkit-user-select: text;
+    user-select: text;
+    -webkit-touch-callout: default;
+  }
+  .hold::before {
+    content: attr(data-label);
+    pointer-events: none;
+  }
+  .hold:focus {
+    border-color: var(--accent);
+  }
+  .hold.busy {
+    opacity: 0.6;
   }
   .filled {
     position: relative;
