@@ -217,15 +217,18 @@ class AceStepEngine(WorkerEngine):
         }
         result = await self.call(ctx, "compose", request)
         # With planning on, what the planner wrote (its caption, lyrics, tempo, key ...) is
-        # what the music was made from, so it goes back with each take.
-        plan = {"plan": result["plan"]} if result.get("plan") else {}
-        return [
-            {
-                "path": o["path"],
-                "type": "audio",
-                "duration": o["duration"],
-                "seed": o.get("seed"),
-                **plan,
-            }
-            for o in result["takes"]
-        ]
+        # what the music was made from, so it goes back with each take. Takes made in
+        # separate passes (a long song on a small card) carry their own.
+        out = []
+        for o in result["takes"]:
+            plan = o.get("plan") or result.get("plan")
+            out.append(
+                {
+                    "path": o["path"],
+                    "type": "audio",
+                    "duration": o["duration"],
+                    "seed": o.get("seed"),
+                    **({"plan": plan} if plan else {}),
+                }
+            )
+        return out

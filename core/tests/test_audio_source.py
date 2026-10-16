@@ -13,6 +13,7 @@ import types
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from irisecho_core import controls, paths, registry
@@ -196,6 +197,74 @@ def test_acestep_worker_builds_the_upstream_task_params(monkeypatch):
     }
     with pytest.raises(ValueError, match="600"):
         worker.source_task({"task": "extend", "source": "s.wav", "extend_by": 600})
+
+
+class Wave:
+    """Stands in for the torch tensor ACE-Step returns ([channels, samples])."""
+
+    def __init__(self, seconds: float):
+        self.data = np.zeros((2, int(48000 * seconds)), dtype=np.float32)
+
+    def detach(self):
+        return self
+
+    cpu = float = detach
+
+    def numpy(self):
+        return self.data
+
+
+def test_acestep_worker_makes_every_take_when_the_vram_guard_shrinks_the_batch(monkeypatch):
+    # A 240 s song with three takes on a card whose guard allows one at a time.
+    worker = load_worker("acestep")
+    batches: list[list[int]] = []
+
+    def generate_music(dit, llm, gen, config, save_dir=None, progress=None):
+        batches.append(list(config.seeds))
+        made = min(config.batch_size, 1)  # what ACE-Step does past its guard
+        audios = [
+            {"tensor": Wave(0.1), "sample_rate": 48000, "params": {"seed": s}}
+            for s in config.seeds[:made]
+        ]
+        meta = {"caption": f"plan {config.seeds[0]}", "bpm": 120}
+        return SimpleNamespace(
+            success=True, audios=audios, error=None, extra_outputs={"lm_metadata": meta}
+        )
+
+    inference = types.SimpleNamespace(
+        GenerationParams=lambda **kw: SimpleNamespace(**kw),
+        GenerationConfig=lambda **kw: SimpleNamespace(**kw),
+        generate_music=generate_music,
+    )
+    monkeypatch.setitem(sys.modules, "acestep", types.ModuleType("acestep"))
+    monkeypatch.setitem(sys.modules, "acestep.inference", inference)
+    written = []
+    monkeypatch.setattr(worker, "write_audio", lambda path, *a: written.append(path))
+    guard_asked = []
+
+    def guard(n, audio_duration=None):
+        guard_asked.append((n, audio_duration))
+        return 1
+
+    monkeypatch.setitem(worker.state, "dit", SimpleNamespace(_vram_guard_reduce_batch=guard))
+    reporter = SimpleNamespace(progress=lambda *a: None)
+    out = worker.compose(
+        {"caption": "synthwave", "duration": 240.0, "seed": 7, "outs": ["a", "b", "c"]},
+        reporter,
+    )
+    assert batches == [[7], [8], [9]]
+    assert guard_asked == [(3, 240.0), (2, 240.0)]  # one take left needs no asking
+    assert written == ["a", "b", "c"]
+    assert [t["seed"] for t in out["takes"]] == [7, 8, 9]
+    assert [t["plan"]["caption"] for t in out["takes"]] == ["plan 7", "plan 8", "plan 9"]
+    assert out["plan"]["caption"] == "plan 7"
+
+
+def test_acestep_worker_takes_one_pass_when_the_guard_allows_all(monkeypatch):
+    worker = load_worker("acestep")
+    assert worker.pass_size(SimpleNamespace(_vram_guard_reduce_batch=lambda n, **k: n), 4, 60) == 4
+    assert worker.pass_size(SimpleNamespace(), 3, 60) == 3  # no guard: ask for them all
+    assert worker.pass_size(SimpleNamespace(_vram_guard_reduce_batch=lambda n, **k: 9), 2, 60) == 2
 
 
 def test_acestep_cover_controls_need_a_recording_and_stay_in_range():

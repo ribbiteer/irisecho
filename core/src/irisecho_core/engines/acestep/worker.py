@@ -132,53 +132,84 @@ def compose(params: dict, report: Reporter) -> dict:
         seed=seeds[0],
         **extra,
     )
-    config = GenerationConfig(
-        batch_size=len(outs),
-        use_random_seed=False,
-        seeds=seeds,
-        audio_format="wav",
-    )
 
-    def progress(value=None, desc=None, *args, **kwargs):
-        try:
-            fraction = float(value) if value is not None else None
-        except (TypeError, ValueError):
-            fraction = None
-        report.progress(fraction, "Composing" if not desc else str(desc)[:80])
+    # ACE-Step quietly makes fewer takes than asked when free VRAM is short (its VRAM
+    # guard, core/generation/handler/memory_utils.py _vram_guard_reduce_batch, allows
+    # about 0.5 GB a take plus 0.15 GB per extra minute, so a 4-minute song with the
+    # planner loaded gets one take on a 12 GB card). Asking the guard first and making
+    # the rest in further passes gives every take; each pass also plans its own songs.
+    takes: list[dict] = []
+    first_plan: dict = {}
+    while len(takes) < len(outs):
+        done = len(takes)
+        batch = pass_size(state["dit"], len(outs) - done, params["duration"])
+        config = GenerationConfig(
+            batch_size=batch,
+            use_random_seed=False,
+            seeds=seeds[done : done + batch],
+            audio_format="wav",
+        )
+        label = "Composing" if batch == len(outs) else f"Composing take {done + 1} of {len(outs)}"
 
-    report.progress(0.02, "Composing")
-    result = generate_music(
-        state["dit"], state["llm"], gen, config, save_dir=None, progress=progress
-    )
-    if not result.success:
-        raise RuntimeError(result.error or "ACE-Step did not return any music.")
+        def progress(value=None, desc=None, *args, _done=done, _batch=batch, _label=label, **kw):
+            try:
+                fraction = float(value) if value is not None else None
+            except (TypeError, ValueError):
+                fraction = None
+            if fraction is not None:
+                fraction = (_done + _batch * fraction) / len(outs)
+            report.progress(fraction, _label if not desc else str(desc)[:80])
 
-    takes = []
-    for i, item in enumerate(result.audios[: len(outs)]):
-        tensor = item.get("tensor")
-        if tensor is None:
-            continue
-        audio = tensor.detach().cpu().float().numpy().T  # [samples, channels]
-        sr = int(item.get("sample_rate") or 48000)
-        if params.get("loop") and params.get("bpm"):
-            audio = loop_cut(audio, sr, int(params["bpm"]))
-        elif params.get("trim_end"):
-            audio = trim_end(audio, sr)
-        peak = float(np.max(np.abs(audio))) if audio.size else 0.0
-        if peak > 0.99:
-            audio = audio * (0.99 / peak)
-        write_audio(outs[i], audio, sr, params.get("format", "wav16"))
-        takes.append(
-            {
+        report.progress(max(0.02, done / len(outs)), label)
+        result = generate_music(
+            state["dit"], state["llm"], gen, config, save_dir=None, progress=progress
+        )
+        if not result.success:
+            raise RuntimeError(result.error or "ACE-Step did not return any music.")
+        plan = planned(result)
+        first_plan = first_plan or plan
+        made = 0
+        for item in result.audios[:batch]:
+            tensor = item.get("tensor")
+            if tensor is None:
+                continue
+            i = len(takes)
+            audio = tensor.detach().cpu().float().numpy().T  # [samples, channels]
+            sr = int(item.get("sample_rate") or 48000)
+            if params.get("loop") and params.get("bpm"):
+                audio = loop_cut(audio, sr, int(params["bpm"]))
+            elif params.get("trim_end"):
+                audio = trim_end(audio, sr)
+            peak = float(np.max(np.abs(audio))) if audio.size else 0.0
+            if peak > 0.99:
+                audio = audio * (0.99 / peak)
+            write_audio(outs[i], audio, sr, params.get("format", "wav16"))
+            take = {
                 "path": outs[i],
                 "duration": round(len(audio) / sr, 2),
                 "seed": (item.get("params") or {}).get("seed", seeds[i]),
             }
-        )
+            if plan:
+                take["plan"] = plan
+            takes.append(take)
+            made += 1
+        if not made:
+            break  # a pass that made nothing would make nothing again
     if not takes:
         raise RuntimeError("ACE-Step did not return any music.")
     report.progress(1.0, "Done")
-    return {"takes": takes, "plan": planned(result)}
+    return {"takes": takes, "plan": first_plan}
+
+
+def pass_size(dit, wanted: int, duration) -> int:
+    """How many takes ACE-Step will make in one go (its VRAM guard's answer, at least 1)."""
+    guard = getattr(dit, "_vram_guard_reduce_batch", None)
+    if guard is None or wanted <= 1:
+        return max(1, wanted)
+    try:
+        return max(1, min(wanted, int(guard(wanted, audio_duration=duration))))
+    except Exception:
+        return wanted
 
 
 # What the planner (5 Hz LM) decided, when it ran: generate_music keeps it in
