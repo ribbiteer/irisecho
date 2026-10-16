@@ -10,8 +10,13 @@
   type Slot = { el: () => HTMLElement | undefined; take: (file: File) => void };
   const slots = new Set<Slot>();
 
+  // Safari sometimes lists a pasted picture only among the items, not the files.
   const imageIn = (data: DataTransfer | null | undefined) =>
-    [...(data?.files ?? [])].find((f) => f.type.startsWith("image/"));
+    [...(data?.files ?? [])].find((f) => f.type.startsWith("image/")) ??
+    [...(data?.items ?? [])]
+      .find((i) => i.kind === "file" && i.type.startsWith("image/"))
+      ?.getAsFile() ??
+    undefined;
 
   function onDocumentPaste(e: ClipboardEvent) {
     const file = imageIn(e.clipboardData);
@@ -166,7 +171,8 @@
       <!-- No clipboard access (an iPhone or iPad on plain HTTP): the control itself is the
            paste target, so one press and hold brings up the system's Paste. Focusing a
            separate pad from script after a tap is ignored by iOS, which made it take two
-           tries. Kept empty so the hold offers Paste rather than selecting a word. -->
+           tries. Kept empty so the hold offers Paste rather than selecting a word; its
+           own font is 16px so focusing it does not zoom the page (the label draws smaller). -->
       <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <div
         class="hold btn sm ghost"
@@ -190,11 +196,10 @@
         role="textbox"
         tabindex="0"
         aria-label="Paste a picture here"
+        data-label="Hold here and choose Paste, or press Ctrl+V"
         onpaste={onPadPaste}
         onbeforeinput={(e) => e.preventDefault()}
-      >
-        Hold here and choose Paste, or press Ctrl+V
-      </div>
+      ></div>
     {:else}
       <button class="btn sm ghost" onclick={paste} disabled={busy}><ClipboardPaste size={14} /> Paste</button>
     {/if}
@@ -215,6 +220,8 @@
     background: var(--surface-2);
     text-align: center;
     color: var(--accent-ink);
+    /* A quick second tap on the slot must not zoom the page; pinching still does. */
+    touch-action: manipulation;
     transition:
       border-color 0.15s,
       background 0.15s;
@@ -252,14 +259,20 @@
     border: 1px solid var(--accent);
     background: var(--surface);
     color: var(--text-2);
-    font-size: 12.5px;
+    font-size: 16px; /* under 16px, iOS zooms the page when the field takes focus */
     cursor: text;
     caret-color: transparent;
     outline: none;
   }
+  .pad::before {
+    content: attr(data-label);
+    font-size: 12.5px;
+    pointer-events: none;
+  }
   .hold {
     min-width: 108px;
     min-height: 34px;
+    font-size: 16px; /* under 16px, iOS zooms the page when the field takes focus */
     border: 1px solid var(--line-3);
     justify-content: center;
     cursor: text;
@@ -271,6 +284,7 @@
   }
   .hold::before {
     content: attr(data-label);
+    font-size: 13px;
     pointer-events: none;
   }
   .hold:focus {

@@ -135,6 +135,7 @@ def pair_page(message: str = "", code: str = "") -> HTMLResponse:
     return HTMLResponse(
         "<!doctype html><html lang=en><meta charset=utf-8>"
         "<meta name=viewport content='width=device-width,initial-scale=1'>"
+        "<link rel=apple-touch-icon href=/apple-touch-icon.png sizes=180x180>"
         "<title>Pair with IrisEcho</title><style>"
         "body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0E0B16;"
         "color:#F3F0FA;font:16px/1.5 system-ui,sans-serif}main{width:min(92vw,380px)}"
