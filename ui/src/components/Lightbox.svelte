@@ -388,9 +388,9 @@
     position: absolute;
     inset: 0;
     border: 0;
-    /* No backdrop blur: through 92% it barely shows, and a phone would redo it every
-       frame while a running job animates behind it. */
-    background: rgb(8 6 14 / 0.92);
+    /* Nearly opaque instead of a backdrop blur, which a phone would redo every frame
+       while a running job animates behind it. */
+    background: rgb(8 6 14 / 0.96);
   }
   .stage {
     position: relative;
