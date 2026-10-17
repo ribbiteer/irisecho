@@ -59,6 +59,14 @@ embedded prompts or settings unless you ask for them.
     <td><sub><b>Edit</b> · say what should change; the rest of the picture is kept</sub></td>
     <td><sub><b>Voice</b> · a whole script at once, one file per line, levels matched</sub></td>
   </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/screens/create-video.jpg" alt="The Video studio: Wan 2.2 with the night market picture as its first frame and a description of the motion on the left, and three finished clips on the right: a lighthouse at blue hour, the night market and the sea captain"></td>
+    <td width="50%"><img src="docs/assets/screens/create-music.jpg" alt="The Music studio: style tags with genre, mood and sound suggestions on the left, and three 30-second pieces on the right: synthwave, lo-fi hip hop and cinematic orchestral, each with its tempo and a waveform"></td>
+  </tr>
+  <tr>
+    <td><sub><b>Video</b> · bring a still to life, or start from a description</sub></td>
+    <td><sub><b>Music</b> · a few style tags; the song planner picks tempo, key and form</sub></td>
+  </tr>
 </table>
 
 <p align="center">
@@ -72,9 +80,13 @@ Every model starts on the settings it was tuned for, so nobody has to know what 
 sampler is. Turn on **Settings › Show advanced controls** and each studio gains a
 **More controls** section with what that model can actually use:
 
+<p align="center">
+  <img src="docs/assets/screens/advanced.jpg" alt="The Image studio with More controls open: a preset menu, size and steps with their recommended values, a note on where add-ons go, and an Expert section with shift, sampler and scheduler" width="100%">
+</p>
+
 - **Steps, guidance, size, sampler and shift** where they make a difference. A
   distilled model gets no guidance or negative prompt, because it would ignore them.
-- **Your own LoRAs** for FLUX.1, Z-Image and Wan 2.2: put `.safetensors` files in the
+- **Your own LoRAs** for FLUX.1, Z-Image, Qwen-Image 2.1 and Wan 2.2: put `.safetensors` files in the
   `loras` folder (or a ComfyUI folder you linked) and pick them with a strength.
   IrisEcho reads each file to tell which model it fits and shows its trigger words.
 - **Model-specific controls**, for example:
@@ -112,7 +124,8 @@ phone asks and watches it arrive.
 - **Your library in your pocket.** Browse, search, play, favourite and download
   what you have made.
 - **Nothing to install on the phone, no account, no cloud.** It is a page
-  served by your own computer.
+  served by your own computer; add it to your Home Screen for a one-tap
+  IrisEcho icon.
 - **Yours to control.** Off until you switch it on. Each phone pairs once with a
   short-lived code, is listed in Settings, and can be revoked there. Models,
   settings and folders stay on the computer. The connection is plain HTTP, so

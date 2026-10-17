@@ -68,7 +68,7 @@ negatives, so prompts describe only what should be there.
 The screenshots are of the app itself with real results in it, captured from a
 headless browser at twice the size and scaled to 2000 px wide. The graphics
 card name in the corner is a generic one. Everything in them was made with
-Apache-2.0 models.
+Apache-2.0 or MIT models, in IrisEcho 0.2.2.
 
 | Shown in | Model | Seed | Prompt |
 |---|---|---|---|
@@ -80,6 +80,11 @@ Apache-2.0 models.
 | Edit | Qwen Edit Fast (int4) | 11 | Change only the apples to deep glossy red |
 | Edit | Qwen Edit Fast (int4) | 13 | Make it early evening with warm golden light from the window and long soft shadows, keep everything else the same |
 | Edit | Qwen Edit Fast (int4) | 12 | Replace the white mug with a small potted succulent, keep everything else the same |
+
+| Video | Wan 2.2 from a picture (the market as first frame) | 21 | Rain keeps falling on the night market; shoppers walk slowly between the stalls, lanterns sway gently and neon reflections shimmer on the wet cobblestones. |
+| Video | Wan 2.2 from a picture (the portrait as first frame) | 22 | The old sea captain slowly turns his head toward the sea and squints into the wind; his beard and hair move in the breeze. |
+| Video | Wan 2.2 from text | 23 | A white lighthouse on a rocky cliff at blue hour, its beam sweeping across a calm sea, small waves breaking on the rocks below, slow aerial push in. |
+| Music | ACE-Step 1.5 (MIT), 30 s, song planner on | 7 | synthwave, driving bass, analog synth, retro drums, instrumental (110 BPM) · lofi hip hop, mellow piano, soft vinyl crackle, laid-back drums, instrumental (80 BPM) · cinematic orchestral, soaring strings, brass, taiko drums, instrumental (120 BPM) |
 
 The Voice screenshot holds four lines read by Kokoro's George voice. `phone.jpg` is three
 captures at a phone's size of what a paired phone is served, set side by side.
