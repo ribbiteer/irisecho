@@ -3,6 +3,8 @@
   with a `progress` (0..1) the ring fills clockwise, so the mark doubles as the
   progress indicator everywhere work is happening. -->
 <script lang="ts">
+  import { inView } from "../lib/inview";
+
   let {
     size = 40,
     bars = 48,
@@ -40,11 +42,22 @@
   );
   const width = $derived(bars > 40 ? 2.2 : 3);
   const lit = $derived(progress == null ? bars : Math.round(Math.max(0, Math.min(1, progress)) * bars));
+
+  // Every bar is its own animation, which a phone redraws each frame: hold them
+  // while the mark is off the screen (a running tile scrolled out of the feed).
+  let svgEl = $state<SVGSVGElement | null>(null);
+  let shown = $state(true);
+  $effect(() => {
+    if (!svgEl || !active) return;
+    return inView(svgEl, (v) => (shown = v));
+  });
 </script>
 
 <svg
+  bind:this={svgEl}
   class="iris"
   class:active
+  class:held={!shown}
   width={size}
   height={size}
   viewBox="-50 -50 100 100"
@@ -97,6 +110,9 @@
   }
   .active .fiber {
     animation: pulse 1.6s ease-in-out infinite;
+  }
+  .held .fiber {
+    animation-play-state: paused;
   }
   @keyframes pulse {
     0%,

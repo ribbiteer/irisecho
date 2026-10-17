@@ -9,6 +9,7 @@
   import Box from "@lucide/svelte/icons/box";
   import { api, outputUrl, previewUrl } from "../lib/api";
   import { elapsed } from "../lib/format";
+  import { inView } from "../lib/inview";
   import { app, fail, modelById, submit, toast } from "../lib/state.svelte";
   import type { Job } from "../lib/types";
 
@@ -25,6 +26,14 @@
     return w && h ? `${w} / ${h}` : "1 / 1";
   });
   let videoEl = $state<HTMLVideoElement | null>(null);
+  let tileEl = $state<HTMLElement | null>(null);
+  // A video tile loads its clip only while it is near the screen and lets it go when
+  // it scrolls well away, so a long feed or library does not fetch and decode every clip.
+  let near = $state(false);
+  $effect(() => {
+    if (!tileEl || !isVideo || is3d) return;
+    return inView(tileEl, (v) => (near = v), "600px 0px");
+  });
   const model = $derived(modelById(job.model));
   const position = $derived(
     app.jobs
@@ -59,7 +68,7 @@
   }
 </script>
 
-<article class="tile" style:aspect-ratio={ratio} class:done={job.status === "done"}>
+<article class="tile" bind:this={tileEl} style:aspect-ratio={ratio} class:done={job.status === "done"}>
   {#if job.status === "done" && job.outputs[0]}
     <button
       class="open"
@@ -81,7 +90,9 @@
         {/if}
         <span class="play-hint">3D</span>
       {:else if isVideo}
-        <video bind:this={videoEl} src={`${outputUrl(job)}#t=0.05`} muted loop playsinline preload="auto"></video>
+        {#if near}
+          <video bind:this={videoEl} src={`${outputUrl(job)}#t=0.05`} muted loop playsinline preload="auto"></video>
+        {/if}
         <span class="play-hint">▶</span>
       {:else}
         <img src={outputUrl(job)} alt={job.params.prompt ?? "Result"} loading="lazy" decoding="async" />
