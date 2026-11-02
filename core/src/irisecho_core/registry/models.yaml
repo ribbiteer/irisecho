@@ -1368,6 +1368,9 @@ models:
   # Music in ComfyUI. `music` tells the studio what a model takes; ACE-Step models have
   # none and keep every option. Instrumentals get section tags sized to the length
   # (`section_seconds`), as these models follow the tags for structure and length.
+  # `ends_by`: about where YuE2 and MiniMax end an instrumental whatever the length asked
+  # (240 s asked: YuE2 109-126 s, MiniMax 146-155 s, with denser tags or a long-form
+  # description too); the studio says so above that length.
   yue2:
     name: YuE2
     kind: music
@@ -1375,7 +1378,7 @@ models:
     license: cc-by-nc-4.0
     summary: Full songs with clean, lively mixes; plans a melody and chords first. English and Mandarin.
     settings:
-      music: {lyrics: true, planner: true, source: false, loop: true}
+      music: {lyrics: true, planner: true, source: false, loop: true, ends_by: 120}
       section_seconds: 20
     variants:
       - when: {backend: cuda}
@@ -1393,7 +1396,7 @@ models:
     license: minimax-music3-community
     summary: Songs and instrumentals up to 5 minutes with wide dynamics, from a detailed description.
     settings:
-      music: {lyrics: true, planner: false, source: false, loop: true}
+      music: {lyrics: true, planner: false, source: false, loop: true, ends_by: 150}
       section_seconds: 15
     variants:
       - when: {backend: cuda}

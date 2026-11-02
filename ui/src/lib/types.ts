@@ -106,6 +106,8 @@ export interface MusicOptions {
   planner: boolean;
   source: boolean;
   loop: boolean;
+  /** About where the model ends an instrumental, whatever length is asked (seconds). */
+  ends_by?: number;
 }
 
 /** What a video model takes and makes (registry settings.video). */

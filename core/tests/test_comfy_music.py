@@ -72,7 +72,10 @@ def test_what_the_studio_offers_each_model():
         "planner": True,
         "source": False,
         "loop": True,
+        "ends_by": 120,
     }
+    assert model("minimax-music3").settings["music"]["ends_by"] == 150
+    assert "ends_by" not in model("sa3-medium").settings["music"]  # makes the length asked
     assert model("minimax-music3").settings["music"]["planner"] is False
     assert model("sa3-medium").settings["music"]["lyrics"] is False
     assert "music" not in model("ace-step").settings  # ACE-Step keeps every option

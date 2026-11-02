@@ -192,6 +192,12 @@
   <div class="field">
     <span class="label">Length <span class="mono value">{duration} s</span></span>
     <input type="range" min="10" max="240" step="5" bind:value={duration} aria-label="Length in seconds" disabled={fromSource} />
+    {#if caps.ends_by && duration > caps.ends_by && !(withLyrics && lyrics.trim())}
+      <p class="tip">
+        {model.name} usually ends an instrumental at about {Math.round(caps.ends_by / 30) / 2} minutes, whatever length you set. For a
+        longer bed, use Stable Audio 3 Medium, which makes exactly the length you ask.
+      </p>
+    {/if}
   </div>
 
   <div class="row">

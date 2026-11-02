@@ -120,8 +120,9 @@ dynamics; a caption already written as `Global Metadata:` / `Vocal Details:` /
 Give them a few descriptive tags; `--bpm` becomes part of the description. They
 take `format`, `trim_end`, `steps`, `takes`, `loop` and lyrics as ACE-Step does,
 but cannot start from a recording. YuE2 and MiniMax end a piece when it feels
-finished, so an instrumental can come back shorter than `duration` (MiniMax often
-by a third); Stable Audio makes exactly the length asked. `--loop` (with
+finished: asked for 240 s, an instrumental came back at about 2 minutes from YuE2
+and about 2.5 from MiniMax. Stable Audio makes exactly the length asked, so use it
+for long beds. `--loop` (with
 `--bpm`) cuts whole bars from the first downbeat it hears and blends the seam.
 Songs often end a few seconds early, padded with near-silence; the `trim_end`
 control cuts that tail. Video sound and picture: `video_quality` (`high`, `max`)
