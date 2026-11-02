@@ -771,7 +771,7 @@ def cmd_music(args) -> int:
         }
         for cue in cues
     ]
-    return generate(args, "ace-step", params)
+    return generate(args, args.model, params)
 
 
 def cmd_sfx(args) -> int:
@@ -1062,6 +1062,22 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("music", help="compose music from style tags, or a cue sheet")
     p.add_argument("prompt", nargs="?", help="comma-separated style tags")
+    p.add_argument(
+        "--model",
+        default="ace-step",
+        choices=[
+            "ace-step",
+            "ace-step-xl",
+            "ace-step-xl-sft",
+            "yue2",
+            "minimax-music3",
+            "sa3-medium",
+        ],
+        help=(
+            "ace-step-xl: richer, about twice as slow; ace-step-xl-sft: most detailed, slowest; "
+            "yue2, minimax-music3: songs and instrumentals; sa3-medium: instrumentals only"
+        ),
+    )
     p.add_argument("--file", help="cue sheet: one `id|seconds|bpm|tags` per line")
     p.add_argument("--seconds", type=float, default=30)
     p.add_argument("--bpm", type=int)

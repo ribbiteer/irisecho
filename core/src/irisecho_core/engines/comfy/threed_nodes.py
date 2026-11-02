@@ -277,7 +277,118 @@ class IrisEchoLoudness:
         return ({"waveform": torch.stack(out), "sample_rate": sr},)
 
 
+def _audio_tools():
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "irisecho_audio", Path(__file__).with_name("irisecho_audio.py")
+    )
+    tools = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tools)
+    return tools
+
+
+def _write_wav(path, data, sr: int, bits: int) -> None:
+    """[samples, channels] float audio as 16- or 24-bit PCM WAV (stdlib only)."""
+    import wave
+
+    import numpy as np
+
+    data = np.clip(data, -1.0, 1.0)
+    if bits == 16:
+        raw = (data * 32767.0).round().astype("<i2").tobytes()
+    else:
+        ints = np.ascontiguousarray((data * 8388607.0).round().astype("<i4"))
+        raw = ints.view(np.uint8).reshape(-1, 4)[:, :3].tobytes()
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(data.shape[1])
+        w.setsampwidth(bits // 8)
+        w.setframerate(sr)
+        w.writeframes(raw)
+
+
+def _write_flac(path, data, sr: int) -> None:
+    """FLAC through PyAV, the way ComfyUI's own audio saving writes it."""
+    import av
+    import numpy as np
+
+    layout = "mono" if data.shape[1] == 1 else "stereo"
+    with av.open(str(path), mode="w", format="flac") as out:
+        stream = out.add_stream("flac", rate=sr, layout=layout)
+        frame = av.AudioFrame.from_ndarray(
+            np.ascontiguousarray(data, dtype=np.float32).reshape(1, -1), format="flt", layout=layout
+        )
+        frame.sample_rate = sr
+        frame.pts = 0
+        out.mux(stream.encode(frame))
+        out.mux(stream.encode(None))
+
+
+class IrisEchoSaveMusic:
+    """Music saved the way IrisEcho's music worker saves it: optionally cut into a
+    seamless loop on the bar or trimmed of a near-silent tail, kept from clipping, and
+    written as 16- or 24-bit WAV or FLAC (with IrisEcho's own audio code)."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "audio": ("AUDIO",),
+                "filename_prefix": ("STRING", {"default": "irisecho/music"}),
+                "format": (["wav16", "wav24", "flac"],),
+                "bpm": ("INT", {"default": 0, "min": 0, "max": 400}),
+                "loop": ("BOOLEAN", {"default": False}),
+                "trim_end": ("BOOLEAN", {"default": False}),
+            }
+        }
+
+    RETURN_TYPES = ()
+    FUNCTION = "save"
+    OUTPUT_NODE = True
+    CATEGORY = "irisecho"
+
+    def save(self, audio, filename_prefix, format, bpm, loop, trim_end):
+        from pathlib import Path
+
+        import folder_paths
+        import numpy as np
+
+        tools = _audio_tools()
+        wave, sr = audio["waveform"], int(audio["sample_rate"])
+        folder, name, counter, subfolder, _ = folder_paths.get_save_image_path(
+            filename_prefix, folder_paths.get_output_directory()
+        )
+        ext = "flac" if format == "flac" else "wav"
+        saved = []
+        for i, clip in enumerate(wave):  # [channels, samples]
+            data = clip.detach().cpu().float().numpy().T
+            if loop and bpm:
+                data = tools.loop_cut(data, sr, int(bpm))
+            elif trim_end:
+                data = tools.trim_end(data, sr)
+            peak = float(np.max(np.abs(data))) if data.size else 0.0
+            if peak > 0.99:
+                data = data * (0.99 / peak)
+            file = f"{name}_{counter + i:05}_.{ext}"
+            path = Path(folder) / file
+            if format == "flac":
+                _write_flac(path, data, sr)
+            else:
+                _write_wav(path, data, sr, 16 if format == "wav16" else 24)
+            saved.append(
+                {
+                    "filename": file,
+                    "subfolder": subfolder,
+                    "type": "output",
+                    "seconds": round(len(data) / sr, 2),
+                }
+            )
+        return {"ui": {"audio": saved}}
+
+
 NODE_CLASS_MAPPINGS = {
+    "IrisEchoSaveMusic": IrisEchoSaveMusic,
     "IrisEchoLoudness": IrisEchoLoudness,
     "IrisEchoAlpha": IrisEchoAlpha,
     "IrisEchoMarkArea": IrisEchoMarkArea,

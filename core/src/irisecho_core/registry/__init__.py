@@ -182,6 +182,14 @@ class Registry:
         return self.expand(variant.files) if variant else []
 
 
+def _flat(items: list) -> list[str]:
+    """A variant's file list, with any shared list (an x-files anchor) spliced in."""
+    out: list[str] = []
+    for item in items:
+        out.extend(_flat(item) if isinstance(item, list) else [item])
+    return out
+
+
 def load(path: Path = HERE / "models.yaml", lock_path: Path = HERE / "lock.json") -> Registry:
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     lock = json.loads(lock_path.read_text(encoding="utf-8"))
@@ -231,7 +239,7 @@ def load(path: Path = HERE / "models.yaml", lock_path: Path = HERE / "lock.json"
         variants = tuple(
             Variant(
                 when=v.get("when") or {},
-                files=tuple(v["files"]),
+                files=tuple(_flat(v["files"])),
                 workflow=v.get("workflow", ""),
                 preview=v.get("preview", False),
             )

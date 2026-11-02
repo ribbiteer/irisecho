@@ -95,6 +95,106 @@
   "size": 2776833,
   "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
  },
+ "ACE-Step/acestep-5Hz-lm-4B@0a3ec94b557aea7d508da38b31cfe7341f6ff737:added_tokens.json": {
+  "size": 2217787,
+  "sha256": "db08b66a515fb5d6acca0b3492d25bb44e0deda6241fc1113ac0679d40558c48"
+ },
+ "ACE-Step/acestep-5Hz-lm-4B@0a3ec94b557aea7d508da38b31cfe7341f6ff737:chat_template.jinja": {
+  "size": 4168,
+  "sha256": "a55ee1b1660128b7098723e0abcd92caa0788061051c62d51cbe87d9cf1974d8"
+ },
+ "ACE-Step/acestep-5Hz-lm-4B@0a3ec94b557aea7d508da38b31cfe7341f6ff737:config.json": {
+  "size": 1562,
+  "sha256": "211bb68b2d641360526e4654b524e508f4046c1292016c08555bb877bd686d1b"
+ },
+ "ACE-Step/acestep-5Hz-lm-4B@0a3ec94b557aea7d508da38b31cfe7341f6ff737:merges.txt": {
+  "size": 1671853,
+  "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
+ },
+ "ACE-Step/acestep-5Hz-lm-4B@0a3ec94b557aea7d508da38b31cfe7341f6ff737:model-00001-of-00002.safetensors": {
+  "size": 4999914896,
+  "sha256": "ada9d0d4ff48f112de3f7b82cd4e7d57b4245932657e8b8edc9a5ded6a23b77f"
+ },
+ "ACE-Step/acestep-5Hz-lm-4B@0a3ec94b557aea7d508da38b31cfe7341f6ff737:model-00002-of-00002.safetensors": {
+  "size": 3379239240,
+  "sha256": "6302100c3577e2f1dbf32573e9b5e6e6b1bea7af101b433c2d3d6280faa8ab68"
+ },
+ "ACE-Step/acestep-5Hz-lm-4B@0a3ec94b557aea7d508da38b31cfe7341f6ff737:model.safetensors.index.json": {
+  "size": 32818,
+  "sha256": "8a9ec992fbae144ba9b40521f8763a3419546bd7a8864d80b0c3f1e1e3678fcf"
+ },
+ "ACE-Step/acestep-5Hz-lm-4B@0a3ec94b557aea7d508da38b31cfe7341f6ff737:special_tokens_map.json": {
+  "size": 1824199,
+  "sha256": "76e233bfc357b0b03d7b6e6ba8e799244f358552575a7cdadb78d3d19106b298"
+ },
+ "ACE-Step/acestep-5Hz-lm-4B@0a3ec94b557aea7d508da38b31cfe7341f6ff737:tokenizer.json": {
+  "size": 24321939,
+  "sha256": "35af56c3f5cb3ea2cc578aa28a8937770981d504f183ac5c8c38baf4bbd4af4d"
+ },
+ "ACE-Step/acestep-5Hz-lm-4B@0a3ec94b557aea7d508da38b31cfe7341f6ff737:tokenizer_config.json": {
+  "size": 14072925,
+  "sha256": "6cd70cdd89425971794f5235562edcc608b0629a6c4686ae51a8b8c8b8ba5e95"
+ },
+ "ACE-Step/acestep-5Hz-lm-4B@0a3ec94b557aea7d508da38b31cfe7341f6ff737:vocab.json": {
+  "size": 2776833,
+  "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+ },
+ "ACE-Step/acestep-v15-xl-sft@d06de46b4622f781cf07f4a013a67d591ca52819:config.json": {
+  "size": 2525,
+  "sha256": "174cf8c4afc2c41212546b4dca9afb11e7958f8b1e1a770d7cd009a82d72a6f1"
+ },
+ "ACE-Step/acestep-v15-xl-sft@d06de46b4622f781cf07f4a013a67d591ca52819:model-00001-of-00004.safetensors": {
+  "size": 4986971456,
+  "sha256": "1d304b8a34859cd92c349c71ae6c27d50564844c7f7611d2d32913f67508e5a4"
+ },
+ "ACE-Step/acestep-v15-xl-sft@d06de46b4622f781cf07f4a013a67d591ca52819:model-00002-of-00004.safetensors": {
+  "size": 4986942776,
+  "sha256": "94e33648f514fdd00f473f2d2680af959204b58b15f7ab37246ac16d066aac87"
+ },
+ "ACE-Step/acestep-v15-xl-sft@d06de46b4622f781cf07f4a013a67d591ca52819:model-00003-of-00004.safetensors": {
+  "size": 4986942808,
+  "sha256": "befe558365f53bc6c44f3f7e521cb2dd026927a817c36aa05ad94fcd80a533a9"
+ },
+ "ACE-Step/acestep-v15-xl-sft@d06de46b4622f781cf07f4a013a67d591ca52819:model-00004-of-00004.safetensors": {
+  "size": 4988483464,
+  "sha256": "dfbc77aa26e54d0127892d6e7f3c0868bfc4623aa067867f6595c3b2fb7d31a4"
+ },
+ "ACE-Step/acestep-v15-xl-sft@d06de46b4622f781cf07f4a013a67d591ca52819:model.safetensors.index.json": {
+  "size": 71471,
+  "sha256": "0a0c7e153a7bb6f6061b155739e9502cf83977bb959186d4df688595302a9474"
+ },
+ "ACE-Step/acestep-v15-xl-sft@d06de46b4622f781cf07f4a013a67d591ca52819:silence_latent.pt": {
+  "size": 3841215,
+  "sha256": "a778e9dd942f5e8b2c09c55370782d318834432b03dabbcdf70e6ed49ad6358b"
+ },
+ "ACE-Step/acestep-v15-xl-turbo@d4a0b288b83ebb7e25a8c0b32c573c22e134e8ee:config.json": {
+  "size": 2407,
+  "sha256": "e3665376d46477cbd3e76203cd4e241f11a6a6bb5f88464c49f3c6aae51a918b"
+ },
+ "ACE-Step/acestep-v15-xl-turbo@d4a0b288b83ebb7e25a8c0b32c573c22e134e8ee:model-00001-of-00004.safetensors": {
+  "size": 4986971456,
+  "sha256": "e54a8413c981797312f53d512dec9944023d03f42f0740cbe86f62582cc27bdc"
+ },
+ "ACE-Step/acestep-v15-xl-turbo@d4a0b288b83ebb7e25a8c0b32c573c22e134e8ee:model-00002-of-00004.safetensors": {
+  "size": 4986942776,
+  "sha256": "b45f788b6dc9f15957cfa3d9b403f25f3f64c5211ecaf18dda45b67ea6470664"
+ },
+ "ACE-Step/acestep-v15-xl-turbo@d4a0b288b83ebb7e25a8c0b32c573c22e134e8ee:model-00003-of-00004.safetensors": {
+  "size": 4986942808,
+  "sha256": "a4f6bd572eab79cf5f3e4678796f904c6d6c33680a3e6ed09034d6de7cabea4d"
+ },
+ "ACE-Step/acestep-v15-xl-turbo@d4a0b288b83ebb7e25a8c0b32c573c22e134e8ee:model-00004-of-00004.safetensors": {
+  "size": 4988483464,
+  "sha256": "a868b05493c73808408f58b33a903371bb2846b53c8b19bd7476991bc8837259"
+ },
+ "ACE-Step/acestep-v15-xl-turbo@d4a0b288b83ebb7e25a8c0b32c573c22e134e8ee:model.safetensors.index.json": {
+  "size": 71471,
+  "sha256": "0a0c7e153a7bb6f6061b155739e9502cf83977bb959186d4df688595302a9474"
+ },
+ "ACE-Step/acestep-v15-xl-turbo@d4a0b288b83ebb7e25a8c0b32c573c22e134e8ee:silence_latent.pt": {
+  "size": 3841215,
+  "sha256": "a778e9dd942f5e8b2c09c55370782d318834432b03dabbcdf70e6ed49ad6358b"
+ },
  "AlperKTS/Krea-2-SVDQuant-ComfyUI@54c7da132d95ae2031fbb051c7528f5f77da0e50:checkpoints/Krea2-Turbo-W4A4-noLowRank.safetensors": {
   "size": 8057520008,
   "sha256": "f16df7a51f632d0743fb5402d47609ec0572a0fbcda9a4a2bf971f177bde101f"
@@ -130,6 +230,18 @@
  "Comfy-Org/Krea-2@eb1eddd3983a54678545a9b2c178c5853b30f7be:text_encoders/qwen3vl_4b_fp8_scaled.safetensors": {
   "size": 5242467968,
   "sha256": "54bd5144df0bbc25dd6ccadfcb826b521445a1b06ae5a42570bdd2974ca87094"
+ },
+ "Comfy-Org/MiniMax-Music-3@9e364ccd290a401561091fb441ed19cd7de92550:diffusion_models/minimax_music3_dit_fp16.safetensors": {
+  "size": 4914197682,
+  "sha256": "45494a2b6b69af115902ff28eaf54118d19067aa54da01000f3e3efce7ba0e34"
+ },
+ "Comfy-Org/MiniMax-Music-3@9e364ccd290a401561091fb441ed19cd7de92550:text_encoders/minimax_music3_text_encoder_pruned_int8_convrot.safetensors": {
+  "size": 9196611886,
+  "sha256": "010b7416d2336a08c711bc22ee65849c9623069ddb7d89bec011a75699e52014"
+ },
+ "Comfy-Org/MiniMax-Music-3@9e364ccd290a401561091fb441ed19cd7de92550:vae/minimax_music3_dav.safetensors": {
+  "size": 216696128,
+  "sha256": "2a32155b769be01445fcc2a8663b910fc9e1751e18dc1c3ec528064512d9ef0c"
  },
  "Comfy-Org/MoGe@1484985258ba7ef45c314144fcf0e90924ffbf44:geometry_estimation/moge_2_vitl_normal_fp16.safetensors": {
   "size": 661859924,
@@ -219,6 +331,10 @@
   "size": 253815318,
   "sha256": "2fc39d31359a4b0a64f55876d8ff7fa8d780956ae2cb13463b0223e15148976b"
  },
+ "Comfy-Org/YuE2@2f76ca75e6ee094169de899cc7fc99d6887e2196:checkpoints/yue2_3b_bf16.safetensors": {
+  "size": 7799983228,
+  "sha256": "33765adbf9813c9a50318218760b2fd819a319862460a04884607581961c6fee"
+ },
  "Comfy-Org/frame_interpolation@219da3c9d8c357ceaf457fc1d5932c6e861b8dee:frame_interpolation/film_net_fp16.safetensors": {
   "size": 68882302,
   "sha256": "f226e51375dc839d4b40e5c3d63da560dd1ea1c962364ec78f5adf2d05db05c0"
@@ -226,6 +342,14 @@
  "Comfy-Org/sigclip_vision_384@5421dab31229df19801c8e3af446b5a8bc71a3bc:sigclip_vision_patch14_384.safetensors": {
   "size": 856505640,
   "sha256": "1fee501deabac72f0ed17610307d7131e3e9d1e838d0363aa3c2b97a6e03fb33"
+ },
+ "Comfy-Org/stable-audio-3@75aad8836271cb5a5123fb58304fae5d3bb4b0f9:checkpoints/stable_audio_3_medium.safetensors": {
+  "size": 9222116660,
+  "sha256": "48d9c65e290e7bcd5194e0633bfc2424a59ee9683f5c2d58762d997b7d8ce0b5"
+ },
+ "Comfy-Org/stable-audio-3@75aad8836271cb5a5123fb58304fae5d3bb4b0f9:text_encoders/t5gemma_b_b_ul2.safetensors": {
+  "size": 1187264003,
+  "sha256": "1e1eba25be8872edb0d3c6335c6658fd6388e7b14b60da6e454e404cfcd8150e"
  },
  "Comfy-Org/z_image_turbo@6fc90a3b1b653e935a0d175e260736de25b84df5:split_files/diffusion_models/z_image_turbo_bf16.safetensors": {
   "size": 12309866400,

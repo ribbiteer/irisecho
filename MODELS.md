@@ -75,6 +75,11 @@ encoders are counted once per model but downloaded once overall.
 | Model | What it is for | License | Commercial use | Size | Source |
 |---|---|---|---|---|---|
 | ACE-Step 1.5 | Beds, jingles and stingers from a few style tags. Instrumental or with lyrics. | [MIT License](https://opensource.org/license/mit) | Yes | 7.2 GB | [ACE-Step/Ace-Step1.5](https://huggingface.co/ACE-Step/Ace-Step1.5), [ACE-Step/acestep-5Hz-lm-0.6B](https://huggingface.co/ACE-Step/acestep-5Hz-lm-0.6B) |
+| ACE-Step 1.5 XL | Richer, more detailed songs from ACE-Step's 4B renderer and its strongest song planner. About twice as slow. | [MIT License](https://opensource.org/license/mit) | Yes | 27.9 GB | [ACE-Step/Ace-Step1.5](https://huggingface.co/ACE-Step/Ace-Step1.5), [ACE-Step/acestep-5Hz-lm-4B](https://huggingface.co/ACE-Step/acestep-5Hz-lm-4B), [ACE-Step/acestep-v15-xl-turbo](https://huggingface.co/ACE-Step/acestep-v15-xl-turbo) |
+| ACE-Step 1.5 XL SFT | The most detailed ACE-Step, refining each song in 50 steps with prompt guidance. Several times slower; for finished pieces. | [MIT License](https://opensource.org/license/mit) | Yes | 27.9 GB | [ACE-Step/Ace-Step1.5](https://huggingface.co/ACE-Step/Ace-Step1.5), [ACE-Step/acestep-5Hz-lm-4B](https://huggingface.co/ACE-Step/acestep-5Hz-lm-4B), [ACE-Step/acestep-v15-xl-sft](https://huggingface.co/ACE-Step/acestep-v15-xl-sft) |
+| YuE2 | Full songs with clean, lively mixes; plans a melody and chords first. English and Mandarin. | [Creative Commons Attribution-NonCommercial 4.0](https://creativecommons.org/licenses/by-nc/4.0/) | **No** | 7.3 GB | [Comfy-Org/YuE2](https://huggingface.co/Comfy-Org/YuE2) |
+| MiniMax Music 3 | Songs and instrumentals up to 5 minutes with wide dynamics, from a detailed description. | [MiniMax-Music3 Community License](https://huggingface.co/MiniMaxAI/MiniMax-Music3/blob/main/LICENSE) | Free under $20M annual revenue | 13.3 GB | [Comfy-Org/MiniMax-Music-3](https://huggingface.co/Comfy-Org/MiniMax-Music-3) |
+| Stable Audio 3 Medium | Instrumentals up to 6 minutes in seconds; strong on jazz, orchestral and lo-fi beds. No vocals. | [Stability AI Community License](https://huggingface.co/stabilityai/stable-audio-open-1.0/blob/main/LICENSE.md) | Free under $1M annual revenue | 9.7 GB | [Comfy-Org/stable-audio-3](https://huggingface.co/Comfy-Org/stable-audio-3) |
 
 ## Sound effects
 
@@ -112,6 +117,11 @@ encoders are counted once per model but downloaded once overall.
 - TRELLIS.2 and Pixal3D read pictures with Meta's DINOv3 (the file in
   Comfy-Org/Pixal3D), which is under the DINOv3 License; IrisEcho asks you to
   accept it before downloading.
+- YuE2 is under CC BY-NC 4.0: non-commercial use only, with credit to its authors.
+- MiniMax Music 3 is free for commercial use under $20M a year in revenue, but a
+  commercial product or service using it must show "MiniMax-Music3" in its interface.
+- Stable Audio 3 Medium is downloaded from ComfyUI's own copy (Comfy-Org), so it
+  needs no Hugging Face sign-in; Stability's community license still applies.
 - Qwen-Image 2.1, for pictures and edits, is under the Qwen Research License, for
   research and evaluation only, unlike the Apache-2.0 Qwen-Image and Qwen Edit.
   Anyone passing the model files on must include the license and its notice.

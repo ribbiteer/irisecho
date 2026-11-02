@@ -77,7 +77,7 @@ marks them) must not be used for commercial work.
 | `image PROMPT` | pictures | `--model` (default `z-image-turbo`), `--aspect 1:1\|4:3\|3:4\|16:9\|9:16\|3:2\|2:3`, `--count`, `--seed`; FLUX models also `--from picture.png`, `--denoise`, `--size 1920x1088`; `--guide picture.png` and `--guide-type canny\|depth\|pose\|as_is` with `z-image-control` |
 | `say TEXT` | narration | `--voice` (default `af_heart`), `--speed`, `--file cues.txt` |
 | `clone TEXT --ref clip.wav` | speech in a sampled voice | `--model chatterbox-turbo\|chatterbox`, `--takes`, `--file cues.txt`; the clip is 10 to 15 s of one voice (WAV, MP3, FLAC or OGG; Turbo needs more than 5 s) |
-| `music TAGS` | music | `--seconds`, `--bpm`, `--loop`, `--lyrics` or `--lyrics-file`, `--takes`, `--no-thinking`, `--file cues.txt` |
+| `music TAGS` | music | `--model ace-step\|ace-step-xl\|ace-step-xl-sft\|yue2\|minimax-music3\|sa3-medium`, `--seconds`, `--bpm`, `--loop`, `--lyrics` or `--lyrics-file`, `--takes`, `--no-thinking`, `--file cues.txt` |
 | `sfx PROMPT` | sound effects | `--seconds` (0.5 to 30), `--takes` (default 3), `--raw`, `--file cues.txt`, `--accept-license` |
 | `write DRAFT` | a better prompt, printed on stdout | `--for MODEL`, `--image picture.png` |
 | `3d PICTURE` | a 3D model | `--back picture.png`, `--model auto\|pixal3d\|pixal3d-single\|trellis2`, `--detail standard\|high`, `--faces 500000\|100000\|20000`, `--no-textures`, `--keep-openings`, `--format glb\|stl\|3mf\|obj\|ply`, `--height MM` |
@@ -104,7 +104,24 @@ made from that, so check it when a take ignores part of your tags. The planner
 writes nothing when you set the tempo, key, time signature and duration yourself
 (ACE-Step then skips planning), so those jobs have no `plan`; it never rewrites
 lyrics. Words like "no drums" are a weak way to keep something out: leave the
-instrument unmentioned instead. `--loop` (with
+instrument unmentioned instead. `ace-step-xl` (ACE-Step's 4B renderer and 4B song planner) makes richer, more
+detailed music in about twice the time; `ace-step-xl-sft` refines each song in 50
+steps with prompt guidance (`cfg`) for the most detail, several times slower. Both
+are separate downloads (a 19 GB renderer each, plus an 8 GB planner they share) and run on a 12 GB
+card by keeping only the model at work on it, the others waiting in system memory
+(about 23 GB of it, so 32 GB of RAM); long songs with several takes are made two
+takes at a time.
+
+Three more music models run in the image engine (ComfyUI) and suit instrumentals
+best: `yue2` (non-commercial license; plans a melody-and-chord score first, which
+`--no-thinking` skips; lyrics in English or Mandarin), `minimax-music3` (wide
+dynamics; a caption already written as `Global Metadata:` / `Vocal Details:` /
+`Arrangement:` is used as it is) and `sa3-medium` (instrumentals only, in seconds).
+Give them a few descriptive tags; `--bpm` becomes part of the description. They
+take `format`, `trim_end`, `steps`, `takes`, `loop` and lyrics as ACE-Step does,
+but cannot start from a recording. YuE2 and MiniMax end a piece when it feels
+finished, so an instrumental can come back shorter than `duration` (MiniMax often
+by a third); Stable Audio makes exactly the length asked. `--loop` (with
 `--bpm`) cuts whole bars from the first downbeat it hears and blends the seam.
 Songs often end a few seconds early, padded with near-silence; the `trim_end`
 control cuts that tail. Video sound and picture: `video_quality` (`high`, `max`)
@@ -179,7 +196,7 @@ Job `params` by kind of model:
 | video | `ltx25`, `wan22-t2v`, `wan22-i2v`, `wan22-i2v-1022`, `hunyuan15-i2v`, `wan22-camera` | `prompt`, `aspect`, `seconds` (2 to 5), `size` (`standard`, `large`, or `720p` on a 12 GB card; `hunyuan15-i2v` has no `large`), `smooth`, and a `start` and/or `end` frame: required for the `i2v` models (`hunyuan15-i2v` takes `start` only), optional for `ltx25`; `wan22-camera` needs `start` and takes `camera` (`static`, `pan_up`, `pan_down`, `pan_left`, `pan_right`, `zoom_in`, `zoom_out`, `clockwise`, `anticlockwise`) |
 | voice | `kokoro` | `text`, `voice`, `speed`, `clean` |
 | clone | `chatterbox-turbo`, `chatterbox` | `text`, `ref`, `consent` (must be `true`), `takes`, `seed`, `clean` (false keeps the model's own output); `exaggeration` and `cfg` on `chatterbox` |
-| music | `ace-step` | `prompt` (style tags), `duration`, `bpm`, `lyrics`, `takes`, `loop`, `thinking` (default `true`), `seed`; from a recording: `source` (an upload id of a WAV, MP3, FLAC or OGG) and `task` `cover`, `repaint` (with `region` `[start_s, end_s]`) or `extend` (with `extend_by` seconds) |
+| music | `ace-step`, `ace-step-xl`, `ace-step-xl-sft`, `yue2`, `minimax-music3`, `sa3-medium` | `prompt` (style tags), `duration`, `bpm`, `lyrics`, `takes`, `loop`, `thinking` (default `true`), `seed`; from a recording (ACE-Step models only): `source` (an upload id of a WAV, MP3, FLAC or OGG) and `task` `cover`, `repaint` (with `region` `[start_s, end_s]`) or `extend` (with `extend_by` seconds) |
 | sfx | `sa3-sfx` | `prompt`, `duration` (0.5 to 30), `takes`, `trim` (default true; false is the command line's `--raw`), `seed`; `init_audio` (an upload id) for a variation of a sound, plus `region` `[start_s, end_s]` to make only that part again |
 | video-upscale | `seedvr2-video` | `video` (an upload id of an MP4 clip), `short_side` (720 to 1080, default 1080), `seed` |
 | model3d | `trellis2`, `pixal3d`, `pixal3d-single` | `front` (and `back` for `pixal3d`; `pixal3d-single` builds from `front` alone), `detail` (`standard` or `high`), `faces` (500000, 100000 or 20000), `textures` (default true), `openings` (`close` or `keep`), `seed` |
@@ -384,6 +401,40 @@ nothing.
 | `ace-step` | `lm_top_p` | 0 to 1 (with `thinking`) | 0.9 | Planner focus. Lower makes the song planner stick to its most likely choices. Only used while planning is on. |
 | `ace-step` | `cover_strength` | 0 to 1 (with `source`) | 1.0 | How closely to follow the recording. Only for a cover. 1 keeps the recording's tune and structure; lower, such as 0.2, gives more room for a new style. |
 | `ace-step` | `cover_noise` | 0 to 1 (with `source`) | 0.0 | Keep the melody. Only for a cover. 0 starts from nothing but your style tags; raise it a little (0.1 to 0.25) to bring the recording's melody back. Higher keeps the tune but resists a change of style. |
+| `ace-step-xl` | `key` | none, C major, C minor, C# major, C# minor, D major, D minor, D# major, D# minor, E major, E minor, F major, F minor, F# major, F# minor, G major, G minor, G# major, G# minor, A major, A minor, A# major, A# minor, B major, B minor | none | Key. The musical key. Any lets the song planner choose. Useful when the music must fit with other tracks. |
+| `ace-step-xl` | `time_signature` | none, 2, 3, 4, 6 | none | Time signature. The beat pattern: 4/4 for most pop and dance, 3/4 for waltzes, 6/8 for a rolling feel. Any lets the song planner choose. |
+| `ace-step-xl` | `vocal_language` | unknown, en, zh, ja, ko, es, fr, de, it, pt, ru (with `lyrics`) | unknown | Language of the lyrics. Set it when the singing comes out in the wrong language; otherwise the language is detected from the lyrics. |
+| `ace-step-xl` | `raw` | bool | false | Raw output. Skips ACE-Step's final level-setting (it raises or lowers each song to peak at -1 dB). Loops are still cut as asked, and a song that would clip is turned down just enough. |
+| `ace-step-xl` | `format` | wav16, wav24, flac | wav16 | File format. 16-bit WAV is the usual. 24-bit WAV keeps more detail for editing; FLAC is lossless and about half the size. |
+| `ace-step-xl` | `trim_end` | bool | false | Trim the silent ending. ACE-Step often finishes a song a few seconds early and fills the rest with near-silence. This cuts that tail, keeping half a second with a short fade. Loops keep their exact length. |
+| `ace-step-xl` | `steps` | 1 to 20 | 8 | Steps. More is slower. This model is tuned for 8; fewer is a quick draft. |
+| `ace-step-xl` | `shift` | 1 to 5 | 3.0 | Shift. How the steps are spread from noise to finished music. This model is tuned for 3. |
+| `ace-step-xl` | `lm_temperature` | 0 to 2 (with `thinking`) | 0.85 | Planner variety. How adventurous the song planner is. Lower plans more predictably, higher more surprisingly. Only used while planning is on. |
+| `ace-step-xl` | `lm_top_p` | 0 to 1 (with `thinking`) | 0.9 | Planner focus. Lower makes the song planner stick to its most likely choices. Only used while planning is on. |
+| `ace-step-xl` | `cover_strength` | 0 to 1 (with `source`) | 1.0 | How closely to follow the recording. Only for a cover. 1 keeps the recording's tune and structure; lower, such as 0.2, gives more room for a new style. |
+| `ace-step-xl` | `cover_noise` | 0 to 1 (with `source`) | 0.0 | Keep the melody. Only for a cover. 0 starts from nothing but your style tags; raise it a little (0.1 to 0.25) to bring the recording's melody back. Higher keeps the tune but resists a change of style. |
+| `ace-step-xl-sft` | `key` | none, C major, C minor, C# major, C# minor, D major, D minor, D# major, D# minor, E major, E minor, F major, F minor, F# major, F# minor, G major, G minor, G# major, G# minor, A major, A minor, A# major, A# minor, B major, B minor | none | Key. The musical key. Any lets the song planner choose. Useful when the music must fit with other tracks. |
+| `ace-step-xl-sft` | `time_signature` | none, 2, 3, 4, 6 | none | Time signature. The beat pattern: 4/4 for most pop and dance, 3/4 for waltzes, 6/8 for a rolling feel. Any lets the song planner choose. |
+| `ace-step-xl-sft` | `vocal_language` | unknown, en, zh, ja, ko, es, fr, de, it, pt, ru (with `lyrics`) | unknown | Language of the lyrics. Set it when the singing comes out in the wrong language; otherwise the language is detected from the lyrics. |
+| `ace-step-xl-sft` | `raw` | bool | false | Raw output. Skips ACE-Step's final level-setting (it raises or lowers each song to peak at -1 dB). Loops are still cut as asked, and a song that would clip is turned down just enough. |
+| `ace-step-xl-sft` | `format` | wav16, wav24, flac | wav16 | File format. 16-bit WAV is the usual. 24-bit WAV keeps more detail for editing; FLAC is lossless and about half the size. |
+| `ace-step-xl-sft` | `trim_end` | bool | false | Trim the silent ending. ACE-Step often finishes a song a few seconds early and fills the rest with near-silence. This cuts that tail, keeping half a second with a short fade. Loops keep their exact length. |
+| `ace-step-xl-sft` | `steps` | 10 to 100 | 50 | Steps. More is slower. This model is tuned for 50; fewer is quicker but rougher. |
+| `ace-step-xl-sft` | `shift` | 1 to 5 | 3.0 | Shift. How the steps are spread from noise to finished music. This model is tuned for 3. |
+| `ace-step-xl-sft` | `cfg` | 1 to 15 | 7.0 | Prompt strength. How closely the music follows your style tags and lyrics. 7 is the model's usual; higher follows more literally but can sound forced. |
+| `ace-step-xl-sft` | `lm_temperature` | 0 to 2 (with `thinking`) | 0.85 | Planner variety. How adventurous the song planner is. Lower plans more predictably, higher more surprisingly. Only used while planning is on. |
+| `ace-step-xl-sft` | `lm_top_p` | 0 to 1 (with `thinking`) | 0.9 | Planner focus. Lower makes the song planner stick to its most likely choices. Only used while planning is on. |
+| `ace-step-xl-sft` | `cover_strength` | 0 to 1 (with `source`) | 1.0 | How closely to follow the recording. Only for a cover. 1 keeps the recording's tune and structure; lower, such as 0.2, gives more room for a new style. |
+| `ace-step-xl-sft` | `cover_noise` | 0 to 1 (with `source`) | 0.0 | Keep the melody. Only for a cover. 0 starts from nothing but your style tags; raise it a little (0.1 to 0.25) to bring the recording's melody back. Higher keeps the tune but resists a change of style. |
+| `yue2` | `format` | wav16, wav24, flac | wav16 | File format. 16-bit WAV is the usual. 24-bit WAV keeps more detail for editing; FLAC is lossless and about half the size. |
+| `yue2` | `trim_end` | bool | false | Trim the silent ending. ACE-Step often finishes a song a few seconds early and fills the rest with near-silence. This cuts that tail, keeping half a second with a short fade. Loops keep their exact length. |
+| `yue2` | `steps` | 8 to 128 | 32 | Steps. More is slower. ComfyUI's YuE2 template uses 32; 64 is a slower, finer pass. |
+| `minimax-music3` | `format` | wav16, wav24, flac | wav16 | File format. 16-bit WAV is the usual. 24-bit WAV keeps more detail for editing; FLAC is lossless and about half the size. |
+| `minimax-music3` | `trim_end` | bool | false | Trim the silent ending. ACE-Step often finishes a song a few seconds early and fills the rest with near-silence. This cuts that tail, keeping half a second with a short fade. Loops keep their exact length. |
+| `minimax-music3` | `steps` | 8 to 60 | 30 | Steps. More is slower. MiniMax's template uses 30. |
+| `sa3-medium` | `format` | wav16, wav24, flac | wav16 | File format. 16-bit WAV is the usual. 24-bit WAV keeps more detail for editing; FLAC is lossless and about half the size. |
+| `sa3-medium` | `trim_end` | bool | false | Trim the silent ending. ACE-Step often finishes a song a few seconds early and fills the rest with near-silence. This cuts that tail, keeping half a second with a short fade. Loops keep their exact length. |
+| `sa3-medium` | `steps` | 4 to 50 | 8 | Steps. More is slower. This model is tuned for 8. |
 | `sa3-sfx` | `format` | wav16, wav24, flac | wav16 | File format. 16-bit WAV is the usual. 24-bit WAV keeps more detail for editing; FLAC is lossless and about half the size. |
 | `sa3-sfx` | `steps` | 1 to 100 | 8 | Steps. More is slower, and this model gains little past 8; fewer is quicker but rougher. |
 | `sa3-sfx` | `cfg` | 0 to 25 | 1.0 | Prompt strength. How strictly to follow the description. 1 is what this model is tuned for; raise it (try 3 to 7) to use the Leave out box. |

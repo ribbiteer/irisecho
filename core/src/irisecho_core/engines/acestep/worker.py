@@ -7,7 +7,7 @@ import os
 import random
 
 import numpy as np
-from irisecho_audio import loop_cut, write_audio
+from irisecho_audio import loop_cut, trim_end, write_audio
 from irisecho_worker import Reporter, serve
 
 state: dict = {"dit": None, "llm": None, "key": None, "lm_key": None}
@@ -15,24 +15,40 @@ MAX_SECONDS = 600.0  # the longest ACE-Step makes (inference.py duration range 1
 
 
 def load(params: dict, report: Reporter) -> dict:
+    """Load the renderer (DiT) and, when planning, the song planner (5 Hz LM).
+
+    `offload` (the XL models) keeps only the model at work on the card: ACE-Step's
+    offload_to_cpu + offload_dit_to_cpu for the renderer, its text encoder and VAE,
+    and the planner's own offload_to_cpu. Without it (ACE-Step 1.5) everything stays
+    on the card, as before.
+    """
     os.environ["ACESTEP_CHECKPOINTS_DIR"] = params["checkpoints"]
-    key = (params["checkpoints"], params["device"])
+    dit_name = params.get("dit") or "acestep-v15-turbo"
+    offload = bool(params.get("offload"))
+    key = (params["checkpoints"], params["device"], dit_name, params.get("quantization"), offload)
     if state["key"] != key:
+        # Another ACE-Step model was loaded: free it (and its planner) first, or the
+        # two would not fit on the card together.
+        release()
         report.progress(None, "Loading ACE-Step")
         from acestep.handler import AceStepHandler
 
         dit = AceStepHandler()
         message, ok = dit.initialize_service(
             project_root=params["project"],
-            config_path="acestep-v15-turbo",
+            config_path=dit_name,
             device=params["device"],
+            offload_to_cpu=offload,
+            offload_dit_to_cpu=offload,
+            quantization=params.get("quantization"),
         )
         if not ok:
             raise RuntimeError(f"ACE-Step could not start: {message}")
         state.update(dit=dit, key=key)
 
-    lm_key = (params["lm_root"], params["lm"], params["device"])
+    lm_key = (params["lm_root"], params["lm"], params["device"], offload)
     if params.get("thinking") and state["lm_key"] != lm_key:
+        release_planner()
         report.progress(None, "Loading the song planner")
         from acestep.llm_inference import LLMHandler
 
@@ -42,11 +58,44 @@ def load(params: dict, report: Reporter) -> dict:
             lm_model_path=params["lm"],
             backend="pt",
             device=params["device"],
+            offload_to_cpu=offload,
         )
         if not ok:
             raise RuntimeError(f"The song planner could not start: {message}")
         state.update(llm=llm, lm_key=lm_key)
     return {}
+
+
+def release_planner() -> None:
+    llm = state["llm"]
+    state.update(llm=None, lm_key=None)
+    if llm is not None:
+        try:
+            llm.unload()
+        except Exception:
+            pass
+        del llm
+        _empty_cache()
+
+
+def release() -> None:
+    release_planner()
+    if state["dit"] is not None:
+        state.update(dit=None, key=None)
+        _empty_cache()
+
+
+def _empty_cache() -> None:
+    import gc
+
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
 
 
 def source_task(params: dict) -> dict:
@@ -117,6 +166,12 @@ def compose(params: dict, report: Reporter) -> dict:
             extra[theirs] = params[ours]
     if params.get("raw"):
         extra["enable_normalization"] = False  # skip the -1 dBFS peak normalisation
+    if params.get("cfg") is not None:
+        extra["guidance_scale"] = float(params["cfg"])
+    if params.get("sft"):
+        # DCW is tuned for turbo; on SFT/base it garbles the audio, and ACE-Step's app
+        # turns it off for them (upstream later made that its library default too).
+        extra["dcw_enabled"] = False
     extra.update(source_task(params))
 
     gen = GenerationParams(
@@ -140,9 +195,10 @@ def compose(params: dict, report: Reporter) -> dict:
     # the rest in further passes gives every take; each pass also plans its own songs.
     takes: list[dict] = []
     first_plan: dict = {}
+    seconds = made_seconds(params) if params.get("pass_seconds") else params["duration"]
     while len(takes) < len(outs):
         done = len(takes)
-        batch = pass_size(state["dit"], len(outs) - done, params["duration"])
+        batch = pass_size(state["dit"], len(outs) - done, seconds, params.get("pass_seconds"))
         config = GenerationConfig(
             batch_size=batch,
             use_random_seed=False,
@@ -201,8 +257,29 @@ def compose(params: dict, report: Reporter) -> dict:
     return {"takes": takes, "plan": first_plan}
 
 
-def pass_size(dit, wanted: int, duration) -> int:
-    """How many takes ACE-Step will make in one go (its VRAM guard's answer, at least 1)."""
+def made_seconds(params: dict) -> float:
+    """How long each take will be: the recording's length for cover and repaint, plus
+    the added part for extend; otherwise the duration asked for."""
+    if params.get("task") and params.get("source"):
+        try:
+            import soundfile as sf
+
+            length = float(sf.info(params["source"]).duration)
+            return length + float(params.get("extend_by") or 0)
+        except Exception:
+            pass
+    return float(params["duration"])
+
+
+def pass_size(dit, wanted: int, duration, pass_seconds=None) -> int:
+    """How many takes ACE-Step will make in one go (its VRAM guard's answer, at least 1).
+
+    With CPU offload on (the XL models) the guard does not check free memory for up to
+    its tier's batch limit (memory_utils.py), so a model can also set `pass_seconds`:
+    the most music one pass may hold (two 4-minute takes, as measured on 12 GB).
+    """
+    if pass_seconds and duration:
+        wanted = min(wanted, max(1, int(float(pass_seconds) // float(duration))))
     guard = getattr(dit, "_vram_guard_reduce_batch", None)
     if guard is None or wanted <= 1:
         return max(1, wanted)
@@ -229,28 +306,6 @@ def planned(result) -> dict:
         value = meta.get(key)
         if isinstance(value, (str, int, float)) and str(value).strip() not in ("", "N/A", "None"):
             out[key] = value
-    return out
-
-
-def trim_end(audio: np.ndarray, sr: int, floor_db: float = -45.0) -> np.ndarray:
-    """Cut a near-silent tail (ACE-Step often finishes a song several seconds early and
-    pads the rest quietly), keeping half a second of it with a short fade."""
-    window = max(1, int(sr * 0.05))
-    mono = audio.mean(axis=1) if audio.ndim > 1 else audio
-    frames = len(mono) // window
-    if not frames:
-        return audio
-    rms = np.sqrt((mono[: frames * window].reshape(frames, window) ** 2).mean(axis=1))
-    loud = np.nonzero(rms > 10 ** (floor_db / 20))[0]
-    if not loud.size:
-        return audio
-    end = min(len(audio), (int(loud[-1]) + 1) * window + int(sr * 0.5))
-    if end >= len(audio) - sr:  # less than a second to gain: leave it as made
-        return audio
-    out = audio[:end].copy()
-    fade = min(len(out), int(sr * 0.3))
-    ramp = np.linspace(1.0, 0.0, fade, dtype=out.dtype)
-    out[-fade:] *= ramp[:, None] if out.ndim > 1 else ramp
     return out
 
 

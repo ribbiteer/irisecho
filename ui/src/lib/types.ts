@@ -65,6 +65,8 @@ export interface Model {
     model3d?: Model3dOptions;
     /** Edit models (registry settings.edit): pictures in all, and marked areas (0: whole picture only). */
     edit?: { pictures: number; areas: number };
+    /** Music models in ComfyUI (registry settings.music); ACE-Step models have none and take everything. */
+    music?: MusicOptions;
     [key: string]: unknown;
   };
 }
@@ -97,6 +99,14 @@ export interface Control {
 }
 
 export type VideoSize = "standard" | "large" | "720p";
+
+/** What a music model takes (registry settings.music). */
+export interface MusicOptions {
+  lyrics: boolean;
+  planner: boolean;
+  source: boolean;
+  loop: boolean;
+}
 
 /** What a video model takes and makes (registry settings.video). */
 export interface VideoOptions {

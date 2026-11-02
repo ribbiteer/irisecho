@@ -35,10 +35,10 @@ guidance, your own LoRAs, presets and side-by-side comparisons.
 | **3D** | A picture or a description becomes a model to view, print or export (GLB, STL, 3MF, OBJ, PLY) | Pixal3D\* (one picture or front and back), TRELLIS.2\* |
 | **Voice** | Narration in 28 preset voices or a blend of them, a whole script at once | Kokoro |
 | **Clone** | A voice you have the right to use, from a 5-15 s sample, with performed laughs and sighs | Chatterbox, Chatterbox Turbo |
-| **Music** | Beds, jingles and stingers from a few tags; seamless loops on the bar; cover, repaint or extend a recording | ACE-Step 1.5 |
+| **Music** | Beds, jingles and full songs from a few tags; seamless loops on the bar; cover, repaint or extend a recording | ACE-Step 1.5 (also XL and XL SFT), YuE2\*, MiniMax Music 3\*, Stable Audio 3 Medium\* |
 | **Sound** | One-shot effects: foley, UI sounds, impacts, ambience; variations of a sound you have | Stable Audio 3 SFX\* |
 
-<sub>\* Opt-in: non-commercial (FLUX.1 dev family; Qwen-Image 2.1, research and evaluation only), free for commercial use only under $1M a year (Krea 2) or $10M a year (LTX-2.5), not licensed in the EU, UK or South Korea (HunyuanVideo 1.5), gated (Stable Audio and LTX-2.5: accept the publisher's terms on Hugging Face and add a read token), under Meta's DINOv3 License, accepted in the app (Pixal3D, not offered in the EU, and TRELLIS.2), or with a pose reader built on Stable Diffusion 2 and its use restrictions, accepted in the app (Z-Image with a guide picture). IrisEcho shows each license and walks you through it.</sub>
+<sub>\* Opt-in: non-commercial (FLUX.1 dev family; YuE2; Qwen-Image 2.1, research and evaluation only), free for commercial use only under $1M a year (Krea 2, Stable Audio 3), $10M a year (LTX-2.5) or $20M a year (MiniMax Music 3, which also asks commercial products to name it), not licensed in the EU, UK or South Korea (HunyuanVideo 1.5), gated (Stable Audio 3 SFX and LTX-2.5: accept the publisher's terms on Hugging Face and add a read token), under Meta's DINOv3 License, accepted in the app (Pixal3D, not offered in the EU, and TRELLIS.2), or with a pose reader built on Stable Diffusion 2 and its use restrictions, accepted in the app (Z-Image with a guide picture). IrisEcho shows each license and walks you through it.</sub>
 
 **Improve** sits under every picture and video prompt: a small local model
 (Qwen3-VL) rewrites a rough idea the way the chosen model likes it, or describes
@@ -245,6 +245,7 @@ irisecho setup kokoro                                        # install and downl
 irisecho say --file lines.txt --voice bm_george --out vo/    # id|text per line
 irisecho clone "Correct! [chuckle] Ten points." --ref host.wav --takes 3
 irisecho music "synthwave, driving, analog synth" --bpm 110 --seconds 30 --loop
+irisecho music "heartland rock, raspy vocal" --model ace-step-xl --seconds 180 --lyrics-file song.txt
 irisecho image "a lighthouse at blue hour" --aspect 16:9 --count 4
 irisecho image "a fox" --model flux-dev --set steps=30 --set guidance=2.5   # advanced controls
 irisecho 3d figurine.png --format stl --height 80             # a printable model

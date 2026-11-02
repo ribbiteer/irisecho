@@ -37,6 +37,8 @@
     ["extend", "Extend", "Carries on after the end of the recording."],
   ];
   const advanced = $derived(!!app.settings?.advanced);
+  // What this model takes; ACE-Step models have no music options and take everything.
+  const caps = $derived(model.options?.music ?? { lyrics: true, planner: true, source: true, loop: true });
   let source = $state<{ id: string; name: string } | null>(null);
   let task = $state<Task>("cover");
   let regionStart = $state(0);
@@ -84,10 +86,10 @@
 
   // What a control's `needs` may refer to: the language only matters with lyrics, the planner knobs with planning.
   // The recording's own controls (how closely a cover follows it) only apply to a cover.
-  const fromSource = $derived(advanced && !!source);
+  const fromSource = $derived(advanced && caps.source && !!source);
   const context = $derived({
-    lyrics: withLyrics ? lyrics.trim() : "",
-    thinking: thinking && !fromSource, // the planner is skipped when starting from a recording
+    lyrics: caps.lyrics && withLyrics ? lyrics.trim() : "",
+    thinking: caps.planner && thinking && !fromSource, // the planner is skipped when starting from a recording
     source: fromSource && task === "cover" ? source!.id : "",
   });
   const sourceProblem = $derived(
@@ -118,10 +120,10 @@
       prompt: prompt.trim(),
       duration,
       bpm: setBpm ? bpm : null,
-      lyrics: withLyrics ? lyrics : "",
+      lyrics: caps.lyrics && withLyrics ? lyrics : "",
       takes,
-      thinking,
-      loop: loop && setBpm,
+      thinking: caps.planner ? thinking : false,
+      loop: caps.loop && loop && setBpm,
       ...(fixedSeed ? { seed: Number(seed) } : {}),
       ...controlParams(model, context),
     });
@@ -156,7 +158,7 @@
     {/each}
   </div>
 
-  {#if advanced}
+  {#if advanced && caps.source}
     <div class="field source">
       <span class="label">Start from a recording</span>
       <SourceAudio
@@ -217,6 +219,7 @@
     </div>
   </div>
 
+  {#if caps.lyrics}
   <label class="toggle">
     <button class="switch" role="switch" aria-checked={withLyrics} aria-label="Add lyrics" onclick={() => (withLyrics = !withLyrics)}></button>
     <span>
@@ -233,7 +236,11 @@
       placeholder={"[verse]\nNeon on the water\nWe drive until the dawn\n\n[chorus]\nHold on, hold on"}
     ></textarea>
   {/if}
+  {:else}
+    <p class="tip">This model makes instrumentals only.</p>
+  {/if}
 
+  {#if caps.loop}
   <label class="toggle">
     <button class="switch" role="switch" aria-checked={loop} aria-label="Make it loop" disabled={!setBpm} onclick={() => (loop = !loop)}></button>
     <span>
@@ -242,13 +249,17 @@
     </span>
   </label>
 
+  {/if}
+
+  {#if caps.planner}
   <label class="toggle">
     <button class="switch" role="switch" aria-checked={thinking} aria-label="Plan the structure first" onclick={() => (thinking = !thinking)}></button>
     <span>
       <strong>Plan the structure first</strong>
-      <small>Plans tempo, key and form before composing, as ACE-Step does by default. Turn off for faster drafts.</small>
+      <small>Plans the song before composing, as the model does by default. Turn off for faster drafts.</small>
     </span>
   </label>
+  {/if}
 
   <div class="field">
     <SeedField bind:fixed={fixedSeed} bind:seed />

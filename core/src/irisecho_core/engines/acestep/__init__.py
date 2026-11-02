@@ -19,6 +19,7 @@ from irisecho_core.engines.base import RunContext
 from irisecho_core.engines.worker import WorkerEngine
 
 SOURCE = ("ACE-Step/ACE-Step-1.5", "6d467e4b5081ccb0abf1ec1bf4fdf9051a2d34b0")
+DIT = "acestep-v15-turbo"
 LM = "acestep-5Hz-lm-0.6B"
 MAX_TAKES = 4
 
@@ -74,6 +75,14 @@ def compose_options(model, p: dict) -> dict:
         out["raw"] = True
     if p.get("trim_end"):
         out["trim_end"] = True
+    if p.get("cfg") is not None and model.control("cfg") is not None:
+        out["cfg"] = _bounded(model, "cfg", p["cfg"])
+    if model.settings.get("sft"):
+        # SFT is tuned for 50 steps with guidance; ACE-Step's own defaults (8 steps,
+        # DCW on) are for turbo, so its app sets these for SFT, and so do we.
+        out.setdefault("steps", int(model.control("steps").default))
+        out.setdefault("cfg", float(model.control("cfg").default))
+        out["sft"] = True
     return out
 
 
@@ -137,7 +146,13 @@ class AceStepEngine(WorkerEngine):
         return f"{super().install_key()}:{SOURCE[1][:12]}"
 
     def worker_env(self) -> dict[str, str]:
-        return {"PYTHONPATH": str(self.src), "TOKENIZERS_PARALLELISM": "false"}
+        return {
+            "PYTHONPATH": str(self.src),
+            "TOKENIZERS_PARALLELISM": "false",
+            # ACE-Step gives up on one rendering pass after 600 s; a long song on the
+            # XL SFT renderer can legitimately take longer on a 12 GB card.
+            "ACESTEP_GENERATION_TIMEOUT": "1800",
+        }
 
     async def install(self, log) -> None:
         self.home.mkdir(parents=True, exist_ok=True)
@@ -187,7 +202,13 @@ class AceStepEngine(WorkerEngine):
         if source:
             thinking = False
         root = group_root(ctx, "ace-step-core")
-        lm_root = group_root(ctx, "ace-step-lm")
+        settings = ctx.model.settings
+        lm_root = group_root(ctx, settings.get("lm_files", "ace-step-lm"))
+        if settings.get("dit_files") and group_root(ctx, settings["dit_files"]) != root:
+            raise RuntimeError(
+                f"The files for {ctx.model.name} are split between folders. Remove the model on "
+                "the Models page and set it up again to download a complete copy."
+            )
         await self.call(
             ctx,
             "load",
@@ -195,7 +216,10 @@ class AceStepEngine(WorkerEngine):
                 "checkpoints": str(root),
                 "project": str(self.src),
                 "device": self.device(),
-                "lm": LM,
+                "dit": settings.get("dit", DIT),
+                "quantization": settings.get("quantization"),
+                "offload": bool(settings.get("offload")),
+                "lm": settings.get("lm", LM),
                 "lm_root": str(lm_root),
                 "thinking": thinking,
             },
@@ -212,6 +236,7 @@ class AceStepEngine(WorkerEngine):
             "loop": bool(p.get("loop")) and bool(p.get("bpm")),
             "outs": outs,
             **fmt,
+            **({"pass_seconds": settings["pass_seconds"]} if settings.get("pass_seconds") else {}),
             **compose_options(ctx.model, p),
             **source,
         }

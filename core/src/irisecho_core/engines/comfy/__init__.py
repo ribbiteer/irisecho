@@ -585,6 +585,8 @@ class ComfyEngine(Engine):
                 params=params,
             )
 
+        if workflow in graphs.MUSIC:
+            return await self._run_music(ctx, build, int(seed), workflow)
         try:
             if workflow == "seedvr2" and "image1" in staged:
                 check_upscale_input(staged["image1"], ctx.params)
@@ -616,6 +618,54 @@ class ComfyEngine(Engine):
                 continue
             outputs.append(self._image_out(dest, int(seed)))
         ctx.params["seed"] = int(seed)
+        return outputs
+
+    async def _run_music(self, ctx: RunContext, build, seed: int, workflow: str) -> list[dict]:
+        """Make each take as its own graph (take 2 uses the seed plus one, as in ACE-Step)."""
+        takes = max(1, min(4, int(ctx.params.get("takes") or 1)))
+        outputs: list[dict] = []
+        await self.ensure_running(ctx.report, ctx.cancelled, workflow in graphs.DYNAMIC_VRAM)
+        self.state = "busy"
+        try:
+            for i in range(takes):
+                graph, save_node = build(ctx.params)
+                for node in graph.values():
+                    if "seed" in node["inputs"]:
+                        node["inputs"]["seed"] = seed + i
+                label = f"take {i + 1} of {takes} · " if takes > 1 else ""
+                plan = {
+                    nid: (
+                        (i + lo) / takes,
+                        (i + hi) / takes,
+                        f"{label}{msg}" + (f" {ctx.model.name}" if msg == "Loading" else ""),
+                    )
+                    for nid, (lo, hi, msg) in graphs.MUSIC_PLAN.items()
+                    if nid in graph
+                }
+                found = await self._execute(ctx, graph, plan)
+                items = (found.get(save_node) or {}).get("audio") or []
+                if not items:
+                    raise RuntimeError(f"{ctx.model.name} finished without any music.")
+                item = items[0]
+                src = (
+                    self.io
+                    / item.get("type", "output")
+                    / item.get("subfolder", "")
+                    / item["filename"]
+                )
+                dest = ctx.output(i, src.suffix.lstrip(".").lower())
+                shutil.move(str(src), dest)
+                outputs.append(
+                    {
+                        "path": str(dest),
+                        "type": "audio",
+                        "duration": item.get("seconds"),
+                        "seed": seed + i,
+                    }
+                )
+        finally:
+            self.state = "ready" if self.alive else "idle"
+        ctx.params["seed"] = seed
         return outputs
 
     def _check_loras(self, ctx: RunContext) -> None:

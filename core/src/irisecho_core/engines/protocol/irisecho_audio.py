@@ -279,6 +279,28 @@ def loop_cut(audio: np.ndarray, sr: int, bpm: int, xfade: float = 0.05) -> np.nd
     return body
 
 
+def trim_end(audio: np.ndarray, sr: int, floor_db: float = -45.0) -> np.ndarray:
+    """Cut a near-silent tail (music models often finish a song several seconds early
+    and pad the rest quietly), keeping half a second of it with a short fade."""
+    window = max(1, int(sr * 0.05))
+    mono = audio.mean(axis=1) if audio.ndim > 1 else audio
+    frames = len(mono) // window
+    if not frames:
+        return audio
+    rms = np.sqrt((mono[: frames * window].reshape(frames, window) ** 2).mean(axis=1))
+    loud = np.nonzero(rms > 10 ** (floor_db / 20))[0]
+    if not loud.size:
+        return audio
+    end = min(len(audio), (int(loud[-1]) + 1) * window + int(sr * 0.5))
+    if end >= len(audio) - sr:  # less than a second to gain: leave it as made
+        return audio
+    out = audio[:end].copy()
+    fade = min(len(out), int(sr * 0.3))
+    ramp = np.linspace(1.0, 0.0, fade, dtype=out.dtype)
+    out[-fade:] *= ramp[:, None] if out.ndim > 1 else ramp
+    return out
+
+
 def text_chunks(text: str, limit: int = 300) -> list[str]:
     """Split text into pieces of whole sentences, each at most about `limit` characters.
 

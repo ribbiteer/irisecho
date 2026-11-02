@@ -20,6 +20,12 @@ repos:
   Comfy-Org/Qwen-Image_ComfyUI: 1f12b17be14c89b026c51a91d67c32f84bb047bc
   ACE-Step/Ace-Step1.5: 19671f406d603126926c1b7e2adc169acbcade22
   ACE-Step/acestep-5Hz-lm-0.6B: 148d8ea0225bdab342ee1ae3a354275ccd60ca80
+  ACE-Step/acestep-5Hz-lm-4B: 0a3ec94b557aea7d508da38b31cfe7341f6ff737
+  ACE-Step/acestep-v15-xl-turbo: d4a0b288b83ebb7e25a8c0b32c573c22e134e8ee
+  ACE-Step/acestep-v15-xl-sft: d06de46b4622f781cf07f4a013a67d591ca52819
+  Comfy-Org/YuE2: 2f76ca75e6ee094169de899cc7fc99d6887e2196
+  Comfy-Org/MiniMax-Music-3: 9e364ccd290a401561091fb441ed19cd7de92550
+  Comfy-Org/stable-audio-3: 75aad8836271cb5a5123fb58304fae5d3bb4b0f9
   stabilityai/stable-audio-3-small-sfx: ae12755283df9d62ca39a9b050a39a0b607b8c20
   ResembleAI/chatterbox: 5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18
   ResembleAI/chatterbox-turbo: 749d1c1a46eb10492095d68fbcf55691ccf137cd
@@ -86,6 +92,37 @@ licenses:
       companies earning under $1M a year. Its text encoder is also covered by
       Google's Gemma Terms of Use. Stability asks you to accept the terms on
       Hugging Face before downloading.
+  cc-by-nc-4.0:
+    name: Creative Commons Attribution-NonCommercial 4.0
+    url: https://creativecommons.org/licenses/by-nc/4.0/
+    commercial: false
+    accept: true
+    summary: >-
+      Free to use, share and adapt for non-commercial purposes, with credit to
+      the authors. Any commercial use needs separate permission from them.
+  minimax-music3-community:
+    name: MiniMax-Music3 Community License
+    url: https://huggingface.co/MiniMaxAI/MiniMax-Music3/blob/main/LICENSE
+    commercial: true
+    condition: Free under $20M annual revenue
+    accept: true
+    summary: >-
+      Free for personal and commercial use. A commercial product or service
+      that uses it must show "MiniMax-Music3" in its interface, and above $20M
+      a year in revenue needs MiniMax's written permission. Its acceptable use
+      policy applies, including saying clearly when published content is
+      machine-generated and not infringing anyone's rights.
+  stability-community-open:
+    name: Stability AI Community License
+    url: https://huggingface.co/stabilityai/stable-audio-open-1.0/blob/main/LICENSE.md
+    commercial: true
+    condition: Free under $1M annual revenue
+    accept: true
+    summary: >-
+      Free for research, personal use, and commercial use by people and
+      companies earning under $1M a year. Its text encoder is also covered by
+      Google's Gemma Terms of Use. Downloaded from ComfyUI's own copy, so no
+      Hugging Face sign-in is needed.
   krea-2-community:
     name: Krea 2 Community License
     url: https://krea.ai/krea-2-licensing
@@ -247,6 +284,46 @@ files:
       - tokenizer.json
       - tokenizer_config.json
       - vocab.json
+
+  # ACE-Step 1.5 XL: the 4B renderers and the 4B song planner. Each lands in its
+  # own folder next to the ACE-Step files above (the engine reads them as one
+  # checkpoint folder) and shares those files' audio decoder and text encoder.
+  ace-step-lm-4b:
+    repo: ACE-Step/acestep-5Hz-lm-4B
+    category: ace-step/acestep-5Hz-lm-4B
+    keep_dirs: true
+    no_link: true
+    paths:
+      - added_tokens.json
+      - chat_template.jinja
+      - config.json
+      - merges.txt
+      - model-00001-of-00002.safetensors
+      - model-00002-of-00002.safetensors
+      - model.safetensors.index.json
+      - special_tokens_map.json
+      - tokenizer.json
+      - tokenizer_config.json
+      - vocab.json
+  ace-step-xl-turbo:
+    repo: ACE-Step/acestep-v15-xl-turbo
+    category: ace-step/acestep-v15-xl-turbo
+    keep_dirs: true
+    no_link: true
+    paths: &ace-step-xl-paths
+      - config.json
+      - model-00001-of-00004.safetensors
+      - model-00002-of-00004.safetensors
+      - model-00003-of-00004.safetensors
+      - model-00004-of-00004.safetensors
+      - model.safetensors.index.json
+      - silence_latent.pt
+  ace-step-xl-sft:
+    repo: ACE-Step/acestep-v15-xl-sft
+    category: ace-step/acestep-v15-xl-sft
+    keep_dirs: true
+    no_link: true
+    paths: *ace-step-xl-paths
 
   # Stable Audio 3 Small-SFX (sound effects). Gated: needs a Hugging Face token.
   sa3-sfx:
@@ -609,10 +686,51 @@ files:
     repo: Lightricks/LTX-2.5
     path: latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors
     category: latent_upscale_models
+  # Music models that run in ComfyUI (native nodes in our pinned ComfyUI).
+  yue2-3b:
+    repo: Comfy-Org/YuE2
+    path: checkpoints/yue2_3b_bf16.safetensors
+    category: checkpoints
+  mm3-dit:
+    repo: Comfy-Org/MiniMax-Music-3
+    path: diffusion_models/minimax_music3_dit_fp16.safetensors
+    category: diffusion_models
+  mm3-text-encoder:
+    repo: Comfy-Org/MiniMax-Music-3
+    path: text_encoders/minimax_music3_text_encoder_pruned_int8_convrot.safetensors
+    category: text_encoders
+  mm3-vae:
+    repo: Comfy-Org/MiniMax-Music-3
+    path: vae/minimax_music3_dav.safetensors
+    category: vae
+  sa3-medium:
+    repo: Comfy-Org/stable-audio-3
+    path: checkpoints/stable_audio_3_medium.safetensors
+    category: checkpoints
+  sa3-t5gemma:
+    repo: Comfy-Org/stable-audio-3
+    path: text_encoders/t5gemma_b_b_ul2.safetensors
+    category: text_encoders
   film:
     repo: Comfy-Org/frame_interpolation
     path: frame_interpolation/film_net_fp16.safetensors
     category: frame_interpolation
+
+# Files that several models use, by id (a model's `files` may list one of these lists).
+x-files:
+  ace-step-shared: &ace-step-shared
+    - ace-step-core/config.json
+    - ace-step-core/vae/config.json
+    - ace-step-core/vae/diffusion_pytorch_model.safetensors
+    - ace-step-core/Qwen3-Embedding-0.6B/added_tokens.json
+    - ace-step-core/Qwen3-Embedding-0.6B/chat_template.jinja
+    - ace-step-core/Qwen3-Embedding-0.6B/config.json
+    - ace-step-core/Qwen3-Embedding-0.6B/merges.txt
+    - ace-step-core/Qwen3-Embedding-0.6B/model.safetensors
+    - ace-step-core/Qwen3-Embedding-0.6B/special_tokens_map.json
+    - ace-step-core/Qwen3-Embedding-0.6B/tokenizer.json
+    - ace-step-core/Qwen3-Embedding-0.6B/tokenizer_config.json
+    - ace-step-core/Qwen3-Embedding-0.6B/vocab.json
 
 # Advanced controls shared by several models (anchors; see `controls:` under each model).
 # A control left unset gives the model's recommended behaviour, which is its `default`.
@@ -1104,7 +1222,8 @@ models:
         files: [ace-step-core, ace-step-lm]
         preview: true
     controls:
-      - name: key
+      - &ace-key
+        name: key
         type: choice
         default: ""
         options:
@@ -1135,7 +1254,8 @@ models:
           - {value: B minor, label: B minor}
         label: Key
         help: "The musical key. Any lets the song planner choose. Useful when the music must fit with other tracks."
-      - name: time_signature
+      - &ace-time-signature
+        name: time_signature
         type: choice
         default: ""
         options:
@@ -1146,7 +1266,8 @@ models:
           - {value: "6", label: 6/8}
         label: Time signature
         help: "The beat pattern: 4/4 for most pop and dance, 3/4 for waltzes, 6/8 for a rolling feel. Any lets the song planner choose."
-      - name: vocal_language
+      - &ace-vocal-language
+        name: vocal_language
         type: choice
         default: unknown
         needs: lyrics
@@ -1164,19 +1285,141 @@ models:
           - {value: ru, label: Russian}
         label: Language of the lyrics
         help: "Set it when the singing comes out in the wrong language; otherwise the language is detected from the lyrics."
-      - name: raw
+      - &ace-raw
+        name: raw
         type: bool
         default: false
         label: Raw output
         help: "Skips ACE-Step's final level-setting (it raises or lowers each song to peak at -1 dB). Loops are still cut as asked, and a song that would clip is turned down just enough."
       - *audio-format
-      - {name: trim_end, type: bool, default: false, label: Trim the silent ending, help: "ACE-Step often finishes a song a few seconds early and fills the rest with near-silence. This cuts that tail, keeping half a second with a short fade. Loops keep their exact length."}
-      - {name: steps, type: int, tier: expert, min: 1, max: 20, default: 8, label: Steps, help: "More is slower. This model is tuned for 8; fewer is a quick draft."}
-      - {name: shift, type: float, tier: expert, min: 1, max: 5, step: 0.1, default: 3.0, label: Shift, help: "How the steps are spread from noise to finished music. This model is tuned for 3."}
-      - {name: lm_temperature, type: float, tier: expert, min: 0, max: 2, step: 0.05, default: 0.85, needs: thinking, label: Planner variety, help: "How adventurous the song planner is. Lower plans more predictably, higher more surprisingly. Only used while planning is on."}
-      - {name: lm_top_p, type: float, tier: expert, min: 0, max: 1, step: 0.01, default: 0.9, needs: thinking, label: Planner focus, help: "Lower makes the song planner stick to its most likely choices. Only used while planning is on."}
-      - {name: cover_strength, type: float, tier: advanced, min: 0, max: 1, step: 0.01, default: 1.0, needs: source, label: How closely to follow the recording, help: "Only for a cover. 1 keeps the recording's tune and structure; lower, such as 0.2, gives more room for a new style."}
-      - {name: cover_noise, type: float, tier: expert, min: 0, max: 1, step: 0.01, default: 0.0, needs: source, label: Keep the melody, help: "Only for a cover. 0 starts from nothing but your style tags; raise it a little (0.1 to 0.25) to bring the recording's melody back. Higher keeps the tune but resists a change of style."}
+      - &ace-trim-end {name: trim_end, type: bool, default: false, label: Trim the silent ending, help: "ACE-Step often finishes a song a few seconds early and fills the rest with near-silence. This cuts that tail, keeping half a second with a short fade. Loops keep their exact length."}
+      - &ace-steps {name: steps, type: int, tier: expert, min: 1, max: 20, default: 8, label: Steps, help: "More is slower. This model is tuned for 8; fewer is a quick draft."}
+      - &ace-shift {name: shift, type: float, tier: expert, min: 1, max: 5, step: 0.1, default: 3.0, label: Shift, help: "How the steps are spread from noise to finished music. This model is tuned for 3."}
+      - &ace-lm-temperature {name: lm_temperature, type: float, tier: expert, min: 0, max: 2, step: 0.05, default: 0.85, needs: thinking, label: Planner variety, help: "How adventurous the song planner is. Lower plans more predictably, higher more surprisingly. Only used while planning is on."}
+      - &ace-lm-top-p {name: lm_top_p, type: float, tier: expert, min: 0, max: 1, step: 0.01, default: 0.9, needs: thinking, label: Planner focus, help: "Lower makes the song planner stick to its most likely choices. Only used while planning is on."}
+      - &ace-cover-strength {name: cover_strength, type: float, tier: advanced, min: 0, max: 1, step: 0.01, default: 1.0, needs: source, label: How closely to follow the recording, help: "Only for a cover. 1 keeps the recording's tune and structure; lower, such as 0.2, gives more room for a new style."}
+      - &ace-cover-noise {name: cover_noise, type: float, tier: expert, min: 0, max: 1, step: 0.01, default: 0.0, needs: source, label: Keep the melody, help: "Only for a cover. 0 starts from nothing but your style tags; raise it a little (0.1 to 0.25) to bring the recording's melody back. Higher keeps the tune but resists a change of style."}
+
+
+  # Opt-in bigger ACE-Step: the 4B renderer and the 4B planner, made to fit a 12 GB card
+  # by keeping only the one at work on the card (ACE-Step's CPU offload) and the renderer
+  # in int8, as ACE-Step recommends for XL on 12 GB.
+  ace-step-xl:
+    name: ACE-Step 1.5 XL
+    kind: music
+    engine: ace-step
+    license: mit
+    summary: Richer, more detailed songs from ACE-Step's 4B renderer and its strongest song planner. About twice as slow.
+    settings: &ace-step-xl-settings
+      dit: acestep-v15-xl-turbo
+      dit_files: ace-step-xl-turbo
+      lm: acestep-5Hz-lm-4B
+      lm_files: ace-step-lm-4b
+      quantization: int8_weight_only
+      offload: true
+      pass_seconds: 480
+    variants:
+      - when: {backend: cuda}
+        files: [*ace-step-shared, ace-step-xl-turbo, ace-step-lm-4b]
+    controls:
+      - *ace-key
+      - *ace-time-signature
+      - *ace-vocal-language
+      - *ace-raw
+      - *audio-format
+      - *ace-trim-end
+      - *ace-steps
+      - *ace-shift
+      - *ace-lm-temperature
+      - *ace-lm-top-p
+      - *ace-cover-strength
+      - *ace-cover-noise
+
+  # The same with the SFT renderer: 50 steps with prompt guidance (CFG) instead of 8
+  # distilled ones; settings as in ACE-Step's own app for SFT (shift 3, DCW off).
+  ace-step-xl-sft:
+    name: ACE-Step 1.5 XL SFT
+    kind: music
+    engine: ace-step
+    license: mit
+    summary: The most detailed ACE-Step, refining each song in 50 steps with prompt guidance. Several times slower; for finished pieces.
+    settings:
+      <<: *ace-step-xl-settings
+      dit: acestep-v15-xl-sft
+      dit_files: ace-step-xl-sft
+      sft: true
+    variants:
+      - when: {backend: cuda}
+        files: [*ace-step-shared, ace-step-xl-sft, ace-step-lm-4b]
+    controls:
+      - *ace-key
+      - *ace-time-signature
+      - *ace-vocal-language
+      - *ace-raw
+      - *audio-format
+      - *ace-trim-end
+      - {name: steps, type: int, tier: expert, min: 10, max: 100, default: 50, label: Steps, help: "More is slower. This model is tuned for 50; fewer is quicker but rougher."}
+      - *ace-shift
+      - {name: cfg, type: float, tier: expert, min: 1, max: 15, step: 0.5, default: 7.0, label: Prompt strength, help: "How closely the music follows your style tags and lyrics. 7 is the model's usual; higher follows more literally but can sound forced."}
+      - *ace-lm-temperature
+      - *ace-lm-top-p
+      - *ace-cover-strength
+      - *ace-cover-noise
+  # Music in ComfyUI. `music` tells the studio what a model takes; ACE-Step models have
+  # none and keep every option. Instrumentals get section tags sized to the length
+  # (`section_seconds`), as these models follow the tags for structure and length.
+  yue2:
+    name: YuE2
+    kind: music
+    engine: comfy
+    license: cc-by-nc-4.0
+    summary: Full songs with clean, lively mixes; plans a melody and chords first. English and Mandarin.
+    settings:
+      music: {lyrics: true, planner: true, source: false, loop: true}
+      section_seconds: 20
+    variants:
+      - when: {backend: cuda}
+        files: [yue2-3b]
+        workflow: yue2
+    controls:
+      - *audio-format
+      - *ace-trim-end
+      - {name: steps, type: int, tier: expert, min: 8, max: 128, default: 32, label: Steps, help: "More is slower. ComfyUI's YuE2 template uses 32; 64 is a slower, finer pass."}
+
+  minimax-music3:
+    name: MiniMax Music 3
+    kind: music
+    engine: comfy
+    license: minimax-music3-community
+    summary: Songs and instrumentals up to 5 minutes with wide dynamics, from a detailed description.
+    settings:
+      music: {lyrics: true, planner: false, source: false, loop: true}
+      section_seconds: 15
+    variants:
+      - when: {backend: cuda}
+        files: [mm3-dit, mm3-text-encoder, mm3-vae]
+        workflow: minimax-music3
+    controls:
+      - *audio-format
+      - *ace-trim-end
+      - {name: steps, type: int, tier: expert, min: 8, max: 60, default: 30, label: Steps, help: "More is slower. MiniMax's template uses 30."}
+
+  sa3-medium:
+    name: Stable Audio 3 Medium
+    kind: music
+    engine: comfy
+    license: stability-community-open
+    summary: Instrumentals up to 6 minutes in seconds; strong on jazz, orchestral and lo-fi beds. No vocals.
+    settings:
+      music: {lyrics: false, planner: false, source: false, loop: true}
+    variants:
+      - when: {backend: cuda}
+        files: [sa3-medium, sa3-t5gemma]
+        workflow: sa3-music
+    controls:
+      - *audio-format
+      - *ace-trim-end
+      - {name: steps, type: int, tier: expert, min: 4, max: 50, default: 8, label: Steps, help: "More is slower. This model is tuned for 8."}
 
   sa3-sfx:
     name: Stable Audio 3 SFX

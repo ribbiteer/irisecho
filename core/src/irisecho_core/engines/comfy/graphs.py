@@ -2625,6 +2625,254 @@ def views_back(
 # Progress for the 3D graphs: node -> (start, end, message), in the order ComfyUI
 # runs them (the mesh is finished before the texture is sampled). Measured on a
 # 12 GB card at 1024: shape ~40 s, solid remesh ~30-70 s, unwrap ~40 s, texture ~20 s.
+# --- music ---------------------------------------------------------------------------------------
+# YuE2, MiniMax Music 3 and Stable Audio 3 Medium, as in ComfyUI's own templates
+# ("YuE2: Text to Music", "MiniMax Music 3: Text to Music", "Stable Audio 3 Medium").
+# Each take is its own graph with its own seed; IrisEchoSaveMusic writes the file the
+# job asked for (format, loop on the bar, trimmed tail).
+
+MUSIC_SECONDS = (10.0, 300.0)
+INSTRUMENTAL_SECTIONS = ("[Instrumental]", "[Solo]", "[Instrumental]", "[Bridge]")
+
+
+def _music_common(params: dict, settings: dict) -> tuple[float, str, str]:
+    """(seconds, lyrics or section tags, tempo words) for a music job."""
+    if params.get("source") or params.get("task"):
+        raise ValueError("This model cannot start from a recording; use ACE-Step for that.")
+    lo, hi = MUSIC_SECONDS
+    seconds = min(hi, max(lo, float(params.get("duration") or 30)))
+    lyrics = (params.get("lyrics") or "").strip()
+    if not lyrics:
+        # Instrumental: these models take their structure (and MiniMax its length) from
+        # the section tags, so give them about one section per `section_seconds`, varied
+        # the way a piece develops (plain repeated tags made MiniMax end early).
+        n = max(3, round(seconds / float(settings.get("section_seconds", 20))))
+        middle = [INSTRUMENTAL_SECTIONS[i % len(INSTRUMENTAL_SECTIONS)] for i in range(n - 2)]
+        lyrics = "\n\n".join(["[Intro]", *middle, "[Outro]"])
+    bpm = params.get("bpm")
+    tempo = f", {int(bpm)} BPM" if bpm else ""
+    return seconds, lyrics, tempo
+
+
+def _save_music(g: dict, audio, params: dict, prefix: str) -> str:
+    g["save"] = {
+        "class_type": "IrisEchoSaveMusic",
+        "inputs": {
+            "audio": audio,
+            "filename_prefix": prefix,
+            "format": params.get("format") or "wav16",
+            "bpm": int(params.get("bpm") or 0),
+            "loop": bool(params.get("loop")) and bool(params.get("bpm")),
+            "trim_end": bool(params.get("trim_end")),
+        },
+    }
+    return "save"
+
+
+def yue2(*, prompt, seed, names, settings, prefix, params, **_):
+    """YuE2: a melody-and-chord score first (ABC planning, the template's default; off
+    with `thinking: false`), then the song from style, lyrics and score."""
+    seconds, lyrics, tempo = _music_common(params, settings)
+    style = prompt + tempo
+    g: dict = {
+        "ckpt": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": names["yue2-3b"]}},
+        "music": {
+            "class_type": "YuE2GenerateMusic",
+            "inputs": {
+                "clip": ["ckpt", 1],
+                "style": style,
+                "lyrics": lyrics,
+                "abc": "",
+                "seed": seed,
+                "mode": "full",
+                "max_duration": seconds,
+                "temperature": 1.0,
+                "top_p": 0.95,
+                "top_k": 100,
+                "repetition_penalty": 1.2,
+            },
+        },
+        "zero": {"class_type": "ConditioningZeroOut", "inputs": {"conditioning": ["music", 0]}},
+        "latent": {
+            "class_type": "EmptyYuE2LatentAudio",
+            "inputs": {"seconds": ["music", 1], "batch_size": 1},
+        },
+        "sample": {
+            "class_type": "KSampler",
+            "inputs": {
+                "model": ["ckpt", 0],
+                "positive": ["music", 0],
+                "negative": ["zero", 0],
+                "latent_image": ["latent", 0],
+                "seed": seed,
+                "steps": int(_v(params, "steps", 32)),
+                "cfg": 1.0,
+                "sampler_name": "dpm_2",
+                "scheduler": "sgm_uniform",
+                "denoise": 1.0,
+            },
+        },
+        "decode": {
+            "class_type": "VAEDecodeAudio",
+            "inputs": {"samples": ["sample", 0], "vae": ["ckpt", 2]},
+        },
+    }
+    if params.get("thinking") is not False:
+        g["abc"] = {
+            "class_type": "YuE2GenerateABC",
+            "inputs": {
+                "clip": ["ckpt", 1],
+                "style": style,
+                "lyrics": lyrics,
+                "seed": seed,
+                "mode": "full",
+                "max_abc_tokens": 8192,
+                "temperature": 0.7,
+                "top_p": 0.9,
+                "top_k": 30,
+                "repetition_penalty": 1.005,
+                "penalty_window": 100,
+            },
+        }
+        g["music"]["inputs"]["abc"] = ["abc", 0]
+    return g, _save_music(g, ["decode", 0], params, prefix)
+
+
+def minimax_music3(*, prompt, seed, names, settings, prefix, params, **_):
+    """MiniMax Music 3: fp16 DiT with the pruned int8 text encoder and tiled decode, as
+    the template sets it up for small cards. A caption already written in its three
+    sections (Global Metadata, Vocal Details, Arrangement) is passed as it is."""
+    seconds, lyrics, tempo = _music_common(params, settings)
+    if "global metadata" in prompt.lower():
+        caption = prompt
+    else:
+        voice = (
+            "Sung vocals following the lyrics."
+            if params.get("lyrics")
+            else "Instrumental, no vocals at all."
+        )
+        caption = f"Global Metadata: {prompt}{tempo}.\n\nVocal Details: {voice}"
+    g: dict = {
+        "unet": {
+            "class_type": "UNETLoader",
+            "inputs": {"unet_name": names["mm3-dit"], "weight_dtype": "default"},
+        },
+        "clip": {
+            "class_type": "CLIPLoader",
+            "inputs": {
+                "clip_name": names["mm3-text-encoder"],
+                "type": "minimax",
+                "device": "default",
+            },
+        },
+        "vae": {"class_type": "VAELoader", "inputs": {"vae_name": names["mm3-vae"]}},
+        "music": {
+            "class_type": "MiniMaxMusic3TextEncode",
+            "inputs": {
+                "clip": ["clip", 0],
+                "caption": caption,
+                "lyrics": lyrics,
+                "seed": seed,
+                "max_duration": seconds,
+                "cfg_scale": 1.7,
+                "top_k": 50,
+            },
+        },
+        "zero": {"class_type": "ConditioningZeroOut", "inputs": {"conditioning": ["music", 0]}},
+        "latent": {
+            "class_type": "EmptyMiniMaxMusic3LatentAudio",
+            "inputs": {"seconds": ["music", 1], "batch_size": 1},
+        },
+        "sample": {
+            "class_type": "KSampler",
+            "inputs": {
+                "model": ["unet", 0],
+                "positive": ["music", 0],
+                "negative": ["zero", 0],
+                "latent_image": ["latent", 0],
+                "seed": seed,
+                "steps": int(_v(params, "steps", 30)),
+                "cfg": 1.7,
+                "sampler_name": "euler",
+                "scheduler": "simple",
+                "denoise": 1.0,
+            },
+        },
+        "decode": {
+            "class_type": "VAEDecodeAudioTiled",
+            "inputs": {
+                "samples": ["sample", 0],
+                "vae": ["vae", 0],
+                "tile_size": 1536,
+                "overlap": 64,
+            },
+        },
+    }
+    return g, _save_music(g, ["decode", 0], params, prefix)
+
+
+def sa3_music(*, prompt, seed, names, settings, prefix, params, **_):
+    """Stable Audio 3 Medium: instrumentals from a description, 8 steps."""
+    if (params.get("lyrics") or "").strip():
+        raise ValueError("Stable Audio 3 Medium makes instrumentals only; turn the lyrics off.")
+    seconds, _, tempo = _music_common(params, settings)
+    g: dict = {
+        "ckpt": {
+            "class_type": "CheckpointLoaderSimple",
+            "inputs": {"ckpt_name": names["sa3-medium"]},
+        },
+        "clip": {
+            "class_type": "CLIPLoader",
+            "inputs": {
+                "clip_name": names["sa3-t5gemma"],
+                "type": "stable_audio",
+                "device": "default",
+            },
+        },
+        "pos": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"clip": ["clip", 0], "text": prompt + tempo},
+        },
+        "neg": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["clip", 0], "text": ""}},
+        "latent": {
+            "class_type": "EmptyLatentAudio",
+            "inputs": {"seconds": seconds, "batch_size": 1},
+        },
+        "sample": {
+            "class_type": "KSampler",
+            "inputs": {
+                "model": ["ckpt", 0],
+                "positive": ["pos", 0],
+                "negative": ["neg", 0],
+                "latent_image": ["latent", 0],
+                "seed": seed,
+                "steps": int(_v(params, "steps", 8)),
+                "cfg": 1.0,
+                "sampler_name": "lcm",
+                "scheduler": "simple",
+                "denoise": 1.0,
+            },
+        },
+        "decode": {
+            "class_type": "VAEDecodeAudio",
+            "inputs": {"samples": ["sample", 0], "vae": ["ckpt", 2]},
+        },
+    }
+    return g, _save_music(g, ["decode", 0], params, prefix)
+
+
+# Progress for music graphs: node -> (start, end, message), within one take.
+MUSIC_PLAN = {
+    "ckpt": (0.02, 0.05, "Loading"),
+    "unet": (0.02, 0.05, "Loading"),
+    "abc": (0.05, 0.25, "Writing the score"),
+    "music": (0.25, 0.6, "Composing"),
+    "sample": (0.6, 0.93, "Rendering"),
+    "decode": (0.93, 0.98, "Finishing"),
+    "save": (0.98, 1.0, "Saving"),
+}
+MUSIC = {"yue2", "minimax-music3", "sa3-music"}
+
 MODEL3D_PROGRESS = {
     "sample_structure": (0.03, 0.08, "Finding the shape"),
     "sample_shape": (0.08, 0.18, "Shaping"),
@@ -2660,6 +2908,9 @@ BUILDERS = {
     "trellis2": trellis2,
     "pixal3d-mv": pixal3d_mv,
     "pixal3d-single": pixal3d_single,
+    "yue2": yue2,
+    "minimax-music3": minimax_music3,
+    "sa3-music": sa3_music,
 }
 MODEL3D = {"trellis2", "pixal3d-mv", "pixal3d-single"}
 
@@ -2694,6 +2945,10 @@ PROMPT_OPTIONAL = {
 # workflows were measured with it; the views helper shares it so that going from
 # views to a build does not restart ComfyUI (Nunchaku's Qwen loader is fine with it).
 DYNAMIC_VRAM = {
+    # Music was measured with it too (the bench ran ComfyUI with its default dynamic VRAM).
+    "yue2",
+    "minimax-music3",
+    "sa3-music",
     "wan22",
     "wan22-camera",
     "hunyuan15",

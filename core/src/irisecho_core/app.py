@@ -151,6 +151,8 @@ class App:
             return {"model3d": model.settings["model3d"]}
         if "edit" in model.settings:
             return {"edit": model.settings["edit"]}
+        if "music" in model.settings:
+            return {"music": model.settings["music"]}
         return {}
 
     def models(self) -> list[dict]:
