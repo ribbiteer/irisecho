@@ -395,7 +395,7 @@ nothing.
 | `ace-step` | `vocal_language` | unknown, en, zh, ja, ko, es, fr, de, it, pt, ru (with `lyrics`) | unknown | Language of the lyrics. Set it when the singing comes out in the wrong language; otherwise the language is detected from the lyrics. |
 | `ace-step` | `raw` | bool | false | Raw output. Skips ACE-Step's final level-setting (it raises or lowers each song to peak at -1 dB). Loops are still cut as asked, and a song that would clip is turned down just enough. |
 | `ace-step` | `format` | wav16, wav24, flac | wav16 | File format. 16-bit WAV is the usual. 24-bit WAV keeps more detail for editing; FLAC is lossless and about half the size. |
-| `ace-step` | `trim_end` | bool | false | Trim the silent ending. ACE-Step often finishes a song a few seconds early and fills the rest with near-silence. This cuts that tail, keeping half a second with a short fade. Loops keep their exact length. |
+| `ace-step` | `trim_end` | bool | false | Trim the silent ending. Music models often finish a song a few seconds early and fills the rest with near-silence. This cuts that tail, keeping half a second with a short fade. Loops keep their exact length. |
 | `ace-step` | `steps` | 1 to 20 | 8 | Steps. More is slower. This model is tuned for 8; fewer is a quick draft. |
 | `ace-step` | `shift` | 1 to 5 | 3.0 | Shift. How the steps are spread from noise to finished music. This model is tuned for 3. |
 | `ace-step` | `lm_temperature` | 0 to 2 (with `thinking`) | 0.85 | Planner variety. How adventurous the song planner is. Lower plans more predictably, higher more surprisingly. Only used while planning is on. |
@@ -407,7 +407,7 @@ nothing.
 | `ace-step-xl` | `vocal_language` | unknown, en, zh, ja, ko, es, fr, de, it, pt, ru (with `lyrics`) | unknown | Language of the lyrics. Set it when the singing comes out in the wrong language; otherwise the language is detected from the lyrics. |
 | `ace-step-xl` | `raw` | bool | false | Raw output. Skips ACE-Step's final level-setting (it raises or lowers each song to peak at -1 dB). Loops are still cut as asked, and a song that would clip is turned down just enough. |
 | `ace-step-xl` | `format` | wav16, wav24, flac | wav16 | File format. 16-bit WAV is the usual. 24-bit WAV keeps more detail for editing; FLAC is lossless and about half the size. |
-| `ace-step-xl` | `trim_end` | bool | false | Trim the silent ending. ACE-Step often finishes a song a few seconds early and fills the rest with near-silence. This cuts that tail, keeping half a second with a short fade. Loops keep their exact length. |
+| `ace-step-xl` | `trim_end` | bool | false | Trim the silent ending. Music models often finish a song a few seconds early and fills the rest with near-silence. This cuts that tail, keeping half a second with a short fade. Loops keep their exact length. |
 | `ace-step-xl` | `steps` | 1 to 20 | 8 | Steps. More is slower. This model is tuned for 8; fewer is a quick draft. |
 | `ace-step-xl` | `shift` | 1 to 5 | 3.0 | Shift. How the steps are spread from noise to finished music. This model is tuned for 3. |
 | `ace-step-xl` | `lm_temperature` | 0 to 2 (with `thinking`) | 0.85 | Planner variety. How adventurous the song planner is. Lower plans more predictably, higher more surprisingly. Only used while planning is on. |
@@ -419,7 +419,7 @@ nothing.
 | `ace-step-xl-sft` | `vocal_language` | unknown, en, zh, ja, ko, es, fr, de, it, pt, ru (with `lyrics`) | unknown | Language of the lyrics. Set it when the singing comes out in the wrong language; otherwise the language is detected from the lyrics. |
 | `ace-step-xl-sft` | `raw` | bool | false | Raw output. Skips ACE-Step's final level-setting (it raises or lowers each song to peak at -1 dB). Loops are still cut as asked, and a song that would clip is turned down just enough. |
 | `ace-step-xl-sft` | `format` | wav16, wav24, flac | wav16 | File format. 16-bit WAV is the usual. 24-bit WAV keeps more detail for editing; FLAC is lossless and about half the size. |
-| `ace-step-xl-sft` | `trim_end` | bool | false | Trim the silent ending. ACE-Step often finishes a song a few seconds early and fills the rest with near-silence. This cuts that tail, keeping half a second with a short fade. Loops keep their exact length. |
+| `ace-step-xl-sft` | `trim_end` | bool | false | Trim the silent ending. Music models often finish a song a few seconds early and fills the rest with near-silence. This cuts that tail, keeping half a second with a short fade. Loops keep their exact length. |
 | `ace-step-xl-sft` | `steps` | 10 to 100 | 50 | Steps. More is slower. This model is tuned for 50; fewer is quicker but rougher. |
 | `ace-step-xl-sft` | `shift` | 1 to 5 | 3.0 | Shift. How the steps are spread from noise to finished music. This model is tuned for 3. |
 | `ace-step-xl-sft` | `cfg` | 1 to 15 | 7.0 | Prompt strength. How closely the music follows your style tags and lyrics. 7 is the model's usual; higher follows more literally but can sound forced. |
@@ -428,13 +428,13 @@ nothing.
 | `ace-step-xl-sft` | `cover_strength` | 0 to 1 (with `source`) | 1.0 | How closely to follow the recording. Only for a cover. 1 keeps the recording's tune and structure; lower, such as 0.2, gives more room for a new style. |
 | `ace-step-xl-sft` | `cover_noise` | 0 to 1 (with `source`) | 0.0 | Keep the melody. Only for a cover. 0 starts from nothing but your style tags; raise it a little (0.1 to 0.25) to bring the recording's melody back. Higher keeps the tune but resists a change of style. |
 | `yue2` | `format` | wav16, wav24, flac | wav16 | File format. 16-bit WAV is the usual. 24-bit WAV keeps more detail for editing; FLAC is lossless and about half the size. |
-| `yue2` | `trim_end` | bool | false | Trim the silent ending. ACE-Step often finishes a song a few seconds early and fills the rest with near-silence. This cuts that tail, keeping half a second with a short fade. Loops keep their exact length. |
+| `yue2` | `trim_end` | bool | false | Trim the silent ending. Music models often finish a song a few seconds early and fills the rest with near-silence. This cuts that tail, keeping half a second with a short fade. Loops keep their exact length. |
 | `yue2` | `steps` | 8 to 128 | 32 | Steps. More is slower. ComfyUI's YuE2 template uses 32; 64 is a slower, finer pass. |
 | `minimax-music3` | `format` | wav16, wav24, flac | wav16 | File format. 16-bit WAV is the usual. 24-bit WAV keeps more detail for editing; FLAC is lossless and about half the size. |
-| `minimax-music3` | `trim_end` | bool | false | Trim the silent ending. ACE-Step often finishes a song a few seconds early and fills the rest with near-silence. This cuts that tail, keeping half a second with a short fade. Loops keep their exact length. |
+| `minimax-music3` | `trim_end` | bool | false | Trim the silent ending. Music models often finish a song a few seconds early and fills the rest with near-silence. This cuts that tail, keeping half a second with a short fade. Loops keep their exact length. |
 | `minimax-music3` | `steps` | 8 to 60 | 30 | Steps. More is slower. MiniMax's template uses 30. |
 | `sa3-medium` | `format` | wav16, wav24, flac | wav16 | File format. 16-bit WAV is the usual. 24-bit WAV keeps more detail for editing; FLAC is lossless and about half the size. |
-| `sa3-medium` | `trim_end` | bool | false | Trim the silent ending. ACE-Step often finishes a song a few seconds early and fills the rest with near-silence. This cuts that tail, keeping half a second with a short fade. Loops keep their exact length. |
+| `sa3-medium` | `trim_end` | bool | false | Trim the silent ending. Music models often finish a song a few seconds early and fills the rest with near-silence. This cuts that tail, keeping half a second with a short fade. Loops keep their exact length. |
 | `sa3-medium` | `steps` | 4 to 50 | 8 | Steps. More is slower. This model is tuned for 8. |
 | `sa3-sfx` | `format` | wav16, wav24, flac | wav16 | File format. 16-bit WAV is the usual. 24-bit WAV keeps more detail for editing; FLAC is lossless and about half the size. |
 | `sa3-sfx` | `steps` | 1 to 100 | 8 | Steps. More is slower, and this model gains little past 8; fewer is quicker but rougher. |

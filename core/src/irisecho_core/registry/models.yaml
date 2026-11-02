@@ -1292,7 +1292,7 @@ models:
         label: Raw output
         help: "Skips ACE-Step's final level-setting (it raises or lowers each song to peak at -1 dB). Loops are still cut as asked, and a song that would clip is turned down just enough."
       - *audio-format
-      - &ace-trim-end {name: trim_end, type: bool, default: false, label: Trim the silent ending, help: "ACE-Step often finishes a song a few seconds early and fills the rest with near-silence. This cuts that tail, keeping half a second with a short fade. Loops keep their exact length."}
+      - &ace-trim-end {name: trim_end, type: bool, default: false, label: Trim the silent ending, help: "Music models often finish a song a few seconds early and fills the rest with near-silence. This cuts that tail, keeping half a second with a short fade. Loops keep their exact length."}
       - &ace-steps {name: steps, type: int, tier: expert, min: 1, max: 20, default: 8, label: Steps, help: "More is slower. This model is tuned for 8; fewer is a quick draft."}
       - &ace-shift {name: shift, type: float, tier: expert, min: 1, max: 5, step: 0.1, default: 3.0, label: Shift, help: "How the steps are spread from noise to finished music. This model is tuned for 3."}
       - &ace-lm-temperature {name: lm_temperature, type: float, tier: expert, min: 0, max: 2, step: 0.05, default: 0.85, needs: thinking, label: Planner variety, help: "How adventurous the song planner is. Lower plans more predictably, higher more surprisingly. Only used while planning is on."}
