@@ -95,9 +95,12 @@ def test_text_to_image_runs_the_shipped_schedule_at_cfg_1():
     assert g["text"]["inputs"]["prompt"] == "a fox"
     assert "vae" not in g["text"]["inputs"]
     assert not any(k.startswith("images.") for k in g["text"]["inputs"])
-    # 1.7 MP on a 32-pixel grid, the alpha dropped from a plain picture.
+    # 2 MP on a 32-pixel grid, the alpha dropped from a plain picture.
     w, h = g["latent"]["inputs"]["width"], g["latent"]["inputs"]["height"]
-    assert (w % 32, h % 32) == (0, 0) and abs(w * h / 1024**2 - 1.7) < 0.05
+    assert (w % 32, h % 32) == (0, 0) and abs(w * h / 1024**2 - 2.0) < 0.05
+    unset = build("qwen-image-21", aspect="16:9")[0]["latent"]["inputs"]
+    asked = build("qwen-image-21", aspect="16:9", megapixels=2.0)[0]["latent"]["inputs"]
+    assert unset == asked  # the default is the control's default
     assert g[save]["inputs"]["images"] == ["alpha", 0]
     assert "QwenImage21Cache" not in classes(g)
 
@@ -118,6 +121,7 @@ def test_transparent_pictures_use_the_model_cards_wording_and_keep_alpha():
 def test_a_start_picture_is_image_to_image_on_the_tail_of_the_schedule():
     g, _ = build("qwen-image-21", images={"image1": "a.png"}, denoise=0.4)
     assert g["latent"]["class_type"] == "VAEEncode"
+    assert g["init_scale"]["inputs"]["megapixels"] == 2.0
     sigmas = [float(s) for s in g["sigmas"]["inputs"]["sigmas"].split(", ")]
     # The shipped curve, scaled to begin at the denoise level: all eight steps run.
     assert len(sigmas) == 9 and sigmas[0] == 0.4 and sigmas[-1] == 0
@@ -165,7 +169,7 @@ def test_edit_hands_scaled_pictures_to_the_encoder_and_samples_on_its_latent():
     assert enc["resolution"] == 0 and enc["vae"] == ["vae", 0]
     assert enc["images.image_1"] == ["scale1", 0] and enc["images.image_2"] == ["scale2", 0]
     assert g["scale1"]["inputs"]["resolution_steps"] == 32
-    assert g["scale1"]["inputs"]["megapixels"] == 1.1
+    assert g["scale1"]["inputs"]["megapixels"] == 2.0
     assert g["sample"]["inputs"]["latent_image"] == ["text", 2]
     assert g[save]["inputs"]["images"] == ["reshape", 0]
     assert g["reshape"]["inputs"]["image"] == ["alpha", 0]
@@ -173,7 +177,7 @@ def test_edit_hands_scaled_pictures_to_the_encoder_and_samples_on_its_latent():
     assert g["shape_ref"]["inputs"] == {
         "image": ["load1", 0],
         "upscale_method": "lanczos",
-        "megapixels": 1.1,
+        "megapixels": 2.0,
         "resolution_steps": 1,
     }
     assert g["reshape"]["inputs"]["width"] == ["shape", 0]
@@ -258,18 +262,20 @@ def test_ten_pictures_with_their_own_tags():
 def test_other_pictures_can_be_read_smaller():
     images = {"image1": "a.png", "image2": "b.png", "image3": "c.png"}
     g, _ = build("qwen-image-21-edit", images=images, ref_megapixels=0.5)
-    assert g["scale1"]["inputs"]["megapixels"] == 1.1
+    assert g["scale1"]["inputs"]["megapixels"] == 2.0
     assert g["scale2"]["inputs"]["megapixels"] == 0.5
     assert g["scale3"]["inputs"]["megapixels"] == 0.5
     g, _ = build("qwen-image-21-edit", images=images, megapixels=1.5)
     assert g["scale2"]["inputs"]["megapixels"] == 1.5  # unset: they follow the working size
 
 
-@pytest.mark.parametrize(("pictures", "each"), [(2, 1.1), (4, 1.1), (5, 0.82), (10, 0.37)])
+@pytest.mark.parametrize(
+    ("pictures", "each"), [(2, 2.0), (3, 1.65), (4, 1.1), (5, 0.82), (10, 0.37)]
+)
 def test_many_pictures_share_a_size_budget(pictures, each):
     images = {f"image{i}": f"{i}.png" for i in range(1, pictures + 1)}
     g, _ = build("qwen-image-21-edit", images=images)
-    assert g["scale1"]["inputs"]["megapixels"] == 1.1  # Picture 1 keeps the working size
+    assert g["scale1"]["inputs"]["megapixels"] == 2.0  # Picture 1 keeps the working size
     assert g[f"scale{pictures}"]["inputs"]["megapixels"] == each
 
 

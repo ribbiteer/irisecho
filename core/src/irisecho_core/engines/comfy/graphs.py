@@ -939,15 +939,16 @@ def _qwen21(
     }
     soft = None  # the area to keep, for an area edit
     if slots:
-        mp = float(_v(params, "megapixels", 1.1))
+        mp = float(_v(params, "megapixels", 2.0))
         if abs(mp - 1.0) < 1e-6:
             # A 1024 x 1024 grid makes edits noisy all over (ComfyUI issue 16435); one
             # grid step either side is clean.
             mp = 1.05
         # Pictures 2 onward share a budget: what the text encoder reads grows with their
         # total size, and on a 12 GB card ten pictures at 1.1 MP stalled it for 20 minutes
-        # while 3 x 1.1 MP took 52 s and 9 x 0.25 MP 28 s (2026-10-15). So up to three
-        # others keep the working size, and more share 3.3 MP (0.37 MP each for nine).
+        # while 3 x 1.1 MP took 52 s and 9 x 0.25 MP 28 s (2026-10-15). So the others
+        # follow the working size within 3.3 MP together (1.65 MP each for two, 0.37 MP
+        # each for nine). At 2 MP, three others took 73 s and nine 76 s (2026-11-02).
         others = len(slots) - 1
         shared = max(0.25, round(REF_BUDGET_MP / others, 2)) if others else mp
         ref_mp = float(_v(params, "ref_megapixels", min(mp, shared)))
@@ -998,7 +999,7 @@ def _qwen21(
             "inputs": {
                 "image": ["init", 0],
                 "upscale_method": "lanczos",
-                "megapixels": float(_v(params, "megapixels", 1.7)),
+                "megapixels": float(_v(params, "megapixels", 2.0)),
                 "resolution_steps": 32,
             },
         }
@@ -1011,7 +1012,7 @@ def _qwen21(
         if params.get("trained_sizes") and aspect in QWEN21_SIZES:
             w, h = QWEN21_SIZES[aspect]
         else:
-            w, h = size_on_grid(aspect, _budget(params, 1335), 32)
+            w, h = size_on_grid(aspect, _budget(params, 1448), 32)  # 2 MP
         g["latent"] = {
             "class_type": "EmptyLatentImage",
             "inputs": {"width": w, "height": h, "batch_size": 1},

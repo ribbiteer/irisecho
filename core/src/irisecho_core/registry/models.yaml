@@ -912,9 +912,9 @@ models:
         files: [qwen21-turbo-int8, qwen3vl-8b-w4a8, qwen21-vae]
     controls:
       - *qwen21-steps
-      - {name: megapixels, type: float, min: 0.5, max: 4.0, step: 0.1, default: 1.1, unit: MP, label: Working size, help: "The size the picture is edited at. The result comes out at this size, in the picture's own shape; up to 4 MP fits a 12 GB card."}
+      - {name: megapixels, type: float, min: 0.5, max: 4.0, step: 0.1, default: 2.0, unit: MP, label: Working size, help: "The size the picture is edited at. The result comes out at this size, in the picture's own shape; up to 4 MP fits a 12 GB card."}
       - {name: feather, type: int, min: 0, max: 31, default: 12, unit: px, needs: box, label: Soft edge, help: "How gradually the changed area blends into the rest when you change only an area. 0 is a hard edge."}
-      - {name: ref_megapixels, type: float, tier: expert, min: 0.25, max: 2.0, step: 0.05, default: 1.1, unit: MP, needs: image2, label: Size of the other pictures, help: "The size Pictures 2 and up are read at. Unset, up to three of them follow the working size and more share 3.3 MP between them (0.37 MP each for nine), which keeps a ten-picture edit to about a minute on a 12 GB card. Smaller is quicker, with less of their fine detail."}
+      - {name: ref_megapixels, type: float, tier: expert, min: 0.25, max: 2.0, step: 0.05, default: 2.0, unit: MP, needs: image2, label: Size of the other pictures, help: "The size Pictures 2 and up are read at. Unset, they follow the working size while together they stay within 3.3 MP (1.65 MP each for two, 0.37 MP each for nine), which keeps a ten-picture edit to about a minute and a quarter on a 12 GB card. Smaller is quicker, with less of their fine detail."}
       - {name: transparent, type: bool, default: false, label: Keep transparency, help: "Saves the result with a transparent background when the edit asks for one, such as 'remove the background'. Off, a result keeps transparency only when part of it really came out clear. Changing only an area always gives an opaque picture."}
       - *qwen21-loras
       - {name: cache, type: choice, tier: expert, default: auto, options: [auto, gpu, cpu, "off"], label: Reference memory, help: "Where the model keeps what it read from the prompt and pictures between steps. auto uses spare graphics memory, then RAM; off reads them again at every step, slower but the plainest."}
@@ -1642,7 +1642,7 @@ models:
         files: [qwen21-turbo-int8, qwen3vl-8b-w4a8, qwen21-vae]
     controls:
       - *qwen21-steps
-      - {name: megapixels, type: float, min: 0.5, max: 4.0, step: 0.1, default: 1.7, unit: MP, label: Size, help: "How many pixels. Bigger takes longer; this model is made for up to 4 MP, which a 12 GB card fits in about half a minute."}
+      - {name: megapixels, type: float, min: 0.5, max: 4.0, step: 0.1, default: 2.0, unit: MP, label: Size, help: "How many pixels. Bigger takes longer; this model is made for up to 4 MP, which a 12 GB card fits in about half a minute."}
       - {name: trained_sizes, type: bool, default: false, label: Use the trained sizes, help: "Qwen-Image 2.1's own 4 MP size for each shape (2048 x 2048, 2752 x 1536 for 16:9 and so on), instead of the Size above."}
       - {name: transparent, type: bool, default: false, label: Transparent background, help: "Makes a cut-out on a clear background, saved as a PNG with transparency. Describe only the subject."}
       - *qwen21-loras
