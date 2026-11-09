@@ -186,14 +186,29 @@ class Database:
             ).fetchall()
         return [self._row(r) for r in rows]
 
+    def waiting(self, besides: str | None = None) -> int:
+        """How many jobs still wait their turn, not counting the one being started."""
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT COUNT(*) FROM jobs WHERE status = 'queued' AND id != ?", (besides or "",)
+            ).fetchone()
+        return row[0]
+
+    PRUNABLE = (
+        "SELECT * FROM jobs WHERE kind = ? AND status NOT IN ('queued', 'running') "
+        "ORDER BY created DESC LIMIT -1 OFFSET ?"
+    )
+
+    def prunable(self, kind: str, keep: int) -> list[dict]:
+        """The jobs `prune` would drop, for whoever has to remove their files first."""
+        with self.lock:
+            rows = self.conn.execute(self.PRUNABLE, (kind, keep)).fetchall()
+        return [self._row(r) for r in rows]
+
     def prune(self, kind: str, keep: int) -> list[str]:
         """Drop all but the newest `keep` jobs of a working kind. Returns the removed ids."""
         with self.lock:
-            rows = self.conn.execute(
-                "SELECT id FROM jobs WHERE kind = ? AND status NOT IN ('queued', 'running') "
-                "ORDER BY created DESC LIMIT -1 OFFSET ?",
-                (kind, keep),
-            ).fetchall()
+            rows = self.conn.execute(self.PRUNABLE, (kind, keep)).fetchall()
             ids = [r["id"] for r in rows]
             for job_id in ids:
                 self.conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))

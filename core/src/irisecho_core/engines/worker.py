@@ -141,16 +141,29 @@ class WorkerProcess:
         if not self.proc:
             return
         if self.proc.returncode is None:
+            # A worker that is starting or inside a call reads nothing until it is
+            # done, so asking it to exit would only be five seconds of waiting.
+            idle = not self._pending and (self._ready is None or self._ready.done())
             try:
-                assert self.proc.stdin
-                self.proc.stdin.write(b'{"op": "exit"}\n')
-                await self.proc.stdin.drain()
-                await asyncio.wait_for(self.proc.wait(), 5)
+                if idle:
+                    assert self.proc.stdin
+                    self.proc.stdin.write(b'{"op": "exit"}\n')
+                    await self.proc.stdin.drain()
+                    await asyncio.wait_for(self.proc.wait(), 5)
             except Exception:
+                pass
+            if self.proc.returncode is None:
                 self.proc.kill()
                 await self.proc.wait()
         for t in self._readers:
             t.cancel()
+        # Not left to the stdout reader, which was just cancelled and may not have got there.
+        err = WorkerError(self._exit_message())
+        if self._ready and not self._ready.done():
+            self._ready.set_exception(err)
+        for fut, _ in list(self._pending.values()):
+            if not fut.done():
+                fut.set_exception(err)
         self.proc = None
 
 
@@ -196,6 +209,9 @@ class WorkerEngine(Engine):
         self.running_job = ctx.job_id
         try:
             worker = await self.ensure_worker(ctx.report)
+            if ctx.cancelled.is_set():
+                # Cancelled before this job was the running one, so `cancel` did nothing.
+                raise asyncio.CancelledError
             self.state = "busy"
             try:
                 return await worker.call(op, params, ctx.report)
@@ -211,7 +227,7 @@ class WorkerEngine(Engine):
         self.state = "idle"
 
     async def cancel(self, job_id: str) -> None:
-        # Worker jobs cannot be interrupted mid-call; stopping the process is
-        # immediate and frees the GPU.
+        # Worker jobs cannot be interrupted mid-call; the process is killed, which
+        # frees the GPU at once.
         if self.running_job == job_id:
             await self.release()

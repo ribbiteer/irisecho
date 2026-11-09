@@ -37,6 +37,10 @@ class Busy(Exception):
     """A job is using the GPU."""
 
 
+class _Cancelled(Exception):
+    """The person cancelled the job. Not asyncio's CancelledError, which is the app quitting."""
+
+
 class App:
     def __init__(self) -> None:
         self.settings = settings.load()
@@ -72,7 +76,13 @@ class App:
 
     async def stop(self) -> None:
         if self._runner:
+            # Waited for, so no job is started while the engines below shut down.
             self._runner.cancel()
+            try:
+                await self._runner
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._runner = None
         for engine in self.engines.values():
             try:
                 await engine.shutdown()
@@ -337,6 +347,8 @@ class App:
         }
         self.db.insert(job)
         if model.kind in HIDDEN_KINDS:
+            for old in self.db.prunable(model.kind, keep=40):
+                self._discard_outputs(old["outputs"])
             self.db.prune(model.kind, keep=40)
         self.queue.put_nowait(job["id"])
         self._emit_job(job["id"])
@@ -369,13 +381,32 @@ class App:
         job = self.db.get(job_id)
         if not job or job["status"] in ("queued", "running"):
             return False
-        for out in job["outputs"]:
-            Path(out["path"]).unlink(missing_ok=True)
-            if out.get("preview"):
-                Path(out["preview"]).unlink(missing_ok=True)
+        self._remove_outputs(job["outputs"])
         self.db.delete(job_id)
         self.bus.publish("job.deleted", {"id": job_id})
         return True
+
+    @staticmethod
+    def _remove_outputs(outputs: list[dict]) -> None:
+        for out in outputs:
+            Path(out["path"]).unlink(missing_ok=True)
+            if out.get("preview"):
+                Path(out["preview"]).unlink(missing_ok=True)
+
+    def _discard_outputs(self, outputs: list[dict]) -> None:
+        """Remove files nobody asked to keep; one that will not go is not worth failing over."""
+        try:
+            self._remove_outputs(outputs)
+        except (OSError, KeyError, TypeError):
+            pass
+
+    @staticmethod
+    def _log_job(head: str) -> None:
+        try:
+            with (paths.sub("logs") / "jobs.log").open("a", encoding="utf-8") as log:
+                log.write(f"--- {head}\n{traceback.format_exc()}\n")
+        except OSError:
+            pass  # the job's own error is already in its row
 
     @staticmethod
     def _embed_settings(model: ModelSpec, params: dict, outputs: list[dict]) -> None:
@@ -398,26 +429,51 @@ class App:
         return self.settings.outputs_path / day, f"{slug}-{job['id'][:6]}"
 
     async def _run_queue(self) -> None:
-        while True:
-            job_id = await self.queue.get()
+        try:
+            while True:
+                job_id = await self.queue.get()
+                try:
+                    job = self.db.get(job_id)
+                    if not job or job["status"] != "queued":
+                        continue
+                    self.current_job = job_id
+                    async with self._gpu:
+                        # Read again: it may have been cancelled while the lock was awaited.
+                        job = self.db.get(job_id)
+                        if job and job["status"] == "queued":
+                            await self._run_job(job)
+                except Exception as e:
+                    # One job that breaks in a way nobody foresaw must not end the queue.
+                    self._job_broke(job_id, e)
+                finally:
+                    self.current_job = None
+                    self.contexts.pop(job_id, None)
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            self._log_job("the job queue stopped")
+            raise
+
+    def _job_broke(self, job_id: str, e: Exception) -> None:
+        self._log_job(job_id)
+        try:
             job = self.db.get(job_id)
-            if not job or job["status"] != "queued":
-                continue
-            self.current_job = job_id
-            try:
-                async with self._gpu:
-                    await self._run_job(job)
-            finally:
-                self.current_job = None
-                self.contexts.pop(job_id, None)
+            if job and job["status"] in ("queued", "running"):
+                self.db.update(
+                    job_id,
+                    status="failed",
+                    error=str(e) or type(e).__name__,
+                    message=None,
+                    finished=time.time(),
+                )
+            self._emit_job(job_id)
+        except Exception:
+            pass
 
     async def _run_job(self, job: dict) -> None:
         job_id = job["id"]
-        model = self.model(job["model"])
-        variant = model.variant_for(self.hw)
-        engine = self.engines[model.engine]
-        self.db.update(job_id, status="running", started=time.time(), progress=None)
-        self._emit_job(job_id)
+        engine: Engine | None = None
+        ctx: RunContext | None = None
         throttle = Throttle(0.2)
 
         def report(progress: float | None, message: str | None) -> None:
@@ -432,6 +488,11 @@ class App:
                     self._emit_job(job_id)
 
         try:
+            model = self.model(job["model"])
+            variant = model.variant_for(self.hw)
+            engine = self.engines[model.engine]
+            self.db.update(job_id, status="running", started=time.time(), progress=None)
+            self._emit_job(job_id)
             if variant is None:
                 raise NotReady(f"{model.name} cannot run on this machine.", ["unsupported"])
             specs = self.registry.expand(variant.files)
@@ -461,10 +522,15 @@ class App:
                     await self.resident.release()
                 self.resident = engine
                 self.bus.publish("engines", {})
+                if ctx.cancelled.is_set():
+                    # Cancelled while the GPU was being freed: the engine never heard of it.
+                    raise _Cancelled
             self.loaded_model = model.id
             outputs = await engine.run(ctx)
             if ctx.cancelled.is_set():
-                raise asyncio.CancelledError
+                # Finished all the same; nobody wants what it made.
+                self._discard_outputs(outputs)
+                raise _Cancelled
             if not self.settings.strip_metadata:
                 self._embed_settings(model, job["params"], outputs)
             self.db.update(
@@ -475,10 +541,32 @@ class App:
                 finished=time.time(),
                 outputs=outputs,
             )
-        except asyncio.CancelledError:
+        except _Cancelled:
             self.db.update(job_id, status="cancelled", message=None, finished=time.time())
+        except asyncio.CancelledError:
+            # Engines raise this for a cancelled job too; when the task itself is being
+            # cancelled the app is quitting, which is not the person's doing.
+            if asyncio.current_task().cancelling() > 0:
+                try:
+                    self.db.update(job_id, status="interrupted", message=None)
+                    self._emit_job(job_id)
+                except Exception:
+                    pass
+                raise
+            if ctx and ctx.cancelled.is_set():
+                self.db.update(job_id, status="cancelled", message=None, finished=time.time())
+            else:
+                # Cancelled from inside the engine with nobody asking: this job failed,
+                # and the queue goes on.
+                self.db.update(
+                    job_id,
+                    status="failed",
+                    error="The engine stopped before the job was finished.",
+                    message=None,
+                    finished=time.time(),
+                )
+                self._log_job(f"{job_id} {job['model']}")
         except Exception as e:
-            ctx = self.contexts.get(job_id)
             if ctx and ctx.cancelled.is_set():
                 self.db.update(job_id, status="cancelled", message=None, finished=time.time())
             else:
@@ -489,9 +577,8 @@ class App:
                     message=None,
                     finished=time.time(),
                 )
-                with (paths.sub("logs") / "jobs.log").open("a", encoding="utf-8") as log:
-                    log.write(f"--- {job_id} {model.id}\n{traceback.format_exc()}\n")
-                if isinstance(e, EngineStartError):
+                self._log_job(f"{job_id} {job['model']}")
+                if isinstance(e, EngineStartError) and engine is not None:
                     self._fail_waiting(engine)
         self._emit_job(job_id)
 
@@ -547,7 +634,11 @@ class App:
         return {
             "hardware": self.hw.public(),
             "vram": hardware.vram_usage(),
-            "queue": {"current": self.current_job, "waiting": self.queue.qsize()},
+            # Counted in the database: the queue still holds the ids of cancelled jobs.
+            "queue": {
+                "current": self.current_job,
+                "waiting": self.db.waiting(besides=self.current_job),
+            },
             "resident": self.resident.id if self.resident else None,
             "loaded_model": self.loaded_model if self.resident else None,
             "data_dir": str(paths.data_dir()),
