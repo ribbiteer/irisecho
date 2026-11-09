@@ -84,7 +84,13 @@ def load() -> Settings:
     path = settings_file()
     if not path.exists():
         return Settings()
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError("not a JSON object")
+    except (OSError, ValueError) as e:
+        paths.move_aside(path, str(e))
+        return Settings()
     known = {f.name for f in fields(Settings)}
     return Settings(**{k: v for k, v in raw.items() if k in known})
 

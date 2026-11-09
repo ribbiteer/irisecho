@@ -10,8 +10,9 @@ aspect, seed, ...) are listed here so they are not reported as unknown.
 from __future__ import annotations
 
 import math
+import re
 
-from irisecho_core.registry import Control, ModelSpec
+from irisecho_core.registry import LIMITED, Control, ModelSpec
 
 # Params each kind of model took before controls existed. Unknown params are
 # reported back as warnings (and ignored), not refused, so older scripts keep working.
@@ -60,8 +61,24 @@ MAX_LORAS = 3
 LORA_STRENGTH = (-2.0, 2.0)
 
 
+# How the limits in the registry (`settings.limits`) name their params for people.
+LIMIT_LABELS = {"takes": "takes", "duration": "duration in seconds", "seconds": "seconds"}
+WHOLE = {"takes", "seconds"}
+IMAGE_KEY = re.compile(r"image(\d+)")
+
+
 class ControlError(ValueError):
     """A control value the model cannot take; the message is for people."""
+
+
+def limit(settings: dict, name: str) -> dict:
+    """The range and default the registry declares for `takes`, `duration` or `seconds`."""
+    return (settings.get("limits") or {}).get(name) or {}
+
+
+def declared(settings: dict, name: str):
+    """The value a job that leaves `name` out gets (declared in the registry)."""
+    return limit(settings, name)["default"]
 
 
 def _number(c: Control, value) -> float:
@@ -127,6 +144,29 @@ def _choice(c: Control, value):
     raise ControlError(f"{c.label} must be one of: {shown}.")
 
 
+def _limited(model: ModelSpec, name: str, value):
+    """`takes`, `duration` or `seconds` within the model's declared range, else refused."""
+    lim = limit(model.settings, name)
+    label = LIMIT_LABELS[name]
+    if isinstance(value, bool):
+        raise ControlError(f"{label} must be a number.")
+    if isinstance(value, str):
+        try:
+            value = float(value.strip())
+        except ValueError:
+            raise ControlError(f"{label} must be a number.") from None
+    if not isinstance(value, int | float) or not math.isfinite(value):
+        raise ControlError(f"{label} must be a number.")
+    lo, hi = lim["min"], lim["max"]
+    if name in WHOLE and value != int(value):
+        raise ControlError(f"{label} must be a whole number, {_fmt(lo)} to {_fmt(hi)}.")
+    if not lo <= value <= hi:
+        raise ControlError(
+            f"{label} must be {_fmt(lo)} to {_fmt(hi)} for this model (got {_fmt(value)})."
+        )
+    return int(value) if name in WHOLE else value
+
+
 def _strength(c: Control, value, what: str) -> float:
     try:
         v = float(value)
@@ -147,6 +187,13 @@ def _loras(c: Control, value) -> list[dict]:
     for item in value:
         if not isinstance(item, dict):
             raise ControlError(f"{c.label} must be a list of add-ons.")
+        allowed = {"high", "low", "strength"} if c.pair else {"file", "strength"}
+        stray = sorted(str(k) for k in item if k not in allowed)
+        if stray:
+            raise ControlError(
+                f"{c.label}: {', '.join(stray)} is not part of an add-on "
+                f"(use {', '.join(sorted(allowed))})."
+            )
         if c.pair:
             high, low = item.get("high"), item.get("low")
             if not (isinstance(high, str) and high) and not (isinstance(low, str) and low):
@@ -207,10 +254,20 @@ def check(model: ModelSpec, params: dict) -> tuple[dict, list[str]]:
             continue
         if key not in base:
             warnings.append(f"{model.name} does not use '{key}'; it was ignored.")
+        elif key in LIMITED and value is not None and limit(model.settings, key):
+            value = _limited(model, key, value)
         out[key] = value
+    if model.kind == "music" and out.get("loop"):
+        flag = _bool(Control(name="loop", type="bool", label="loop"), out["loop"])
+        if flag and not out.get("bpm"):
+            raise ControlError("loop needs bpm: give the tempo so the loop can be cut on the bar.")
+        out["loop"] = flag
     if model.kind == "edit":
         _check_edit(model, out)
     return out, warnings
+
+
+BOX_MESSAGE = "box takes four numbers: left, top, right, bottom, from 0 to 1."
 
 
 def _check_edit(model: ModelSpec, params: dict) -> None:
@@ -218,7 +275,11 @@ def _check_edit(model: ModelSpec, params: dict) -> None:
     `box` is one [left, top, right, bottom] or a list of them, as fractions of Picture 1."""
     limits = model.settings.get("edit") or {}
     pictures, areas = int(limits.get("pictures", 3)), int(limits.get("areas", 1))
-    extra = [k for k, v in params.items() if v and k.startswith("image") and int(k[5:]) > pictures]
+    extra = [
+        k
+        for k, v in params.items()
+        if v and (m := IMAGE_KEY.fullmatch(k)) and int(m.group(1)) > pictures
+    ]
     if extra:
         raise ControlError(
             f"{model.name} takes up to {pictures} picture{'s' if pictures != 1 else ''}."
@@ -226,6 +287,8 @@ def _check_edit(model: ModelSpec, params: dict) -> None:
     box = params.get("box")
     if box is None:
         return
+    if not isinstance(box, list):
+        raise ControlError(BOX_MESSAGE)
     boxes = box if box and isinstance(box[0], list) else [box]
     if not areas:
         raise ControlError(f"{model.name} edits the whole picture; it cannot change only an area.")
@@ -240,7 +303,7 @@ def _check_edit(model: ModelSpec, params: dict) -> None:
             or not all(isinstance(v, (int, float)) for v in b)
             or not (0 <= b[0] < b[2] <= 1 and 0 <= b[1] < b[3] <= 1)
         ):
-            raise ControlError("box takes four numbers: left, top, right, bottom, from 0 to 1.")
+            raise ControlError(BOX_MESSAGE)
 
 
 def opt(params: dict, settings: dict, name: str, fallback=None):

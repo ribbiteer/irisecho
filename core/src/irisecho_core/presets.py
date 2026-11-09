@@ -23,11 +23,17 @@ def _file():
 
 
 def load() -> dict:
-    try:
-        data = json.loads(_file().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    path = _file()
+    if not path.exists():
         return {}
-    return data if isinstance(data, dict) else {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("not a JSON object")
+    except (OSError, ValueError) as e:
+        paths.move_aside(path, str(e))
+        return {}
+    return data
 
 
 def _save(data: dict) -> None:

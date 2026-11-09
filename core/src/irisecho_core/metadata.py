@@ -17,6 +17,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from irisecho_core import controls
 from irisecho_core.registry import ModelSpec
 
 PNG = b"\x89PNG\r\n\x1a\n"
@@ -97,7 +98,11 @@ def a1111(model: ModelSpec, params: dict, seed, size: tuple[int, int] | None) ->
 
 
 def embed(path: Path, model: ModelSpec, params: dict, seed, size) -> None:
-    clean = {k: v for k, v in params.items() if k not in FILE_PARAMS and v is not None}
+    # Only what the model offers: a key a script made up could carry anything.
+    allowed = (
+        {c.name for c in model.controls} | controls.BASE.get(model.kind, set())
+    ) - FILE_PARAMS
+    clean = {k: v for k, v in params.items() if k in allowed and v is not None}
     if seed is not None:
         clean["seed"] = seed
     add_text(

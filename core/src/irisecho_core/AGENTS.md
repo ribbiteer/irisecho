@@ -185,15 +185,21 @@ between shells, so a body file and `-` is the dependable way.
 | `GET /api/models` | every model: `id`, `kind`, `ready`, `needs`, license, voices under `options` |
 | `POST /api/models/{id}/prepare` | install and download what a model needs |
 | `POST /api/models/{id}/verify` | re-hash a model's files against their recorded hashes: per file `ok`, `wrong_hash` or `missing`; changes nothing, and reads several GB, so it takes a while |
-| `POST /api/jobs` with `{"model", "params"}` | queue a job; 409 with `needs` if the model is not ready |
+| `POST /api/jobs` with `{"model", "params"}` | queue a job; 400 for a value out of range or a body that is not a JSON object with a `model`, 404 for an unknown model, 409 with `needs` if the model is not ready |
 | `GET /api/jobs/{id}` | `status` (`queued`, `running`, `done`, `failed`, `cancelled`, `interrupted`), `progress`, `message`, `error`, `outputs` |
 | `GET /api/jobs?q=fox&kind=image&limit=20` | search what has been made |
-| `POST /api/jobs/{id}/cancel` | stop a queued or running job |
+| `POST /api/jobs/{id}/cancel` | stop a queued or running job; 404 for an unknown id, 409 with the job's `status` if it has already ended |
+| `DELETE /api/jobs/{id}` | remove a finished job and its files; 404 for an unknown id, 409 while it is queued or running or if a file is open in another program (nothing is lost; close it and retry) |
+| `POST /api/jobs/{id}/favorite` with `{"favorite": true}` | mark or unmark a job; 404 for an unknown id |
 | `POST /api/uploads` (multipart `file`) | add a picture or sound for a job to use; returns its `id` |
 | `GET /api/system` | GPU, memory in use right now (`vram`: `used_mb` and `free_mb` per card, the whole card), what is loaded, queue length |
 | `POST /api/system/unload` | free the GPU for another program; 409 while a job is running |
 | `GET /api/jobs/{id}/outputs/{n}/export?format=stl&height_mm=80` | a 3D model in `glb`, `stl`, `3mf` (millimetres, upright on the plate), `obj` (zip) or `ply` |
 | `GET /api/jobs/{id}/outputs/{n}/preview` | the still picture of a 3D model |
+
+Errors always look like `{"error": "plain message"}`, with extra fields where they help (`needs` on
+a 409 for a model that is not ready, `status` on a 409 for a job). `detail` repeats
+`error` for scripts written for 0.2.2 and will go in a later release.
 
 Job `params` by kind of model:
 
@@ -204,9 +210,9 @@ Job `params` by kind of model:
 | upscale | `seedvr2`, `seedvr2-7b` | `image1`, `scale` (2, 3 or 4), `retain` (true keeps the original size), `seed` |
 | video | `ltx25`, `wan22-t2v`, `wan22-i2v`, `wan22-i2v-1022`, `hunyuan15-i2v`, `wan22-camera` | `prompt`, `aspect`, `seconds` (2 to 5), `size` (`standard`, `large`, or `720p` on a 12 GB card; `hunyuan15-i2v` has no `large`), `smooth`, and a `start` and/or `end` frame: required for the `i2v` models (`hunyuan15-i2v` takes `start` only), optional for `ltx25`; `wan22-camera` needs `start` and takes `camera` (`static`, `pan_up`, `pan_down`, `pan_left`, `pan_right`, `zoom_in`, `zoom_out`, `clockwise`, `anticlockwise`) |
 | voice | `kokoro` | `text`, `voice`, `speed`, `clean` |
-| clone | `chatterbox-turbo`, `chatterbox` | `text`, `ref`, `consent` (must be `true`), `takes`, `seed`, `clean` (false keeps the model's own output); `exaggeration` and `cfg` on `chatterbox` |
-| music | `ace-step`, `ace-step-xl`, `ace-step-xl-sft`, `yue2`, `minimax-music3`, `sa3-medium` | `prompt` (style tags), `duration`, `bpm`, `lyrics`, `takes`, `loop`, `thinking` (default `true`), `seed`; from a recording (ACE-Step models only): `source` (an upload id of a WAV, MP3, FLAC or OGG) and `task` `cover`, `repaint` (with `region` `[start_s, end_s]`) or `extend` (with `extend_by` seconds) |
-| sfx | `sa3-sfx` | `prompt`, `duration` (0.5 to 30), `takes`, `trim` (default true; false is the command line's `--raw`), `seed`; `init_audio` (an upload id) for a variation of a sound, plus `region` `[start_s, end_s]` to make only that part again |
+| clone | `chatterbox-turbo`, `chatterbox` | `text`, `ref`, `consent` (must be `true`), `takes` (1 to 4), `seed`, `clean` (false keeps the model's own output); `exaggeration` and `cfg` on `chatterbox` |
+| music | `ace-step`, `ace-step-xl`, `ace-step-xl-sft`, `yue2`, `minimax-music3`, `sa3-medium` | `prompt` (style tags), `duration` (seconds: 10 to 600 on the ACE-Step models, 10 to 300 on the others), `bpm`, `lyrics`, `takes` (1 to 4), `loop` (needs `bpm`), `thinking` (default `true`), `seed`; from a recording (ACE-Step models only): `source` (an upload id of a WAV, MP3, FLAC or OGG) and `task` `cover`, `repaint` (with `region` `[start_s, end_s]`) or `extend` (with `extend_by` seconds) |
+| sfx | `sa3-sfx` | `prompt`, `duration` (0.5 to 30), `takes` (1 to 4, default 3), `trim` (default true; false is the command line's `--raw`), `seed`; `init_audio` (an upload id) for a variation of a sound, plus `region` `[start_s, end_s]` to make only that part again |
 | video-upscale | `seedvr2-video` | `video` (an upload id of an MP4 clip), `short_side` (720 to 1080, default 1080), `seed` |
 | model3d | `trellis2`, `pixal3d`, `pixal3d-single` | `front` (and `back` for `pixal3d`; `pixal3d-single` builds from `front` alone), `detail` (`standard` or `high`), `faces` (500000, 100000 or 20000), `textures` (default true), `openings` (`close` or `keep`), `seed` |
 | views3d | `object-views` | `image1`, `level` (`auto`, `best` or `keep`), `seed` |
@@ -281,7 +287,9 @@ nothing.
   `irisecho models --controls MODEL` lists a model's controls with their ranges.
 - API: put the control in `params`. `GET /api/models` lists each model's
   `controls` (name, type, range or options, `default`, help). A value out of
-  range is refused with a 400 and a plain message. A param the model does not
+  range is refused with a 400 and a message that states the range (`takes`,
+  `duration`, `seconds` and `loop` without `bpm` too: nothing is clamped or
+  dropped quietly; each model's ranges are in `limits` on `GET /api/models`). A param the model does not
   use is ignored and named in the response's `warnings`.
 - Add-ons (LoRAs): `.safetensors` files in the `loras` folder of the models
   folder (or of a linked models folder). `GET /api/loras?family=flux` lists them

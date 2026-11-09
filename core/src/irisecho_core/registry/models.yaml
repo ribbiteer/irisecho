@@ -852,6 +852,24 @@ x-controls:
     label: Scheduler
     help: How the steps are spread from noise to finish. This model ships with a schedule of its own; the others were not tested by its makers.
 
+# How many takes and how long (seconds) a job may ask for, per model. A value outside
+# the range is refused when the job is submitted; `default` is what a job that leaves
+# it out gets. Models list the set they use as `settings.limits`.
+x-limits:
+  ace: &limits-ace
+    takes: {min: 1, max: 4, default: 1}
+    duration: {min: 10, max: 600, default: 30}
+  comfy-music: &limits-comfy-music
+    takes: {min: 1, max: 4, default: 1}
+    duration: {min: 10, max: 300, default: 30}
+  sfx: &limits-sfx
+    takes: {min: 1, max: 4, default: 3}
+    duration: {min: 0.5, max: 30, default: 3}
+  clone: &limits-clone
+    takes: {min: 1, max: 4, default: 1}
+  video: &limits-video
+    seconds: {min: 2, max: 5, default: 3}
+
 models:
   qwen-edit-fast:
     name: Qwen Edit Fast
@@ -1084,6 +1102,7 @@ models:
       prompt_style: ltx
       sampler: euler_ancestral
       video: {frames: [start, end], sizes: [standard, large, 720p], fps: 24, sound: true, pace: {standard: 20, large: 22, 720p: 25}}
+      limits: *limits-video
       parts:
         unet: ltx25-unet-int8
         text_encoder: ltx25-text-encoder
@@ -1116,6 +1135,7 @@ models:
       experts: wan-i2v-distilled
       distill: merged
       video: {frames: [start, end], needs_frame: true, sizes: [standard, large, 720p], fps: 16, sound: false, pace: {standard: 25, large: 40, 720p: 75}}
+      limits: *limits-video
     variants:
       - when: {backend: cuda}
         workflow: wan22
@@ -1136,6 +1156,7 @@ models:
       mode: i2v
       distill: "1022"
       video: {frames: [start, end], needs_frame: true, sizes: [standard, large, 720p], fps: 16, sound: false, pace: {standard: 35, large: 50, 720p: 95}}
+      limits: *limits-video
     variants:
       - when: {backend: cuda}
         workflow: wan22
@@ -1158,6 +1179,7 @@ models:
       mode: t2v
       distill: "1217"
       video: {frames: [], sizes: [standard, large, 720p], fps: 16, sound: false, pace: {standard: 30, large: 45, 720p: 90}}
+      limits: *limits-video
     variants:
       - when: {backend: cuda}
         workflow: wan22
@@ -1179,6 +1201,7 @@ models:
       prompt_style: wan-i2v
       # pace guessed from wan22-i2v (same fp8 experts, same four steps), not measured
       video: {frames: [start], needs_frame: true, sizes: [standard, large, 720p], fps: 16, sound: false, pace: {standard: 25, large: 40, 720p: 75}}
+      limits: *limits-video
     variants:
       - when: {backend: cuda}
         workflow: wan22-camera
@@ -1199,6 +1222,7 @@ models:
       prompt_style: wan-i2v
       mode: i2v
       video: {frames: [start], needs_frame: true, sizes: [standard, 720p], fps: 24, sound: false, pace: {standard: 45, 720p: 165}}
+      limits: *limits-video
     variants:
       - when: {backend: cuda}
         workflow: hunyuan15
@@ -1215,6 +1239,8 @@ models:
     engine: ace-step
     license: mit
     summary: Beds, jingles and stingers from a few style tags. Instrumental or with lyrics.
+    settings:
+      limits: *limits-ace
     variants:
       - when: {backend: cuda}
         files: [ace-step-core, ace-step-lm]
@@ -1311,6 +1337,7 @@ models:
     license: mit
     summary: Richer, more detailed songs from ACE-Step's 4B renderer and its strongest song planner. About twice as slow.
     settings: &ace-step-xl-settings
+      limits: *limits-ace
       dit: acestep-v15-xl-turbo
       dit_files: ace-step-xl-turbo
       lm: acestep-5Hz-lm-4B
@@ -1379,6 +1406,7 @@ models:
     summary: Full songs with clean, lively mixes; plans a melody and chords first. English and Mandarin.
     settings:
       music: {lyrics: true, planner: true, source: false, loop: true, ends_by: 120}
+      limits: *limits-comfy-music
       section_seconds: 20
     variants:
       - when: {backend: cuda}
@@ -1397,6 +1425,7 @@ models:
     summary: Songs and instrumentals up to 5 minutes with wide dynamics, from a detailed description.
     settings:
       music: {lyrics: true, planner: false, source: false, loop: true, ends_by: 150}
+      limits: *limits-comfy-music
       section_seconds: 15
     variants:
       - when: {backend: cuda}
@@ -1415,6 +1444,8 @@ models:
     summary: Instrumentals up to 6 minutes in seconds; strong on jazz, orchestral and lo-fi beds. No vocals.
     settings:
       music: {lyrics: false, planner: false, source: false, loop: true}
+      # 300 s is what the graph has always cut to; the summary says 6 minutes (to settle on a GPU run)
+      limits: *limits-comfy-music
     variants:
       - when: {backend: cuda}
         files: [sa3-medium, sa3-t5gemma]
@@ -1430,7 +1461,7 @@ models:
     engine: stable-audio
     license: stability-community
     summary: One-shot sound effects in seconds. Foley, UI sounds, impacts, ambience.
-    settings: {prompt_style: sfx}
+    settings: {prompt_style: sfx, limits: *limits-sfx}
     variants:
       - when: {backend: cuda}
         files: [sa3-sfx]
@@ -1451,7 +1482,7 @@ models:
     engine: chatterbox
     license: mit
     summary: A voice from a short sample, with performed reactions like [laugh] and [sigh]. English.
-    settings: {variant: turbo}
+    settings: {variant: turbo, limits: *limits-clone}
     variants:
       - when: {backend: cuda}
         files: [chatterbox-turbo]
@@ -1471,7 +1502,7 @@ models:
     engine: chatterbox
     license: mit
     summary: A voice from a short sample, with dials for intensity and pacing. English.
-    settings: {variant: classic}
+    settings: {variant: classic, limits: *limits-clone}
     variants:
       - when: {backend: cuda}
         files: [chatterbox]

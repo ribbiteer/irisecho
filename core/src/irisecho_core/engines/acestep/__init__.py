@@ -14,6 +14,7 @@ from pathlib import Path
 
 import httpx
 
+from irisecho_core import controls
 from irisecho_core.engines import audioformat, audiosource, uvenv
 from irisecho_core.engines.base import RunContext
 from irisecho_core.engines.worker import WorkerEngine
@@ -21,7 +22,6 @@ from irisecho_core.engines.worker import WorkerEngine
 SOURCE = ("ACE-Step/ACE-Step-1.5", "6d467e4b5081ccb0abf1ec1bf4fdf9051a2d34b0")
 DIT = "acestep-v15-turbo"
 LM = "acestep-5Hz-lm-0.6B"
-MAX_TAKES = 4
 
 
 def group_root(ctx: RunContext, group: str) -> Path:
@@ -193,7 +193,7 @@ class AceStepEngine(WorkerEngine):
         caption = (p.get("prompt") or "").strip()
         if not caption:
             raise ValueError("Describe the music with a few style tags.")
-        takes = max(1, min(MAX_TAKES, int(p.get("takes") or 1)))
+        takes = int(p.get("takes") or controls.declared(ctx.model.settings, "takes"))
         # The song planner (5 Hz LM) is on unless asked off, as in ACE-Step's own app.
         thinking = p.get("thinking") is not False
         # Cover, repaint and extend start from the recording, not from a plan (ACE-Step
@@ -229,11 +229,11 @@ class AceStepEngine(WorkerEngine):
         request = {
             "caption": caption,
             "lyrics": (p.get("lyrics") or "").strip(),
-            "duration": float(p.get("duration") or 30),
+            "duration": float(p.get("duration") or controls.declared(settings, "duration")),
             "bpm": int(p["bpm"]) if p.get("bpm") else None,
             "seed": p.get("seed"),
             "thinking": thinking,
-            "loop": bool(p.get("loop")) and bool(p.get("bpm")),
+            "loop": bool(p.get("loop")),
             "outs": outs,
             **fmt,
             **({"pass_seconds": settings["pass_seconds"]} if settings.get("pass_seconds") else {}),

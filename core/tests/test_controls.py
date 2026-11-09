@@ -131,5 +131,5 @@ def test_choices_match_numbers_and_text_both_ways():
     num = Control(name="n", type="choice", label="N", default=8, options=(8, 12))
     assert controls.coerce(sig, 4) == "4"
     assert controls.coerce(num, "12") == 12
-    with pytest.raises(ControlError, match='"" \(any\), 3, 4'):
+    with pytest.raises(ControlError, match=r'"" \(any\), 3, 4'):
         controls.coerce(sig, 5)

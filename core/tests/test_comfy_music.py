@@ -147,9 +147,10 @@ def test_stable_audio_makes_instrumentals_of_the_asked_length():
         build("sa3-medium", lyrics="[verse]\nhello")
 
 
-def test_length_is_held_to_what_the_models_make():
-    assert build("sa3-medium", duration=5)[0]["latent"]["inputs"]["seconds"] == 10.0
-    assert build("sa3-medium", duration=999)[0]["latent"]["inputs"]["seconds"] == 300.0
+def test_length_defaults_to_what_the_registry_declares_and_is_not_clamped_here():
+    # Range checks happen at submit time (controls.check); the builder uses what it is given.
+    assert build("sa3-medium", duration=0)[0]["latent"]["inputs"]["seconds"] == 30.0
+    assert build("sa3-medium", duration=999)[0]["latent"]["inputs"]["seconds"] == 999.0
 
 
 def test_none_of_them_starts_from_a_recording():
@@ -164,7 +165,7 @@ def test_the_save_node_gets_format_loop_and_trim():
         g[save]["inputs"].items()
         >= {"format": "flac", "bpm": 90, "loop": True, "trim_end": True}.items()
     )
-    g, save = build("yue2", loop=True)  # no tempo, no loop
+    g, save = build("yue2")
     assert g[save]["inputs"]["loop"] is False and g[save]["inputs"]["format"] == "wav16"
 
 

@@ -41,6 +41,28 @@ class Busy(Exception):
     """A job is using the GPU."""
 
 
+class UnknownModel(KeyError):
+    """No model has this id."""
+
+    def __str__(self) -> str:  # KeyError would show the message in quotes
+        return str(self.args[0])
+
+
+class NoSuchJob(KeyError):
+    """No job has this id."""
+
+    def __str__(self) -> str:
+        return "no such job"
+
+
+class JobConflict(Exception):
+    """The job is not in a state that allows this; `status` says what it is in."""
+
+    def __init__(self, message: str, status: str):
+        super().__init__(message)
+        self.status = status
+
+
 class _Cancelled(Exception):
     """The person cancelled the job. Not asyncio's CancelledError, which is the app quitting."""
 
@@ -113,7 +135,7 @@ class App:
         try:
             return self.registry.models[model_id]
         except KeyError:
-            raise KeyError(f"unknown model {model_id}") from None
+            raise UnknownModel(f"unknown model {model_id}") from None
 
     def model_status(self, model: ModelSpec) -> dict:
         variant = model.variant_for(self.hw)
@@ -144,6 +166,7 @@ class App:
             "summary": model.summary,
             "prompt_style": model.settings.get("prompt_style"),
             "controls": [c.public() for c in model.controls],
+            "limits": model.settings.get("limits") or {},
             "page": files[0].page if files else "",
             "license": {
                 "id": lic.id,
@@ -399,9 +422,12 @@ class App:
             self.bus.publish("job", job)
 
     async def cancel(self, job_id: str) -> bool:
+        """Stop a queued or running job. NoSuchJob for an unknown id, JobConflict if it ended."""
         job = self.db.get(job_id)
-        if not job or job["status"] not in ("queued", "running"):
-            return False
+        if not job:
+            raise NoSuchJob(job_id)
+        if job["status"] not in ("queued", "running"):
+            raise JobConflict(f"That job has already finished ({job['status']}).", job["status"])
         if job["status"] == "queued":
             self.db.update(job_id, status="cancelled", finished=time.time())
         else:
@@ -413,21 +439,44 @@ class App:
         self._emit_job(job_id)
         return True
 
+    def favorite(self, job_id: str, on: bool) -> None:
+        if not self.db.get(job_id):
+            raise NoSuchJob(job_id)
+        self.db.update(job_id, favorite=int(on))
+        self._emit_job(job_id)
+
     def delete_job(self, job_id: str) -> bool:
+        """Remove a finished job and its files. NoSuchJob for an unknown id; JobConflict while
+        it is queued or running; FileInUse (the row is kept) if a file is open elsewhere."""
         job = self.db.get(job_id)
-        if not job or job["status"] in ("queued", "running"):
-            return False
-        self._remove_outputs(job["outputs"])
+        if not job:
+            raise NoSuchJob(job_id)
+        if job["status"] in ("queued", "running"):
+            raise JobConflict(
+                f"That job is still {job['status']}. Cancel it before deleting it.", job["status"]
+            )
+        in_use = self._remove_outputs(job["outputs"])
+        if in_use:
+            raise FileInUse(
+                f"{', '.join(in_use)} is in use by another program. Close it and try again."
+            )
         self.db.delete(job_id)
         self.bus.publish("job.deleted", {"id": job_id})
         return True
 
     @staticmethod
-    def _remove_outputs(outputs: list[dict]) -> None:
+    def _remove_outputs(outputs: list[dict]) -> list[str]:
+        """Remove every file it can; the names of the ones that would not go."""
+        stuck: list[str] = []
         for out in outputs:
-            Path(out["path"]).unlink(missing_ok=True)
-            if out.get("preview"):
-                Path(out["preview"]).unlink(missing_ok=True)
+            for key in ("path", "preview"):
+                if not out.get(key):
+                    continue
+                try:
+                    Path(out[key]).unlink(missing_ok=True)
+                except OSError:
+                    stuck.append(Path(out[key]).name)
+        return stuck
 
     def _discard_outputs(self, outputs: list[dict]) -> None:
         """Remove files nobody asked to keep; one that will not go is not worth failing over."""

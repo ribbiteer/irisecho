@@ -27,7 +27,7 @@ from pathlib import Path
 
 import httpx
 
-from irisecho_core import hardware, loras, mesh3d, paths
+from irisecho_core import controls, hardware, loras, mesh3d, paths
 from irisecho_core.engines import uvenv
 from irisecho_core.engines.base import (
     Engine,
@@ -676,7 +676,7 @@ class ComfyEngine(Engine):
 
     async def _run_music(self, ctx: RunContext, build, seed: int, workflow: str) -> list[dict]:
         """Make each take as its own graph (take 2 uses the seed plus one, as in ACE-Step)."""
-        takes = max(1, min(4, int(ctx.params.get("takes") or 1)))
+        takes = int(ctx.params.get("takes") or controls.declared(ctx.model.settings, "takes"))
         outputs: list[dict] = []
         await self.ensure_running(ctx.report, ctx.cancelled, workflow in graphs.DYNAMIC_VRAM)
         self.state = "busy"

@@ -13,6 +13,8 @@ from __future__ import annotations
 import math
 import re
 
+from irisecho_core import controls
+
 ASPECTS = {
     "1:1": (1, 1),
     "4:3": (4, 3),
@@ -1369,7 +1371,7 @@ def wan22(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, 
     start, end = images.get("start"), images.get("end")
     if mode == "i2v" and not (start or end):
         raise ValueError("Add a first frame, a last frame, or both.")
-    seconds = max(2, min(5, int(params.get("seconds") or 3)))
+    seconds = int(params.get("seconds") or controls.declared(settings, "seconds"))
     frames = round((seconds * 16 - 1) / 4) * 4 + 1  # Wan needs 4n + 1 frames
     size = params.get("size") or "standard"
     if size not in VIDEO_TIERS:
@@ -1521,7 +1523,7 @@ def wan22_camera(*, prompt, seed, aspect, names, settings, hw, prefix, images, p
     move = params.get("camera") or "static"
     if move not in CAMERA_MOVES:
         raise ValueError(f"Choose a camera move: {', '.join(CAMERA_MOVES)}.")
-    seconds = max(2, min(5, int(params.get("seconds") or 3)))
+    seconds = int(params.get("seconds") or controls.declared(settings, "seconds"))
     frames = round((seconds * 16 - 1) / 4) * 4 + 1  # Wan needs 4n + 1 frames
     size = params.get("size") or "standard"
     if size not in VIDEO_TIERS:
@@ -1650,7 +1652,7 @@ def hunyuan15(*, prompt, seed, aspect, names, settings, hw, prefix, images, para
     start = images.get("start")
     if not start:
         raise ValueError("Add a first frame.")
-    seconds = max(2, min(5, int(params.get("seconds") or 3)))
+    seconds = int(params.get("seconds") or controls.declared(settings, "seconds"))
     frames = round(seconds * 24 / 4) * 4 + 1
     size = params.get("size") or "standard"
     if size not in ("standard", "720p"):
@@ -1797,7 +1799,7 @@ def ltx(*, prompt, seed, aspect, names, settings, hw, prefix, images, params, **
     steps, 24 fps. A first frame is written into the latent; a last frame is a
     guide that is cropped off again before the upscale."""
     start, end = images.get("start"), images.get("end")
-    seconds = max(2, min(int(settings.get("max_seconds", 5)), int(params.get("seconds") or 3)))
+    seconds = int(params.get("seconds") or controls.declared(settings, "seconds"))
     frames = seconds * 24 + 1  # LTX needs 8n + 1 frames
     size = params.get("size") or "standard"
     if size not in VIDEO_TIERS:
@@ -2632,7 +2634,6 @@ def views_back(
 # Each take is its own graph with its own seed; IrisEchoSaveMusic writes the file the
 # job asked for (format, loop on the bar, trimmed tail).
 
-MUSIC_SECONDS = (10.0, 300.0)
 INSTRUMENTAL_SECTIONS = ("[Instrumental]", "[Solo]", "[Instrumental]", "[Bridge]")
 
 
@@ -2640,8 +2641,7 @@ def _music_common(params: dict, settings: dict) -> tuple[float, str, str]:
     """(seconds, lyrics or section tags, tempo words) for a music job."""
     if params.get("source") or params.get("task"):
         raise ValueError("This model cannot start from a recording; use ACE-Step for that.")
-    lo, hi = MUSIC_SECONDS
-    seconds = min(hi, max(lo, float(params.get("duration") or 30)))
+    seconds = float(params.get("duration") or controls.declared(settings, "duration"))
     lyrics = (params.get("lyrics") or "").strip()
     if not lyrics:
         # Instrumental: these models take their structure (and MiniMax its length) from
@@ -2663,7 +2663,7 @@ def _save_music(g: dict, audio, params: dict, prefix: str) -> str:
             "filename_prefix": prefix,
             "format": params.get("format") or "wav16",
             "bpm": int(params.get("bpm") or 0),
-            "loop": bool(params.get("loop")) and bool(params.get("bpm")),
+            "loop": bool(params.get("loop")),
             "trim_end": bool(params.get("trim_end")),
         },
     }

@@ -31,7 +31,9 @@ from pathlib import Path
 import httpx
 import segno
 from fastapi import FastAPI, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from irisecho_core import (
@@ -47,7 +49,15 @@ from irisecho_core import (
     presets,
     settings,
 )
-from irisecho_core.app import App, Busy, FileInUse, NotReady
+from irisecho_core.app import (
+    App,
+    Busy,
+    FileInUse,
+    JobConflict,
+    NoSuchJob,
+    NotReady,
+    UnknownModel,
+)
 from irisecho_core.controls import ControlError
 
 WEB = Path(__file__).parent / "web"
@@ -76,40 +86,62 @@ EXPORT_TYPES = {
 }
 
 
+def error_response(message: str, code: int, /, **extra) -> JSONResponse:
+    """The one shape every API error has: {"error": text, ...extras}.
+
+    `detail` repeats `error` so scripts written against 0.2.2, which read either, keep
+    working; it will go in a later release."""
+    return JSONResponse({"error": message, "detail": message, **extra}, status_code=code)
+
+
+async def read_body(request: Request) -> dict:
+    """The request's JSON object; anything else is a 400 that says so."""
+    try:
+        body = await request.json()
+    except ValueError:  # bad JSON, an empty body, or bytes that are not UTF-8
+        raise HTTPException(400, "The request body must be JSON.") from None
+    if not isinstance(body, dict):
+        raise HTTPException(400, "The request body must be a JSON object.")
+    return body
+
+
 class Guard(BaseHTTPMiddleware):
     def __init__(self, app, token: str, devices: lan.Devices):
         super().__init__(app)
         self.token = token
         self.devices = devices
 
+    @staticmethod
+    def forbidden_host(path: str) -> Response:
+        if path.startswith("/api/"):
+            return error_response("Forbidden host", 403)
+        return Response("Forbidden host", status_code=403)
+
     async def dispatch(self, request: Request, call_next):
         on_lan = bool(request.scope.get("irisecho_lan"))
         host_header = request.headers.get("host") or ""
+        path = request.url.path
         request.state.device = None
         if on_lan:
             if not lan.host_ok(host_header):
-                return Response("Forbidden host", status_code=403)
+                return self.forbidden_host(path)
             request.state.device = self.devices.find(request.cookies.get(lan.DEVICE_COOKIE))
         else:
             host = host_header.split(":")[0].strip("[]").lower()
             if host not in ("127.0.0.1", "localhost", "::1"):
-                return Response("Forbidden host", status_code=403)
-        path = request.url.path
+                return self.forbidden_host(path)
         if path.startswith("/api/"):
             if on_lan:
                 if request.state.device is None:
-                    return JSONResponse(
-                        {"error": "This device is not paired.", "pair": True}, status_code=401
-                    )
+                    return error_response("This device is not paired.", 401, pair=True)
                 if not lan.device_may(request.method, path):
-                    return JSONResponse(
-                        {"error": "That can only be done on the computer running IrisEcho."},
-                        status_code=403,
+                    return error_response(
+                        "That can only be done on the computer running IrisEcho.", 403
                     )
             elif request.cookies.get(COOKIE) != self.token:
-                return JSONResponse({"error": "Reload the page to reconnect."}, status_code=401)
+                return error_response("Reload the page to reconnect.", 401)
             if request.method not in ("GET", "HEAD") and request.headers.get("x-irisecho") != "1":
-                return JSONResponse({"error": "missing request header"}, status_code=403)
+                return error_response("missing request header", 403)
         return await call_next(request)
 
 
@@ -186,8 +218,43 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
     api.state.listener = listener
     api.state.pairing = codes
 
-    def not_ready(e: NotReady) -> JSONResponse:
-        return JSONResponse({"error": str(e), "needs": e.needs}, status_code=409)
+    @api.exception_handler(StarletteHTTPException)
+    async def http_error(_: Request, e: StarletteHTTPException):
+        return error_response(str(e.detail), e.status_code)
+
+    @api.exception_handler(RequestValidationError)
+    async def invalid_request(_: Request, e: RequestValidationError):
+        first = e.errors()[0] if e.errors() else {}
+        where = ".".join(str(p) for p in first.get("loc", ())[1:])
+        return error_response(f"{where}: {first.get('msg', 'invalid value')}".strip(": "), 422)
+
+    @api.exception_handler(NotReady)
+    async def not_ready(_: Request, e: NotReady):
+        return error_response(str(e), 409, needs=e.needs)
+
+    @api.exception_handler(ControlError)
+    async def bad_value(_: Request, e: ControlError):
+        return error_response(str(e), 400)
+
+    @api.exception_handler(UnknownModel)
+    async def unknown_model(_: Request, e: UnknownModel):
+        return error_response(str(e), 404)
+
+    @api.exception_handler(NoSuchJob)
+    async def no_such_job(_: Request, e: NoSuchJob):
+        return error_response(str(e), 404)
+
+    @api.exception_handler(JobConflict)
+    async def job_conflict(_: Request, e: JobConflict):
+        return error_response(str(e), 409, status=e.status)
+
+    @api.exception_handler(FileInUse)
+    async def file_in_use(_: Request, e: FileInUse):
+        return error_response(str(e), 409)
+
+    @api.exception_handler(Exception)
+    async def unexpected(_: Request, e: Exception):
+        return error_response("IrisEcho hit a problem it did not expect; see the logs.", 500)
 
     # --- overview ----------------------------------------------------------
 
@@ -247,6 +314,14 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
         await asyncio.to_thread(hardware.vram_usage, 0)  # the earlier reading is stale
         return public_system(request)
 
+    def model_id_of(body: dict) -> str:
+        model_id = body.get("model")
+        if not isinstance(model_id, str) or not model_id:
+            raise HTTPException(
+                400, 'model is required: the id of a model, as in {"model": "id", "params": {}}.'
+            )
+        return model_id
+
     # --- models ------------------------------------------------------------
 
     @api.get("/api/models")
@@ -259,14 +334,9 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
 
     @api.put("/api/presets")
     async def put_preset(request: Request):
-        body = await request.json()
-        model = core.registry.models.get(body.get("model", ""))
-        if model is None:
-            raise HTTPException(404, "no such model")
-        try:
-            return presets.put(model, body.get("name", ""), body.get("values") or {})
-        except ControlError as e:
-            raise HTTPException(400, str(e)) from None
+        body = await read_body(request)
+        model = core.model(model_id_of(body))
+        return presets.put(model, body.get("name", ""), body.get("values") or {})
 
     @api.delete("/api/presets")
     async def delete_preset(model: str, name: str):
@@ -281,12 +351,7 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
 
     @api.post("/api/models/{model_id}/prepare")
     async def prepare(model_id: str):
-        try:
-            return core.prepare(model_id)
-        except KeyError as e:
-            raise HTTPException(404, str(e)) from None
-        except NotReady as e:
-            return not_ready(e)
+        return core.prepare(model_id)
 
     @api.delete("/api/models/{model_id}/files")
     async def remove_model(model_id: str):
@@ -357,15 +422,9 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
 
     @api.post("/api/jobs")
     async def submit(request: Request):
-        body = await request.json()
-        try:
-            return core.submit(body["model"], body.get("params") or {})
-        except KeyError as e:
-            raise HTTPException(404, str(e)) from None
-        except NotReady as e:
-            return not_ready(e)
-        except ControlError as e:
-            raise HTTPException(400, str(e)) from None
+        body = await read_body(request)
+        params = body.get("params")
+        return core.submit(model_id_of(body), {} if params is None else params)
 
     @api.get("/api/jobs/{job_id}")
     async def job(job_id: str):
@@ -376,18 +435,19 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
 
     @api.post("/api/jobs/{job_id}/cancel")
     async def cancel(job_id: str):
-        return {"ok": await core.cancel(job_id)}
+        await core.cancel(job_id)
+        return {"ok": True}
 
     @api.post("/api/jobs/{job_id}/favorite")
     async def favorite(job_id: str, request: Request):
-        body = await request.json()
-        core.db.update(job_id, favorite=int(bool(body.get("favorite"))))
-        core._emit_job(job_id)
+        body = await read_body(request)
+        core.favorite(job_id, bool(body.get("favorite")))
         return {"ok": True}
 
     @api.delete("/api/jobs/{job_id}")
     async def delete(job_id: str):
-        return {"ok": core.delete_job(job_id)}
+        core.delete_job(job_id)
+        return {"ok": True}
 
     def output_path(job_id: str, n: int) -> Path:
         found = core.db.get(job_id)
@@ -520,7 +580,7 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
 
     @api.patch("/api/settings")
     async def patch_settings(request: Request):
-        body = await request.json()
+        body = await read_body(request)
         if "gpu" in body and body["gpu"] != core.settings.gpu:
             try:
                 await core.set_gpu(str(body["gpu"] or ""))
@@ -546,7 +606,7 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
 
     @api.post("/api/settings/linked-dirs")
     async def linked_dirs(request: Request):
-        body = await request.json()
+        body = await read_body(request)
         dirs = [str(d) for d in body.get("dirs") or []]
         missing = [d for d in dirs if not Path(d).is_dir()]
         if missing:
@@ -561,7 +621,7 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
 
     @api.put("/api/credentials/huggingface")
     async def set_hf_token(request: Request):
-        body = await request.json()
+        body = await read_body(request)
         token = (body.get("token") or "").strip()
         if not token.startswith("hf_"):
             raise HTTPException(400, "Hugging Face tokens start with hf_.")
@@ -599,7 +659,7 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
 
     @api.post("/api/lan")
     async def lan_set(request: Request):
-        body = await request.json()
+        body = await read_body(request)
         enabled = bool(body.get("enabled"))
         settings.update(core.settings, {"lan_enabled": enabled})
         if enabled:

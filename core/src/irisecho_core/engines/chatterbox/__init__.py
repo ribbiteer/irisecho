@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from irisecho_core import paths
+from irisecho_core import controls, paths
 from irisecho_core.engines import audioformat, uvenv
 from irisecho_core.engines.acestep import group_root
 from irisecho_core.engines.base import RunContext
@@ -117,7 +117,7 @@ class ChatterboxEngine(WorkerEngine):
         variant = ctx.model.settings.get("variant", "classic")
         group = "chatterbox-turbo" if variant == "turbo" else "chatterbox"
         folder = group_root(ctx, group) / ("turbo" if variant == "turbo" else "classic")
-        takes = max(1, min(4, int(p.get("takes") or 1)))
+        takes = int(p.get("takes") or controls.declared(ctx.model.settings, "takes"))
         _, ext, fmt = audioformat.pick(p)
         await self.call(
             ctx, "load", {"variant": variant, "dir": str(folder), "device": self.device()}

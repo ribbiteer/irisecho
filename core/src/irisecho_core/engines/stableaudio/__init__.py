@@ -10,6 +10,7 @@ from pathlib import Path
 
 import httpx
 
+from irisecho_core import controls
 from irisecho_core.engines import audioformat, audiosource, uvenv
 from irisecho_core.engines.acestep import group_root
 from irisecho_core.engines.base import RunContext
@@ -109,8 +110,8 @@ class StableAudioEngine(WorkerEngine):
         prompt = (p.get("prompt") or "").strip()
         if not prompt:
             raise ValueError("Describe the sound.")
-        takes = max(1, min(4, int(p.get("takes") or 3)))
-        seconds = max(0.5, min(30.0, float(p.get("duration") or 3)))
+        takes = int(p.get("takes") or controls.declared(ctx.model.settings, "takes"))
+        seconds = float(p.get("duration") or controls.declared(ctx.model.settings, "duration"))
         root = group_root(ctx, "sa3-sfx") / "small-sfx"
         _, ext, fmt = audioformat.pick(p)
         await self.call(ctx, "load", {"root": str(root), "device": self.device()})

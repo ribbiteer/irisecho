@@ -13,7 +13,7 @@ import os
 import re
 import struct
 from collections import Counter
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 # Families a model can declare in its `loras` control.
 FAMILIES = ("flux", "zimage", "wan14b", "qwen-image", "qwen-image-21", "ltx", "sd")
@@ -171,15 +171,17 @@ def scan(dirs: list[Path]) -> list[dict]:
 
 def resolve(dirs: list[Path], name: str, family: str) -> str:
     """Check that a job's add-on exists in the add-on folders and fits; returns its name."""
-    if (
-        not isinstance(name, str)
-        or not name
-        or ".." in Path(name).parts
-        or Path(name).is_absolute()
-    ):
+    if not isinstance(name, str) or not name:
         raise LoraError("That add-on file name cannot be used.")
+    # Judged as both kinds of path: "C:x" and "/x" are not absolute on Windows yet leave the folder.
+    for flavour in (PurePosixPath(name), PureWindowsPath(name)):
+        if ".." in flavour.parts or flavour.is_absolute() or flavour.drive or flavour.root:
+            raise LoraError("That add-on file name cannot be used.")
     for root in dirs:
         path = root / name
+        inside = os.path.abspath(path)
+        if os.path.commonpath([inside, os.path.abspath(root)]) != os.path.abspath(root):
+            continue
         if path.is_file() and path.suffix.lower() == ".safetensors":
             fam = describe(path)["family"]
             if fam not in (family, "unknown"):

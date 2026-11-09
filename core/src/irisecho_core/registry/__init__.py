@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 import posixpath
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from functools import lru_cache
 from pathlib import Path
 
@@ -82,6 +82,23 @@ class Variant:
         return all(getattr(hw, key, None) == value for key, value in self.when.items())
 
 
+# What a model's `kind` and `engine` may be, and the params its `settings.limits` may bound.
+KINDS = (
+    "image",
+    "edit",
+    "upscale",
+    "video",
+    "video-upscale",
+    "model3d",
+    "views3d",
+    "voice",
+    "clone",
+    "music",
+    "sfx",
+    "prompt",
+)
+ENGINES = ("comfy", "ace-step", "stable-audio", "chatterbox", "kokoro", "prompt-writer")
+LIMITED = ("takes", "duration", "seconds")
 CONTROL_TYPES = ("int", "float", "choice", "bool", "text", "loras")
 
 
@@ -141,6 +158,26 @@ def _control(model_id: str, raw: dict) -> Control:
         if (c.min is not None and c.default < c.min) or (c.max is not None and c.default > c.max):
             raise ValueError(f"model {model_id}: control {c.name} default is outside its range")
     return c
+
+
+def _check_limits(model_id: str, limits) -> None:
+    """`settings.limits`: {takes|duration|seconds: {min, max, default}}, each a plain range."""
+    if limits is None:
+        return
+    if not isinstance(limits, dict):
+        raise ValueError(f"model {model_id}: limits must be a map")
+    for name, lim in limits.items():
+        if name not in LIMITED:
+            raise ValueError(f"model {model_id}: limits has unknown entry {name}")
+        nums = [lim.get(k) for k in ("min", "max", "default")] if isinstance(lim, dict) else []
+        if len(nums) != 3 or not all(
+            isinstance(n, int | float) and not isinstance(n, bool) for n in nums
+        ):
+            raise ValueError(
+                f"model {model_id}: limit {name} needs a number each for min, max, default"
+            )
+        if not nums[0] <= nums[2] <= nums[1]:
+            raise ValueError(f"model {model_id}: limit {name} needs min <= default <= max")
 
 
 @dataclass(frozen=True)
@@ -232,10 +269,25 @@ def load(path: Path = HERE / "models.yaml", lock_path: Path = HERE / "lock.json"
         if "paths" in entry:
             groups[fid] = tuple(ids)
 
+    when_keys = {f.name for f in fields(Hardware)} | {
+        n for n, v in vars(Hardware).items() if isinstance(v, property)
+    }
     models = {}
     for mid, m in raw["models"].items():
         if m["license"] not in licenses:
             raise ValueError(f"model {mid} uses unknown license {m['license']}")
+        if m["kind"] not in KINDS:
+            raise ValueError(f"model {mid} has unknown kind {m['kind']}")
+        if m["engine"] not in ENGINES:
+            raise ValueError(f"model {mid} uses unknown engine {m['engine']}")
+        for v in m["variants"]:
+            unknown = set(v.get("when") or {}) - when_keys
+            if unknown:
+                raise ValueError(
+                    f"model {mid} has a variant that tests {', '.join(sorted(unknown))}, "
+                    "which is not something the hardware reports"
+                )
+        _check_limits(mid, (m.get("settings") or {}).get("limits"))
         variants = tuple(
             Variant(
                 when=v.get("when") or {},
