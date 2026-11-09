@@ -184,6 +184,7 @@ between shells, so a body file and `-` is the dependable way.
 |---|---|
 | `GET /api/models` | every model: `id`, `kind`, `ready`, `needs`, license, voices under `options` |
 | `POST /api/models/{id}/prepare` | install and download what a model needs |
+| `POST /api/models/{id}/verify` | re-hash a model's files against their recorded hashes: per file `ok`, `wrong_hash` or `missing`; changes nothing, and reads several GB, so it takes a while |
 | `POST /api/jobs` with `{"model", "params"}` | queue a job; 409 with `needs` if the model is not ready |
 | `GET /api/jobs/{id}` | `status` (`queued`, `running`, `done`, `failed`, `cancelled`, `interrupted`), `progress`, `message`, `error`, `outputs` |
 | `GET /api/jobs?q=fox&kind=image&limit=20` | search what has been made |

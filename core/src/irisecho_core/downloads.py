@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,6 +31,20 @@ from irisecho_core.store import Hasher, Store
 CHUNK = 1 << 20
 PARALLEL = 2
 USER_AGENT = "IrisEcho (+https://github.com/ribbiteer/irisecho)"
+# Seconds to wait before each new try after a dropped connection or a 5xx.
+RETRY_DELAYS = (2.0, 5.0, 15.0)
+
+
+class _StartOver(Exception):
+    """The host cannot resume from the bytes we have: discard them and fetch again."""
+
+
+class _Stopped(OSError):
+    """The stream ended before the whole file arrived."""
+
+
+def _gb(n: int) -> str:
+    return f"{n / (1 << 30):.1f} GB"
 
 
 @dataclass
@@ -42,6 +57,7 @@ class Download:
     error: str = ""
     page: str = ""
     _task: asyncio.Task | None = field(default=None, repr=False)
+    _digest: Hasher | None = field(default=None, repr=False)  # of the bytes in the .part file
 
     def public(self) -> dict:
         return {
@@ -98,6 +114,14 @@ class DownloadManager:
             return True
         return False
 
+    async def cancel_and_wait(self, file_id: str) -> None:
+        """Cancel, then wait until the task has let go of its files."""
+        d = self.items.get(file_id)
+        task = d._task if d else None
+        if task and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
     async def move_to(self, root: Path) -> None:
         """Download into another models folder from now on.
 
@@ -132,7 +156,12 @@ class DownloadManager:
             code = e.response.status_code
             if code == 401:
                 d.state = "needs_token"
-                d.error = "This model needs a Hugging Face account token."
+                if credentials.get():
+                    d.error = (
+                        "Hugging Face did not accept your account token. Check it, then retry."
+                    )
+                else:
+                    d.error = "This model needs a Hugging Face account token."
             elif code == 403:
                 d.state = "needs_access"
                 d.error = "Accept this model's terms on its Hugging Face page, then retry."
@@ -150,15 +179,64 @@ class DownloadManager:
         part = self.store.part_path(spec)
         part.parent.mkdir(parents=True, exist_ok=True)
 
-        digest = Hasher(spec)
+        d._digest = None
+        retries = 0
+        while True:
+            try:
+                await self._transfer(spec, d, part)
+                break
+            except _StartOver:
+                part.unlink(missing_ok=True)
+                d._digest = None
+                d.done = 0
+                continue
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code < 500 or retries >= len(RETRY_DELAYS):
+                    raise
+            except (httpx.TransportError, _Stopped):
+                if retries >= len(RETRY_DELAYS):
+                    raise
+            # What arrived stays in the .part file and the next try resumes from it.
+            d.speed = 0
+            self._emit(d)
+            await asyncio.sleep(RETRY_DELAYS[retries])  # a cancel ends the wait
+            retries += 1
+
+        d.state = "verifying"
+        self._emit(d)
+        if not d._digest.ok():
+            part.unlink(missing_ok=True)
+            raise ValueError("the file did not match its expected hash and was discarded")
+        os.replace(part, final)
+        d.state = "done"
+        d.speed = 0
+        self._emit(d)
+
+    async def _transfer(self, spec: FileSpec, d: Download, part: Path) -> None:
+        """One try at getting the rest of the file into `part`, from whatever is there."""
         offset = part.stat().st_size if part.exists() else 0
         if offset > spec.size:
             part.unlink()
             offset = 0
-        if offset:
-            d.state = "verifying"
-            self._emit(d)
-            await asyncio.to_thread(_hash_into, part, digest)
+        digest = d._digest if offset and offset == d.done else None  # kept from an earlier try
+        if digest is None:
+            digest = Hasher(spec)
+            if offset:
+                d.state = "verifying"
+                self._emit(d)
+                await asyncio.to_thread(_hash_into, part, digest)
+        d._digest = digest
+        d.done = offset
+        if offset == spec.size:
+            return  # all of it is here (stopped before the rename): check it, no request
+
+        need = spec.size - offset
+        free = shutil.disk_usage(part.parent).free
+        if free < need:
+            raise OSError(
+                f"Not enough free space: this file needs {_gb(need)} more and "
+                f"the drive has {_gb(free)} free."
+            )
 
         headers = {"User-Agent": USER_AGENT}
         token = credentials.get()
@@ -168,7 +246,6 @@ class DownloadManager:
             headers["Range"] = f"bytes={offset}-"
 
         d.state = "downloading"
-        d.done = offset
         self._emit(d)
         throttle = Throttle(0.3)
         window_start, window_bytes = time.monotonic(), 0
@@ -178,10 +255,13 @@ class DownloadManager:
             follow_redirects=True, timeout=httpx.Timeout(30, read=120)
         ) as client:
             async with client.stream("GET", spec.url, headers=headers) as resp:
+                if offset and resp.status_code == 416:
+                    raise _StartOver  # the bytes we hold do not fit what the host has
                 resp.raise_for_status()
                 if offset and resp.status_code != 206:
                     # The server ignored the range; start over.
                     offset, digest = 0, Hasher(spec)
+                    d._digest = digest
                     d.done = 0
                 mode = "ab" if offset else "wb"
                 with open(part, mode) as f:
@@ -198,16 +278,7 @@ class DownloadManager:
                             self._emit(d)
 
         if d.done != spec.size:
-            raise OSError(f"download stopped at {d.done} of {spec.size} bytes; retry to resume")
-        d.state = "verifying"
-        self._emit(d)
-        if not digest.ok():
-            part.unlink(missing_ok=True)
-            raise ValueError("the file did not match its expected hash and was discarded")
-        os.replace(part, final)
-        d.state = "done"
-        d.speed = 0
-        self._emit(d)
+            raise _Stopped(f"download stopped at {d.done} of {spec.size} bytes; retry to resume")
 
 
 def _hash_into(path, digest) -> None:

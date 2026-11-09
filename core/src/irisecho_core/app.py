@@ -33,6 +33,10 @@ class NotReady(Exception):
         self.needs = needs
 
 
+class FileInUse(Exception):
+    """A model file could not be deleted because another program has it open."""
+
+
 class Busy(Exception):
     """A job is using the GPU."""
 
@@ -203,10 +207,11 @@ class App:
         self.downloads.request(self.registry.model_files(model, self.hw))
         return self.model_status(model)
 
-    def remove_model(self, model_id: str) -> int:
+    async def remove_model(self, model_id: str) -> int:
         """Delete a model's downloaded files that no other ready model still uses.
 
-        Files in linked folders are never touched. Returns the bytes freed.
+        Files in linked folders are never touched. Returns the bytes freed. A
+        file another program holds open is left and reported with FileInUse.
         """
         model = self.model(model_id)
         mine = self.registry.model_files(model, self.hw)
@@ -218,16 +223,33 @@ class App:
             if files and self.store.all_ready(files):
                 shared.update(f.id for f in files)
         freed = 0
+        in_use: list[str] = []
         for spec in mine:
             if spec.id in shared:
                 continue
-            self.downloads.cancel(spec.id)
-            if self.store.status(spec).state in ("ready", "partial"):
-                freed += self.store.status(spec).have
-                self.store.remove(spec)
+            await self.downloads.cancel_and_wait(spec.id)  # it holds the .part file open
+            have = self.store.status(spec)
+            try:
+                if have.state in ("ready", "partial"):
+                    self.store.remove(spec)
+                    freed += have.have
+            except OSError:
+                in_use.append(spec.filename)
             self.downloads.items.pop(spec.id, None)
         self.bus.publish("models", {})
+        if in_use:
+            raise FileInUse(
+                f"{', '.join(in_use)} is in use by another program. Close it and try again."
+            )
         return freed
+
+    async def verify_model(self, model_id: str) -> list[dict]:
+        """Check each of a model's files against its recorded hash. Changes nothing."""
+        model = self.model(model_id)
+        return [
+            await asyncio.to_thread(self.store.verify, spec)
+            for spec in self.registry.model_files(model, self.hw)
+        ]
 
     # --- engines -----------------------------------------------------------
 

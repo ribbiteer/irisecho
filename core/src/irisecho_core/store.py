@@ -126,7 +126,7 @@ class Store:
         if own.is_file() and own.stat().st_size == spec.size:
             return own
         link = self.links.get(spec.id)
-        if link:
+        if link and not spec.no_link:  # a file the engine writes beside must never be a linked one
             p = Path(link["path"])
             try:
                 st = p.stat()
@@ -382,13 +382,49 @@ class Store:
     # --- housekeeping -----------------------------------------------------
 
     def remove(self, spec: FileSpec) -> bool:
-        """Delete our own copy (never a linked file)."""
+        """Delete our own copy (never a linked file).
+
+        A file another program holds open (Windows) raises OSError once the
+        others have been tried.
+        """
         removed = False
+        failure: OSError | None = None
         for p in (self.own_path(spec), self.part_path(spec)):
             if p.is_file():
-                p.unlink()
-                removed = True
+                try:
+                    p.unlink()
+                    removed = True
+                except OSError as e:
+                    failure = failure or e
+        if failure:
+            raise failure
         return removed
+
+    def verify(self, spec: FileSpec, progress: Callable[[int], None] | None = None) -> dict:
+        """Hash one model file against the registry's pin. Reads only, never deletes or repairs.
+
+        `state` is "ok", "wrong_hash", "missing" or "unpinned" (the registry has no
+        hash for it). A file in a linked folder is checked the same way and left alone.
+        """
+        own = self.own_path(spec)
+        found = own if own.is_file() else self.locate(spec)
+        out = {"id": spec.id, "state": "missing", "path": "", "linked": False}
+        if found is None:
+            return out
+        out["path"] = str(found)
+        out["linked"] = found != own
+        if not spec.pinned:
+            out["state"] = "unpinned"
+        elif found.stat().st_size != spec.size:
+            out["state"] = "wrong_hash"
+        else:
+            try:
+                ok = file_matches(found, spec, progress)
+            except OSError:
+                out["state"] = "missing"  # gone or unreadable right now
+                return out
+            out["state"] = "ok" if ok else "wrong_hash"
+        return out
 
 
 def _walk(root: Path, depth: int):

@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
+import dataclasses
 import hashlib
+
+import pytest
 
 from irisecho_core.registry import FileSpec
 from irisecho_core.store import file_matches
@@ -161,3 +164,90 @@ def test_scan_leaves_different_files_of_the_same_size_alone(tmp_path, monkeypatc
     store = Store(reg, tmp_path / "own", [str(folder)])
     assert store.scan_links() == {}
     assert store.status(s).state == "missing"
+
+
+def test_a_stale_link_entry_is_not_used_for_a_no_link_file(tmp_path, monkeypatch):
+    from irisecho_core.registry import Registry
+    from irisecho_core.store import Store
+
+    monkeypatch.setenv("IRISECHO_HOME", str(tmp_path / "home"))
+    data = b"weights" * 100
+    linked = tmp_path / "models" / "other.safetensors"
+    linked.parent.mkdir()
+    linked.write_bytes(data)
+    s = spec(data, id="f", category="c", sha256=hashlib.sha256(data).hexdigest(), no_link=True)
+    store = Store(Registry(licenses={}, files={"f": s}, groups={}, models={}), tmp_path / "own", [])
+    store.links["f"] = {"path": str(linked), "category": "c", "mtime": linked.stat().st_mtime_ns}
+    assert store.locate(s) is None
+    assert store.status(s).state == "missing"
+    ordinary = dataclasses.replace(s, no_link=False)
+    assert store.locate(ordinary) == linked  # the same entry does resolve for an ordinary file
+
+
+def test_remove_tries_every_file_then_reports_the_one_in_use(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from irisecho_core.registry import Registry
+    from irisecho_core.store import Store
+
+    monkeypatch.setenv("IRISECHO_HOME", str(tmp_path / "home"))
+    data = b"abc"
+    s = spec(data, id="f", category="c")
+    store = Store(Registry(licenses={}, files={"f": s}, groups={}, models={}), tmp_path / "own")
+    own, part = store.own_path(s), store.part_path(s)
+    own.parent.mkdir(parents=True)
+    own.write_bytes(data)
+    part.write_bytes(b"ab")
+    real = Path.unlink
+
+    def unlink(self, *a, **kw):
+        if self == part:
+            raise PermissionError("in use")
+        return real(self, *a, **kw)
+
+    monkeypatch.setattr(Path, "unlink", unlink)
+    with pytest.raises(OSError):
+        store.remove(s)
+    assert not own.exists() and part.exists()
+
+
+def _verify_store(tmp_path, monkeypatch, data: bytes, linked_dir=None):
+    from irisecho_core.registry import Registry
+    from irisecho_core.store import Store
+
+    monkeypatch.setenv("IRISECHO_HOME", str(tmp_path / "home"))
+    s = spec(data, id="f", category="c", sha256=hashlib.sha256(data).hexdigest())
+    reg = Registry(licenses={}, files={"f": s}, groups={}, models={})
+    return Store(reg, tmp_path / "own", [str(linked_dir)] if linked_dir else []), s
+
+
+def test_verify_reports_ok_wrong_hash_and_missing(tmp_path, monkeypatch):
+    data = b"weights" * 100
+    store, s = _verify_store(tmp_path, monkeypatch, data)
+    assert store.verify(s)["state"] == "missing"
+    own = store.own_path(s)
+    own.parent.mkdir(parents=True)
+    own.write_bytes(data)
+    assert store.verify(s) == {"id": "f", "state": "ok", "path": str(own), "linked": False}
+    own.write_bytes(b"x" * len(data))  # same size, other bytes
+    assert store.verify(s)["state"] == "wrong_hash"
+    assert own.read_bytes() == b"x" * len(data)  # reported, not deleted or repaired
+    own.write_bytes(b"short")
+    assert store.verify(s)["state"] == "wrong_hash"
+
+
+def test_verify_of_a_linked_file_only_reads_it(tmp_path, monkeypatch):
+    data = b"weights" * 100
+    folder = tmp_path / "models"
+    folder.mkdir()
+    other = folder / "mine.safetensors"
+    other.write_bytes(data)
+    store, s = _verify_store(tmp_path, monkeypatch, data, folder)
+    store.scan_links()
+    result = store.verify(s)
+    assert result["state"] == "ok" and result["linked"] and result["path"] == str(other)
+    other.write_bytes(b"x" * len(data))
+    store.links["f"]["mtime"] = other.stat().st_mtime_ns  # still resolves, now with bad bytes
+    assert store.verify(s)["state"] == "wrong_hash"
+    assert other.read_bytes() == b"x" * len(data)
+    assert not store.own_path(s).exists() and not store.part_path(s).exists()

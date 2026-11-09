@@ -47,7 +47,7 @@ from irisecho_core import (
     presets,
     settings,
 )
-from irisecho_core.app import App, Busy, NotReady
+from irisecho_core.app import App, Busy, FileInUse, NotReady
 from irisecho_core.controls import ControlError
 
 WEB = Path(__file__).parent / "web"
@@ -291,7 +291,16 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
     @api.delete("/api/models/{model_id}/files")
     async def remove_model(model_id: str):
         try:
-            return {"freed": core.remove_model(model_id)}
+            return {"freed": await core.remove_model(model_id)}
+        except KeyError as e:
+            raise HTTPException(404, str(e)) from None
+        except FileInUse as e:
+            raise HTTPException(409, str(e)) from None
+
+    @api.post("/api/models/{model_id}/verify")
+    async def verify_model(model_id: str):
+        try:
+            return await core.verify_model(model_id)
         except KeyError as e:
             raise HTTPException(404, str(e)) from None
 
