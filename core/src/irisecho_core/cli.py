@@ -37,9 +37,13 @@ import webbrowser
 from dataclasses import asdict
 from pathlib import Path
 
-from irisecho_core import __version__, paths, platform_support
+from irisecho_core import __version__, instance, paths, platform_support
+from irisecho_core.instance import InstanceRunning
 
 DEFAULT_PORT = 7788
+# How long a command waits for an IrisEcho that holds the data folder to answer.
+# One that is just starting, or busy for a moment, does within this.
+ANSWER_WAIT = 15.0
 
 
 def human(n: float) -> str:
@@ -53,14 +57,22 @@ def human(n: float) -> str:
 # --- server & window --------------------------------------------------------
 
 
-def free_port(preferred: int) -> int:
-    for port in (preferred, 0):
+def free_port(preferred: int, strict: bool = False) -> int:
+    """`preferred` if it is free, else any free port; with `strict`, an error instead.
+
+    Whoever named a port will look for the server there and nowhere else."""
+    for port in (preferred,) if strict else (preferred, 0):
         with socket.socket() as s:
             try:
                 s.bind(("127.0.0.1", port))
                 return s.getsockname()[1]
             except OSError:
                 continue
+    if strict:
+        raise CliError(
+            f"Port {preferred} is already in use. "
+            "Close what is using it, or start IrisEcho on another port."
+        )
     raise RuntimeError("no free port")
 
 
@@ -131,8 +143,25 @@ def cmd_serve(args) -> int:
     if args.stdin_watch:
         watch_stdin()
 
-    port = free_port(args.port)
+    named = args.port if args.port is not None else os.environ.get("IRISECHO_PORT")
+    port = free_port(DEFAULT_PORT if named is None else int(named), strict=named is not None)
     api = create_app()
+    try:
+        # Before server.json is written: it belongs to the IrisEcho that is running.
+        api.state.core.claim()
+    except InstanceRunning as e:
+        remote = running_app()  # says so itself when that one does not answer
+        if remote is None:
+            raise CliError(str(e)) from None
+        url = str(remote.http.base_url)
+        if args.open:
+            print(f"IrisEcho is already running on {url}", flush=True)
+            open_window(url)
+            return 0
+        raise CliError(
+            f"IrisEcho is already running on {url} with this data folder "
+            f"({paths.data_dir()}). Use that one, or close it first."
+        ) from None
     write_server_info(port, api.state.token)
     with contextlib.suppress(OSError):
         guide.write()  # this installation's own copy, for agents pointed at the data folder
@@ -289,18 +318,24 @@ class Remote:
         )
 
     @classmethod
-    def find(cls) -> Remote | None:
-        """The app running on this data folder, if it answers to the token it wrote down."""
+    def look(cls) -> tuple[Remote | None, str]:
+        """The app running on this data folder, or why there is none to talk to:
+        "silent" (nothing answered) or "refused" (something did, but not to the
+        token written down)."""
         import httpx
 
         try:
             info = json.loads((paths.data_dir() / "server.json").read_text(encoding="utf-8"))
             remote = cls(int(info["port"]), str(info["token"]))
-            if remote.http.get("/api/system", timeout=2).status_code == 200:
-                return remote
+            status = remote.http.get("/api/system", timeout=2).status_code
         except (OSError, ValueError, KeyError, TypeError, httpx.HTTPError):
-            pass
-        return None
+            return None, "silent"
+        return (remote, "") if status == 200 else (None, "refused")
+
+    @classmethod
+    def find(cls) -> Remote | None:
+        """The app running on this data folder, if it answers to the token it wrote down."""
+        return cls.look()[0]
 
     def call(self, method: str, path: str, body=None):
         r = self.http.request(method, path, json=body)
@@ -387,16 +422,48 @@ def license_notice(model: dict) -> str:
     )
 
 
+def running_app() -> Remote | None:
+    """The IrisEcho running on this data folder; None when there is none.
+
+    The lock on the data folder tells "not running" from "running, but slow or
+    not answering": a held lock means there is one, and it is waited for. A
+    command never starts engines of its own beside it."""
+    remote, why = Remote.look()
+    if remote is not None or not instance.held(paths.data_dir()):
+        return remote
+    deadline = time.monotonic() + ANSWER_WAIT
+    while remote is None and time.monotonic() < deadline:
+        time.sleep(0.5)
+        remote, why = Remote.look()
+    if remote is None:
+        detail = (
+            "It answered, but not to the token in server.json."
+            if why == "refused"
+            else "Another irisecho command may be working there, or the app is "
+            "still starting or has stopped responding."
+        )
+        raise CliError(
+            f"IrisEcho is already running on this data folder ({paths.data_dir()}) "
+            f"but does not answer. {detail}\n"
+            "Wait for it to finish, or close it, then try again."
+        )
+    return remote
+
+
 def with_backend(fn) -> int:
     """Run `fn(backend)` against the running app if there is one, else in this process."""
-    remote = Remote.find()
+    remote = running_app()
     if remote is not None:
         return asyncio.run(fn(remote))
 
     async def go(app):
         return await fn(Local(app))
 
-    return asyncio.run(with_app(go))
+    try:
+        return asyncio.run(with_app(go))
+    except InstanceRunning as e:
+        # One started between the look above and here.
+        raise CliError(str(e)) from None
 
 
 async def run_jobs(
@@ -638,7 +705,7 @@ def api_path(text: str) -> str:
 
 
 def cmd_api(args) -> int:
-    remote = Remote.find()
+    remote = running_app()
     if remote is None:
         print(
             "IrisEcho is not running. Open the app, or start it with: irisecho serve",
@@ -1004,7 +1071,11 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command")
 
     p = sub.add_parser("serve", help="run the local server")
-    p.add_argument("--port", type=int, default=int(os.environ.get("IRISECHO_PORT", DEFAULT_PORT)))
+    p.add_argument(
+        "--port",
+        type=int,
+        help=f"fail if it is taken (default: {DEFAULT_PORT}, or a free one when that is taken)",
+    )
     p.add_argument("--open", action=argparse.BooleanOptionalAction, default=False)
     p.add_argument("--stdin-watch", action="store_true", help="exit when stdin closes")
     p.set_defaults(fn=cmd_serve)

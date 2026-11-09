@@ -40,6 +40,13 @@ app: jobs join the same queue, appear in the window, and share the one model
 held on the GPU. If it is not open, the command starts the engines itself and
 stops them when it finishes. You do not choose; both behave the same.
 
+Only one IrisEcho works on a data folder at a time. A command that finds one
+running but gets no answer within 15 seconds (another command is still working
+on its own, or the app is starting or stuck) stops with `IrisEcho is already
+running on this data folder ... but does not answer` and exit code 1: wait and
+run it again, do not look for a way around it. `irisecho serve --port N` fails
+when port N is taken instead of picking another.
+
 Jobs run one at a time. Switching between engines (say, from pictures to
 speech) unloads one model and loads another, which costs 10 to 40 seconds each
 way, so batch by kind: all the pictures, then all the voice lines. Give several

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import sys
 import threading
 import traceback
@@ -71,10 +72,49 @@ def torch_device(asked: str) -> str:
     return asked
 
 
+def _requests():
+    """The lines the core sends, read on a thread of their own.
+
+    The core holds the other end of stdin for as long as it lives. A handler can
+    run for minutes, and the loop below reads nothing meanwhile; this thread
+    does, so a worker whose core is gone ends at once, not when its job does.
+
+    The pipe is moved off stdin first, and stdin pointed at the null device:
+    on Windows a program started from a handler hangs while starting if its
+    stdin is a pipe that this thread is blocked reading.
+    """
+    lifeline = os.fdopen(os.dup(0), "r", encoding="utf-8")
+    null = os.open(os.devnull, os.O_RDONLY)
+    os.dup2(null, 0)
+    os.close(null)
+    inbox: queue.Queue[str | None] = queue.Queue()
+    left = threading.Event()
+
+    def read() -> None:
+        try:
+            for raw in lifeline:
+                inbox.put(raw)
+        except (OSError, ValueError):
+            pass
+        inbox.put(None)
+        # An idle worker takes that and returns from `serve`; one inside a
+        # handler cannot, and nobody is left to read what it would make.
+        if not left.wait(2):
+            os._exit(0)
+
+    threading.Thread(target=read, daemon=True, name="irisecho-requests").start()
+    while True:
+        raw = inbox.get()
+        if raw is None:
+            left.set()
+            return
+        yield raw
+
+
 def serve(handlers: dict[str, Handler]) -> None:
     _claim_stdout()
     send({"event": "ready", "pid": os.getpid()})
-    for raw in sys.stdin:
+    for raw in _requests():
         raw = raw.strip()
         if not raw:
             continue

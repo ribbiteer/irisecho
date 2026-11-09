@@ -15,7 +15,7 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 
-from irisecho_core import controls, hardware, metadata, paths, registry, settings
+from irisecho_core import controls, hardware, instance, metadata, paths, registry, settings
 from irisecho_core.db import HIDDEN_KINDS, Database
 from irisecho_core.downloads import DownloadManager
 from irisecho_core.engines import build_engines
@@ -63,10 +63,21 @@ class App:
         self.loaded_model: str | None = None
         self._gpu = asyncio.Lock()  # held while a job runs or the GPU is being freed
         self._runner: asyncio.Task | None = None
+        self._instance: instance.InstanceLock | None = None
 
     # --- lifecycle ---------------------------------------------------------
 
+    def claim(self) -> None:
+        """Take the data folder for this App, or raise InstanceRunning.
+
+        Held until `stop`, or until the process ends. `start` does it; the server
+        does it sooner, before it writes down where it can be reached."""
+        if self._instance is None:
+            self._instance = instance.acquire(paths.data_dir())
+
     async def start(self) -> None:
+        # First: the queued and running jobs below are another App's if one is running.
+        self.claim()
         self.bus.bind(asyncio.get_running_loop())
         self.db.interrupted()
         self._runner = asyncio.create_task(self._run_queue())
@@ -88,6 +99,9 @@ class App:
                 await engine.shutdown()
             except Exception:
                 pass
+        if self._instance:
+            self._instance.release()
+            self._instance = None
 
     # --- models ------------------------------------------------------------
 

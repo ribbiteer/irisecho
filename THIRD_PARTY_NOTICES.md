@@ -52,6 +52,7 @@ versions shown when a model that needs them is first set up.
 | Component | License | Upstream |
 |---|---|---|
 | Tauri | MIT or Apache-2.0 | https://github.com/tauri-apps/tauri |
+| tauri-plugin-single-instance (a second launch shows the open window) | MIT or Apache-2.0 | https://github.com/tauri-apps/plugins-workspace |
 | Svelte | MIT | https://github.com/sveltejs/svelte |
 | Vite | MIT | https://github.com/vitejs/vite |
 | Lucide icons | ISC | https://github.com/lucide-icons/lucide |

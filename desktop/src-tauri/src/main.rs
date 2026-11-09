@@ -12,7 +12,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::fs::{self, OpenOptions};
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
-use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_opener::OpenerExt;
 
 #[cfg(windows)]
@@ -43,6 +43,8 @@ struct BootStatus {
 struct Shell {
     core: Mutex<Option<Child>>,
     status: Arc<Mutex<BootStatus>>,
+    /// Where the window began: the splash, to go back to when the core is lost.
+    splash: Mutex<Option<tauri::Url>>,
 }
 
 // --- paths -------------------------------------------------------------------
@@ -124,6 +126,25 @@ mod tests {
         assert!(new > old && ten > old && new > ten);
         assert_eq!(wheel_version("uv.exe"), None);
     }
+
+    #[test]
+    fn a_large_log_starts_over_and_its_end_can_be_quoted() {
+        use super::{log_tail, rotate_log, CORE_LOG_LIMIT};
+        let dir = std::env::temp_dir().join(format!("irisecho-shell-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("core.log");
+        let lines: Vec<String> = (0..20).map(|i| format!("line {i}\n")).collect();
+        std::fs::write(&log, lines.concat()).unwrap();
+        let tail = log_tail(&log);
+        assert!(tail.ends_with("line 19") && tail.lines().count() == 8);
+        rotate_log(&log);
+        assert!(log.exists() && !dir.join("core.log.1").exists());
+        std::fs::File::options().write(true).open(&log).unwrap().set_len(CORE_LOG_LIMIT).unwrap();
+        rotate_log(&log);
+        assert!(!log.exists() && dir.join("core.log.1").exists());
+        assert_eq!(log_tail(&log), "");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
 
 // --- status ------------------------------------------------------------------
@@ -172,6 +193,7 @@ fn uv_command(uv: &Path, data: &Path) -> Command {
 /// Run a command to completion, feeding its output to the splash screen.
 fn run_logged(cmd: &mut Command, status: &Arc<Mutex<BootStatus>>) -> Result<(), String> {
     let mut child = cmd
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -257,15 +279,53 @@ fn free_port() -> Result<u16, String> {
     Err("No free local port.".into())
 }
 
+const CORE_LOG_LIMIT: u64 = 5 * 1024 * 1024;
+
+fn core_log() -> PathBuf {
+    data_dir().join("logs").join("core.log")
+}
+
+/// Start the log over once it is large, keeping the one before as core.log.1.
+fn rotate_log(path: &Path) {
+    if fs::metadata(path).map(|m| m.len() >= CORE_LOG_LIMIT).unwrap_or(false) {
+        let mut old = path.as_os_str().to_owned();
+        old.push(".1");
+        let _ = fs::rename(path, PathBuf::from(old));
+    }
+}
+
+/// The last few lines of a log, for an error message.
+fn log_tail(path: &Path) -> String {
+    let Ok(mut file) = fs::File::open(path) else {
+        return String::new();
+    };
+    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let _ = file.seek(SeekFrom::Start(len.saturating_sub(4096)));
+    let mut bytes = Vec::new();
+    let _ = file.read_to_end(&mut bytes);
+    let text = String::from_utf8_lossy(&bytes);
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    lines[lines.len().saturating_sub(8)..].join("\n")
+}
+
+/// What to say when the core is gone or never came: where the log is, and how it ends.
+fn core_failure(what: &str) -> String {
+    let log = core_log();
+    format!("{what} Details are in {}.\n{}", log.display(), log_tail(&log))
+        .trim_end()
+        .to_string()
+}
+
 fn start_core(python: &Path, status: &Arc<Mutex<BootStatus>>) -> Result<(Child, u16), String> {
     set_status(status, "starting", "Starting IrisEcho");
     let port = free_port()?;
     let logs = data_dir().join("logs");
     fs::create_dir_all(&logs).map_err(|e| e.to_string())?;
+    rotate_log(&core_log());
     let log = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(logs.join("core.log"))
+        .open(core_log())
         .map_err(|e| e.to_string())?;
     let mut cmd = Command::new(python);
     cmd.args(["-m", "irisecho_core", "serve", "--port", &port.to_string(), "--stdin-watch"])
@@ -278,11 +338,9 @@ fn start_core(python: &Path, status: &Arc<Mutex<BootStatus>>) -> Result<(Child, 
 
     let deadline = Instant::now() + Duration::from_secs(90);
     while Instant::now() < deadline {
+        // The core takes the port it is given or stops: it never moves to another one.
         if let Ok(Some(code)) = child.try_wait() {
-            return Err(format!(
-                "IrisEcho stopped while starting ({code}). Details are in {}.",
-                logs.join("core.log").display()
-            ));
+            return Err(core_failure(&format!("IrisEcho stopped while starting ({code}).")));
         }
         if TcpStream::connect_timeout(&([127, 0, 0, 1], port).into(), Duration::from_millis(200)).is_ok() {
             return Ok((child, port));
@@ -290,7 +348,40 @@ fn start_core(python: &Path, status: &Arc<Mutex<BootStatus>>) -> Result<(Child, 
         thread::sleep(Duration::from_millis(150));
     }
     let _ = child.kill();
-    Err("IrisEcho took too long to start.".into())
+    let _ = child.wait();
+    Err(core_failure("IrisEcho took too long to start."))
+}
+
+/// Watch the running core. If it ends without having been asked to, the page
+/// in the window has nothing left to talk to: say so on the splash, where
+/// "Try again" and the logs are.
+fn watch_core(app: AppHandle, pid: u32) {
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_millis(500));
+        let shell = app.state::<Shell>();
+        let mut core = shell.core.lock().unwrap();
+        let code = match core.as_mut() {
+            Some(child) if child.id() == pid => match child.try_wait() {
+                Ok(None) => continue,
+                Ok(Some(code)) => code.to_string(),
+                Err(e) => e.to_string(),
+            },
+            // Stopped on purpose (stop_core took it), or another was started since.
+            _ => return,
+        };
+        *core = None;
+        drop(core);
+        set_status(
+            &shell.status,
+            "error",
+            &core_failure(&format!("IrisEcho stopped unexpectedly ({code}).")),
+        );
+        let splash = shell.splash.lock().unwrap().clone();
+        if let (Some(win), Some(url)) = (app.get_webview_window("main"), splash) {
+            let _ = win.navigate(url);
+        }
+        return;
+    });
 }
 
 fn boot(app: AppHandle) {
@@ -304,7 +395,9 @@ fn boot(app: AppHandle) {
         let result = ensure_runtime(&app, &status).and_then(|py| start_core(&py, &status));
         match result {
             Ok((child, port)) => {
+                let pid = child.id();
                 *shell.core.lock().unwrap() = Some(child);
+                watch_core(app.clone(), pid);
                 set_status(&status, "ready", "");
                 if let Some(win) = app.get_webview_window("main") {
                     let url = tauri::Url::parse(&format!("http://127.0.0.1:{port}/")).unwrap();
@@ -372,7 +465,22 @@ fn open_logs(app: AppHandle) -> Result<(), String> {
 }
 
 fn main() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    // A second launch brings the first one's window forward and ends. First
+    // among the plugins, so nothing else of the second launch gets to run.
+    // Not with IRISECHO_HOME: that is another IrisEcho with data of its own (a
+    // build being tried beside the installed app), and the lock on the data
+    // folder still keeps each folder to one core.
+    if std::env::var_os("IRISECHO_HOME").is_none() {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.unminimize();
+                let _ = win.show();
+                let _ = win.set_focus();
+            }
+        }));
+    }
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(Shell::default())
@@ -384,13 +492,30 @@ fn main() {
             open_logs
         ])
         .setup(|app| {
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("IrisEcho")
                 .inner_size(1440.0, 920.0)
                 .min_inner_size(1024.0, 680.0)
                 .background_color(tauri::window::Color(14, 11, 22, 255))
-                .build()?;
-            boot(app.handle().clone());
+                .build();
+            match window {
+                Ok(win) => {
+                    *app.state::<Shell>().splash.lock().unwrap() = win.url().ok();
+                    boot(app.handle().clone());
+                }
+                Err(e) => {
+                    // No window to say it in, and an error returned from here is a silent end.
+                    let handle = app.handle().clone();
+                    app.dialog()
+                        .message(format!(
+                            "IrisEcho could not open its window.\n{e}\n\nLogs are in {}.",
+                            data_dir().join("logs").display()
+                        ))
+                        .title("IrisEcho")
+                        .kind(MessageDialogKind::Error)
+                        .show(move |_| handle.exit(1));
+                }
+            }
             Ok(())
         })
         .build(tauri::generate_context!())
