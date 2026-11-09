@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import torch
-from irisecho_worker import Reporter, serve
+from irisecho_worker import Reporter, serve, torch_device
 from PIL import Image
 
 MAX_SIDE = 1024
@@ -13,9 +13,7 @@ state: dict = {"model": None, "processor": None, "key": None}
 
 
 def load(params: dict, report: Reporter) -> dict:
-    device = params["device"]
-    if device == "cuda" and not torch.cuda.is_available():
-        device = "cpu"
+    device = torch_device(params["device"])
     key = (params["dir"], device)
     if state["key"] == key:
         return {"device": device}

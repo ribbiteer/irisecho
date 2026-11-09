@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 import sys
+import time
 import uuid
 from collections import deque
 from collections.abc import Callable
@@ -14,10 +15,20 @@ from pathlib import Path
 
 from irisecho_core import hardware, paths
 from irisecho_core.engines import uvenv
-from irisecho_core.engines.base import Engine, EngineStartError, RunContext
+from irisecho_core.engines.base import (
+    Engine,
+    EngineLog,
+    EngineStartError,
+    RunContext,
+    output_lines,
+)
 
 PROTOCOL_DIR = Path(__file__).parent / "protocol"
 Progress = Callable[[float | None, str | None], None]
+# A call whose worker has sent nothing, neither progress nor a reply, for this long
+# is taken for hung. A healthy worker is silent for minutes while a large model loads
+# from a slow disk or one long step runs, so this is far above that.
+CALL_IDLE_TIMEOUT = 30 * 60.0
 
 
 class WorkerError(RuntimeError):
@@ -27,11 +38,20 @@ class WorkerError(RuntimeError):
 
 
 class WorkerProcess:
-    def __init__(self, name: str, python: Path, script: Path, env: dict[str, str] | None = None):
+    def __init__(
+        self,
+        name: str,
+        python: Path,
+        script: Path,
+        env: dict[str, str] | None = None,
+        idle_timeout: float = CALL_IDLE_TIMEOUT,
+    ):
         self.name = name
         self.python = python
         self.script = script
         self.env = env or {}
+        self.idle_timeout = idle_timeout
+        self._heard = 0.0  # when the worker last sent a protocol line
         self.proc: asyncio.subprocess.Process | None = None
         self.stderr_tail: deque[str] = deque(maxlen=60)
         self._pending: dict[str, tuple[asyncio.Future, Progress | None]] = {}
@@ -79,31 +99,45 @@ class WorkerProcess:
             raise
 
     async def _read_stdout(self) -> None:
-        assert self.proc and self.proc.stdout
-        async for raw in self.proc.stdout:
-            try:
-                msg = json.loads(raw)
-            except ValueError:
-                continue
-            event = msg.get("event")
-            if event == "ready":
-                if self._ready and not self._ready.done():
-                    self._ready.set_result(True)
-                continue
-            entry = self._pending.get(msg.get("id", ""))
-            if not entry:
-                continue
-            fut, on_progress = entry
-            if event == "progress" and on_progress:
-                on_progress(msg.get("progress"), msg.get("message"))
-            elif event == "result" and not fut.done():
-                fut.set_result(msg.get("data") or {})
-            elif event == "error" and not fut.done():
-                fut.set_exception(
-                    WorkerError(msg.get("message", "worker error"), msg.get("trace", ""))
-                )
-        # The process ended: fail everything still waiting.
-        err = WorkerError(self._exit_message())
+        proc = self.proc
+        assert proc and proc.stdout
+        err: WorkerError | None = None
+        try:
+            async for raw in proc.stdout:
+                try:
+                    msg = json.loads(raw)
+                except ValueError:
+                    continue
+                self._heard = time.monotonic()
+                event = msg.get("event")
+                if event == "ready":
+                    if self._ready and not self._ready.done():
+                        self._ready.set_result(True)
+                    continue
+                entry = self._pending.get(msg.get("id", ""))
+                if not entry:
+                    continue
+                fut, on_progress = entry
+                if event == "progress" and on_progress:
+                    on_progress(msg.get("progress"), msg.get("message"))
+                elif event == "result" and not fut.done():
+                    fut.set_result(msg.get("data") or {})
+                elif event == "error" and not fut.done():
+                    fut.set_exception(
+                        WorkerError(msg.get("message", "worker error"), msg.get("trace", ""))
+                    )
+        except Exception as e:
+            # For one, a line longer than the stream takes. The reply it carried is
+            # lost and nothing reads the next one, so the worker cannot be kept.
+            err = WorkerError(f"{self.name} sent something that could not be read ({e}).")
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
+        # The process ended: fail everything still waiting, once its last words are in.
+        others = [t for t in self._readers if t is not asyncio.current_task()]
+        if others:
+            await asyncio.wait(others, timeout=2)
+        err = err or WorkerError(self._exit_message())
         if self._ready and not self._ready.done():
             self._ready.set_exception(err)
         for fut, _ in self._pending.values():
@@ -112,16 +146,20 @@ class WorkerProcess:
 
     async def _read_stderr(self) -> None:
         assert self.proc and self.proc.stderr
-        with open(self.log_path, "a", encoding="utf-8") as log:
-            async for raw in self.proc.stderr:
-                line = raw.decode("utf-8", errors="replace").rstrip()
+        log = EngineLog(self.log_path)
+        try:
+            async for line in output_lines(self.proc.stderr):
                 self.stderr_tail.append(line)
-                log.write(line + "\n")
-                log.flush()
+                log.write(line)
+        finally:
+            log.close()
+
+    def _tail(self) -> str:
+        tail = [line for line in self.stderr_tail if line.strip()][-8:]
+        return "\n" + "\n".join(tail) if tail else ""
 
     def _exit_message(self) -> str:
-        tail = [line for line in self.stderr_tail if line.strip()][-8:]
-        return f"{self.name} stopped unexpectedly." + ("\n" + "\n".join(tail) if tail else "")
+        return f"{self.name} stopped unexpectedly." + self._tail()
 
     async def call(self, op: str, params: dict, on_progress: Progress | None = None) -> dict:
         if not self.alive:
@@ -130,10 +168,31 @@ class WorkerProcess:
         fut = asyncio.get_running_loop().create_future()
         self._pending[rid] = (fut, on_progress)
         assert self.proc and self.proc.stdin
-        self.proc.stdin.write((json.dumps({"id": rid, "op": op, "params": params}) + "\n").encode())
-        await self.proc.stdin.drain()
+        self._heard = time.monotonic()
         try:
-            return await fut
+            try:
+                self.proc.stdin.write(
+                    (json.dumps({"id": rid, "op": op, "params": params}) + "\n").encode()
+                )
+                await self.proc.stdin.drain()
+            except OSError as e:
+                # The worker is gone: what it last said explains more than "Broken pipe".
+                fut.cancel()
+                if self._readers:
+                    await asyncio.wait(self._readers, timeout=2)
+                await self.stop()
+                raise WorkerError(self._exit_message()) from e
+            while not fut.done():
+                quiet = time.monotonic() - self._heard
+                if quiet >= self.idle_timeout:
+                    fut.cancel()
+                    await self.stop()
+                    raise WorkerError(
+                        f"{self.name} reported nothing for {int(self.idle_timeout // 60)} minutes"
+                        " and was stopped." + self._tail()
+                    )
+                await asyncio.wait({fut}, timeout=self.idle_timeout - quiet)
+            return fut.result()
         finally:
             self._pending.pop(rid, None)
 
@@ -172,6 +231,8 @@ class WorkerEngine(Engine):
 
     python_version = "3.12"
     worker_script: Path
+    # An engine whose worker is rightly silent for longer sets its own.
+    idle_timeout = CALL_IDLE_TIMEOUT
 
     def __init__(self, hardware):
         super().__init__(hardware)
@@ -194,6 +255,7 @@ class WorkerEngine(Engine):
                 uvenv.venv_python(self.venv),
                 self.worker_script,
                 {**hardware.gpu_env(self.hw), **self.worker_env()},
+                self.idle_timeout,
             )
             try:
                 await self.worker.start()

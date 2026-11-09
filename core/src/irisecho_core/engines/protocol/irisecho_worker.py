@@ -54,6 +54,23 @@ class Reporter:
 Handler = Callable[[dict, Reporter], dict]
 
 
+def torch_device(asked: str) -> str:
+    """The device to load a model on: the one IrisEcho asked for, or an error.
+
+    IrisEcho asks for "cuda" only on a machine whose engines were installed for an
+    NVIDIA card. If PyTorch cannot use the card there, running on the processor
+    instead would take minutes to hours without a word about why."""
+    import torch  # every worker's environment has it; this file is imported without it too
+
+    if asked == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError(
+            "This engine cannot use the graphics card: its PyTorch "
+            f"({getattr(torch, '__version__', 'unknown')}) finds no CUDA device. "
+            "Update the NVIDIA driver, or reinstall this engine."
+        )
+    return asked
+
+
 def serve(handlers: dict[str, Handler]) -> None:
     _claim_stdout()
     send({"event": "ready", "pid": os.getpid()})

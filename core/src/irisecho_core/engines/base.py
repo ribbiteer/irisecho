@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -38,6 +39,63 @@ class RunContext:
 
 class EngineStartError(RuntimeError):
     """An engine's own process would not start, so every job waiting for it would fail too."""
+
+
+# An engine's log starts over past this size; the one before is kept beside it as .1.
+LOG_LIMIT = 16 << 20
+
+
+class EngineLog:
+    """An engine's log file, written by the task that drains the engine's output.
+
+    Writing never raises: a log that is locked, or on a full disk, must not end
+    the drain, or the engine blocks on its next print."""
+
+    def __init__(self, path: Path, limit: int = LOG_LIMIT):
+        self.path = path
+        self.limit = limit
+        self._file = None
+        self._size = 0
+
+    def write(self, line: str) -> None:
+        try:
+            if self._file is None:
+                self._file = open(self.path, "a", encoding="utf-8")
+                self._size = self.path.stat().st_size
+            if self._size >= self.limit:
+                self._file.close()
+                try:
+                    os.replace(self.path, self.path.with_name(self.path.name + ".1"))
+                except OSError:
+                    pass  # the old one is open somewhere; starting over still holds the limit
+                self._file = open(self.path, "w", encoding="utf-8")
+                self._size = 0
+            self._file.write(line + "\n")
+            self._file.flush()
+            self._size += len(line) + 1
+        except (OSError, ValueError):
+            self.close()
+
+    def close(self) -> None:
+        try:
+            if self._file is not None:
+                self._file.close()
+        except OSError:
+            pass
+        self._file = None
+
+
+async def output_lines(stream: asyncio.StreamReader):
+    """Each line an engine prints, as text, until its output ends. A line too long
+    for the reader is dropped rather than ending the drain."""
+    while True:
+        try:
+            raw = await stream.readline()
+        except ValueError:
+            continue
+        if not raw:
+            return
+        yield raw.decode("utf-8", errors="replace").rstrip()
 
 
 class Engine(ABC):

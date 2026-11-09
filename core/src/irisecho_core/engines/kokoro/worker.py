@@ -6,7 +6,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 from irisecho_audio import normalize, trim, write_audio
-from irisecho_worker import Reporter, serve
+from irisecho_worker import Reporter, serve, torch_device
 from kokoro import KModel, KPipeline
 
 SAMPLE_RATE = 24000
@@ -19,9 +19,7 @@ def load(params: dict, report: Reporter) -> dict:
     key = (params["model"], params["device"])
     if state["key"] != key:
         report.progress(None, "Loading Kokoro")
-        device = params["device"]
-        if device == "cuda" and not torch.cuda.is_available():
-            device = "cpu"
+        device = torch_device(params["device"])
         model = KModel(repo_id=REPO, config=params["config"], model=params["model"])
         state.update(model=model.to(device).eval(), key=key, pipelines={}, device=device)
     return {"device": state["device"]}
@@ -50,6 +48,7 @@ def speak(params: dict, report: Reporter) -> dict:
     chunks = []
     report.progress(0.05, "Speaking")
     for result in pipe(params["text"], voice=voice, speed=params.get("speed", 1.0)):
+        report.progress()  # a sign of life per sentence; a long text takes minutes
         if result.audio is not None:
             chunks.append(result.audio.detach().cpu().numpy())
     if not chunks:

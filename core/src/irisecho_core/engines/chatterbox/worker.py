@@ -9,7 +9,7 @@ import numpy as np
 import soundfile as sf
 import torch
 from irisecho_audio import normalize, text_chunks, trim, write_audio
-from irisecho_worker import Reporter, serve
+from irisecho_worker import Reporter, serve, torch_device
 
 # Chatterbox speaks at most 1000 speech tokens (about 40 s) per call and drifts
 # well before that, so longer text is spoken sentence by sentence.
@@ -19,9 +19,7 @@ state: dict = {"model": None, "key": None}
 
 
 def load(params: dict, report: Reporter) -> dict:
-    device = params["device"]
-    if device == "cuda" and not torch.cuda.is_available():
-        device = "cpu"
+    device = torch_device(params["device"])
     key = (params["variant"], params["dir"], device)
     if state["key"] == key:
         return {}

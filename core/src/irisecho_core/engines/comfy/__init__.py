@@ -10,6 +10,7 @@ ComfyUI the person already has; their model folders can be linked read-only.
 from __future__ import annotations
 
 import asyncio
+import glob
 import io
 import json
 import os
@@ -28,7 +29,13 @@ import httpx
 
 from irisecho_core import hardware, loras, mesh3d, paths
 from irisecho_core.engines import uvenv
-from irisecho_core.engines.base import Engine, EngineStartError, RunContext
+from irisecho_core.engines.base import (
+    Engine,
+    EngineLog,
+    EngineStartError,
+    RunContext,
+    output_lines,
+)
 from irisecho_core.engines.comfy import graphs, sourcepatch
 
 # Versions proven together. Bump install_version when changing any of them.
@@ -163,6 +170,16 @@ async def finished_entry(history, wait: float = 60.0, every: float = 0.25) -> di
             break
         await asyncio.sleep(every)
     return entry
+
+
+# After a cancel: how often, and how many times, to look whether the prompt is still there.
+CANCEL_CHECK_EVERY = 0.5
+CANCEL_CHECKS = 4
+
+
+def queued(items, prompt_id: str) -> bool:
+    """Whether a list from ComfyUI's /queue ([number, prompt id, ...] each) has the prompt."""
+    return any(len(item) > 1 and item[1] == prompt_id for item in items or [])
 
 
 # What ComfyUI still holds once its models are unloaded (about 0.1 GB).
@@ -526,16 +543,29 @@ class ComfyEngine(Engine):
 
     async def _pump_log(self) -> None:
         assert self.proc and self.proc.stdout
-        with open(paths.sub("logs") / "comfy.log", "a", encoding="utf-8") as log:
-            async for raw in self.proc.stdout:
-                line = raw.decode("utf-8", errors="replace").rstrip()
+        log = EngineLog(paths.sub("logs") / "comfy.log")
+        try:
+            async for line in output_lines(self.proc.stdout):
                 self.log_tail.append(line)
-                log.write(line + "\n")
-                log.flush()
+                log.write(line)
+        finally:
+            log.close()
 
     def _crash_message(self, head: str) -> str:
         tail = [x for x in self.log_tail if x.strip()][-10:]
         return head + ("\n" + "\n".join(tail) if tail else "")
+
+    async def _lost_message(self, e: BaseException) -> str:
+        """What to say when the engine went away, or went quiet, in the middle of a job."""
+        proc = self.proc
+        if proc and proc.returncode is None:
+            try:  # a process that just died has not been collected yet
+                await asyncio.wait_for(proc.wait(), 2)
+            except TimeoutError:
+                return f"The image engine stopped answering ({str(e) or type(e).__name__})."
+        if self._log_task:  # let its last words arrive before quoting them
+            await asyncio.wait({self._log_task}, timeout=2)
+        return self._crash_message("The image engine stopped in the middle of the job.")
 
     def url(self, path: str) -> str:
         return f"http://127.0.0.1:{self.port}{path}"
@@ -556,6 +586,30 @@ class ComfyEngine(Engine):
     # --- jobs --------------------------------------------------------------
 
     async def run(self, ctx: RunContext) -> list[dict]:
+        try:
+            return await self._run(ctx)
+        finally:
+            self._sweep(ctx.job_id)
+
+    def _sweep(self, job_id: str) -> None:
+        """Remove what a job left in ComfyUI's folders: its staged pictures, and
+        anything it saved that was not moved out (a job that failed or was cancelled
+        moves nothing). Only files that carry the job's own id are touched."""
+        job = glob.escape(job_id)
+        saved = self.io / "output" / "irisecho"
+        for folder, pattern in (
+            (self.io / "input", f"irisecho_{job}_*"),
+            (saved, f"{job}_*"),
+            (saved, f"{job}-*"),
+        ):
+            for path in folder.glob(pattern):
+                try:
+                    if path.is_file():
+                        path.unlink()
+                except OSError:
+                    pass  # still open in the engine; nothing to be done about it here
+
+    async def _run(self, ctx: RunContext) -> list[dict]:
         workflow = ctx.variant.workflow
         if workflow == "views3d":
             return await self._run_views(ctx)
@@ -858,6 +912,15 @@ class ComfyEngine(Engine):
         sampler's steps drive it."""
         import websockets
 
+        try:
+            return await self._execute_graph(ctx, graph, plan)
+        except (websockets.WebSocketException, httpx.HTTPError, OSError) as e:
+            # The engine died (out of memory, most often) or no longer answers.
+            raise RuntimeError(await self._lost_message(e)) from e
+
+    async def _execute_graph(self, ctx: RunContext, graph: dict, plan: dict | None) -> dict:
+        import websockets
+
         client_id = uuid.uuid4().hex
         labels = graphs.stage_labels(graph)
         first_load = True
@@ -875,8 +938,11 @@ class ComfyEngine(Engine):
                 r = await client.post(
                     self.url("/prompt"), json={"prompt": graph, "client_id": client_id}
                 )
-                data = r.json()
-                if r.status_code != 200 or data.get("node_errors"):
+                try:
+                    data = r.json()
+                except ValueError:
+                    data = {"error": {"message": r.text[:300] or f"HTTP {r.status_code}"}}
+                if r.status_code != 200 or data.get("node_errors") or "prompt_id" not in data:
                     raise RuntimeError(
                         f"The image engine rejected the job: {graphs.describe_error(data)}"
                     )
@@ -922,12 +988,21 @@ class ComfyEngine(Engine):
                             raise asyncio.CancelledError
                         elif kind == "execution_success":
                             break
+                    else:
+                        # The connection closed with the job unfinished.
+                        if not ctx.cancelled.is_set():
+                            raise ConnectionError("the connection closed")
                     if ctx.cancelled.is_set():
                         raise asyncio.CancelledError
 
                     async def history() -> dict:
+                        if not self.alive:
+                            raise ConnectionError("the engine is gone")
                         r = await client.get(self.url(f"/history/{prompt_id}"))
-                        return r.json().get(prompt_id) or {}
+                        try:
+                            return r.json().get(prompt_id) or {}
+                        except ValueError:
+                            return {}
 
                     entry = await finished_entry(history)
                     status = entry.get("status") or {}
@@ -946,6 +1021,24 @@ class ComfyEngine(Engine):
         async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
             await client.post(self.url("/queue"), json={"delete": [prompt_id]})
             await client.post(self.url("/interrupt"), json={"prompt_id": prompt_id})
+            # ComfyUI clears its interrupt flag as a prompt begins to execute, so an
+            # interrupt that lands just after the prompt left the queue is lost.
+            # Ask again while the prompt is still there; it names the prompt, so it
+            # can stop no other.
+            for _ in range(CANCEL_CHECKS):
+                await asyncio.sleep(CANCEL_CHECK_EVERY)
+                if self.prompt_of.get(job_id) != prompt_id:
+                    return  # the job has ended
+                try:
+                    queue = (await client.get(self.url("/queue"))).json()
+                except (httpx.HTTPError, ValueError):
+                    return
+                if queued(queue.get("queue_pending"), prompt_id):
+                    await client.post(self.url("/queue"), json={"delete": [prompt_id]})
+                elif queued(queue.get("queue_running"), prompt_id):
+                    await client.post(self.url("/interrupt"), json={"prompt_id": prompt_id})
+                else:
+                    return
 
     async def release(self) -> None:
         """Unload models so another engine can use the GPU; the process stays up."""

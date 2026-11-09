@@ -8,9 +8,8 @@ import random
 from pathlib import Path
 
 import numpy as np
-import torch
 from irisecho_audio import trim, write_audio
-from irisecho_worker import Reporter, serve
+from irisecho_worker import Reporter, serve, torch_device
 
 state: dict = {"model": None, "key": None, "sr": 44100}
 
@@ -41,9 +40,7 @@ def load(params: dict, report: Reporter) -> dict:
     root = Path(params["root"])
     config = json.loads((root / "model_config.json").read_text(encoding="utf-8"))
     _point_text_encoder_at(config, str(root / "t5gemma-b-b-ul2"))
-    device = params["device"]
-    if device == "cuda" and not torch.cuda.is_available():
-        device = "cpu"
+    device = torch_device(params["device"])
     half = device == "cuda"
     model = load_diffusion_cond(
         config, str(root / "model.safetensors"), device=device, model_half=half
