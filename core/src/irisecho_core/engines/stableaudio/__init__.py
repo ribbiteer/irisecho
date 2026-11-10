@@ -74,7 +74,9 @@ class StableAudioEngine(WorkerEngine):
         log("Installing Stable Audio 3 and its pinned dependencies")
         await uvenv.run(sync, log, cwd=self.src, env=env)
         if self.hw.backend == "cuda":
-            await uvenv.pip_install(self.venv, TORCH, log, "--torch-backend", "cu128")
+            await uvenv.pip_install(
+                self.venv, TORCH, log, "--torch-backend", "cu128", constraints=self.constraints
+            )
         self.mark_installed()
 
     @staticmethod

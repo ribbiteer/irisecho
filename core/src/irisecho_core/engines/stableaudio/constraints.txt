@@ -1,0 +1,14 @@
+# What the stable-audio engine installs next to its project's uv.lock
+# (torch, torchaudio, with dependencies), exactly as in an environment known to work.
+# Written by scripts/freeze_engine.py; do not edit by hand.
+filelock==3.25.2
+fsspec==2026.2.0
+jinja2==3.1.6
+markupsafe==3.0.3
+mpmath==1.3.0
+networkx==3.6.1
+setuptools==82.0.1
+sympy==1.14.0
+torch==2.7.1
+torchaudio==2.7.1
+typing-extensions==4.15.0

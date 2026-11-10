@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! IrisEcho desktop shell.
 //!
-//! The installer carries three things: this shell, a `uv` binary and the
-//! IrisEcho core as a Python wheel (with the web UI inside). On first launch
-//! the shell uses `uv` to create a private Python environment under the data
-//! folder and installs the core into it; later launches reuse it. The shell
+//! The installer carries this shell, a `uv` binary, the IrisEcho core as a
+//! Python wheel (with the web UI inside) and the versions of the core's
+//! dependencies it was released with. On first launch the shell uses `uv` to
+//! create a private Python environment under the data folder and installs the
+//! core into it at exactly those versions; later launches reuse it. The shell
 //! then starts the core on a free local port and points its window at it.
 //! The core watches its stdin: when this shell exits for any reason, the pipe
 //! closes and the core (and every engine it started) shuts down.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::net::{TcpListener, TcpStream};
@@ -114,9 +116,52 @@ fn find_wheel(dir: &Path) -> Result<PathBuf, String> {
         .ok_or_else(|| "The installer is missing the IrisEcho core package.".to_string())
 }
 
+/// The versions of the core's dependencies this installer was released with
+/// (`uv export` of the repository's lock, written by scripts/build_desktop.py).
+/// Without it the install would take whatever is newest that day, so a missing
+/// file is an error, never a reason to install unpinned.
+fn find_constraints(dir: &Path) -> Result<PathBuf, String> {
+    let path = dir.join("constraints.txt");
+    if path.is_file() {
+        Ok(path)
+    } else {
+        Err("The installer is missing the list of package versions for the IrisEcho core \
+             (constraints.txt). Install IrisEcho again."
+            .to_string())
+    }
+}
+
+/// `uv pip install` of the core package, every dependency held to its recorded version.
+fn install_args(python: &Path, wheel: &Path, constraints: &Path) -> Vec<OsString> {
+    let mut args: Vec<OsString> = ["pip", "install", "--python"].iter().map(OsString::from).collect();
+    args.push(python.into());
+    args.push(wheel.into());
+    args.push("--constraint".into());
+    args.push(constraints.into());
+    args
+}
+
 #[cfg(test)]
 mod tests {
     use super::wheel_version;
+
+    #[test]
+    fn the_core_is_installed_only_with_its_recorded_versions() {
+        use super::{find_constraints, install_args};
+        use std::path::Path;
+        let dir = std::env::temp_dir().join(format!("irisecho-shell-pins-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let missing = find_constraints(&dir).unwrap_err();
+        assert!(missing.contains("constraints.txt"));
+        std::fs::write(dir.join("constraints.txt"), "anyio==4.0.0\n").unwrap();
+        let pins = find_constraints(&dir).unwrap();
+        let args = install_args(Path::new("py"), Path::new("core.whl"), &pins);
+        let args: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+        assert_eq!(&args[..5], ["pip", "install", "--python", "py", "core.whl"]);
+        assert_eq!(args[5], "--constraint");
+        assert_eq!(Path::new(&args[6]), pins);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn newer_core_packages_sort_higher() {
@@ -287,6 +332,7 @@ fn ensure_runtime(app: &AppHandle, status: &Arc<Mutex<BootStatus>>) -> Result<Pa
         return Ok(python);
     }
 
+    let constraints = find_constraints(&res)?;
     set_status(status, "installing", "Setting up IrisEcho for the first time. This takes a minute.");
     fs::create_dir_all(&runtime).map_err(|e| e.to_string())?;
     run_logged(
@@ -294,10 +340,7 @@ fn ensure_runtime(app: &AppHandle, status: &Arc<Mutex<BootStatus>>) -> Result<Pa
         status,
     )?;
     run_logged(
-        uv_command(&uv, &data)
-            .args(["pip", "install", "--python"])
-            .arg(&python)
-            .arg(&wheel),
+        uv_command(&uv, &data).args(install_args(&python, &wheel, &constraints)),
         status,
     )?;
     fs::write(&stamp, &wanted).map_err(|e| e.to_string())?;

@@ -1,0 +1,7 @@
+# What the ace-step engine installs next to its project's uv.lock
+# (soundfile, with dependencies), exactly as in an environment known to work.
+# Written by scripts/freeze_engine.py; do not edit by hand.
+cffi==2.0.0
+numpy==2.3.5
+pycparser==3.0
+soundfile==0.13.1

@@ -1,9 +1,13 @@
 name: ci
 
+# Runs for every branch and pull request, and as the first job of a release
+# (release.yml calls this file), so a tag is never built from a commit these
+# checks did not pass on. Actions are pinned to commits.
 on:
   push:
-    branches: [main]
+    branches: ["**"]
   pull_request:
+  workflow_call:
 
 permissions:
   contents: read
@@ -13,41 +17,53 @@ jobs:
     name: identity scan and sign-off
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
+          persist-credentials: false
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
 
       # The private denylist comes from a repository secret, so the list is
-      # never public. Forks do not get the secret and fall back to generic rules.
+      # never public. This repository must have it: without it the scan would
+      # quietly check less. A fork, and a pull request from one, cannot read
+      # the secret and falls back to the generic rules.
       - name: Load private denylist
         env:
           IDENTITY_DENYLIST: ${{ secrets.IDENTITY_DENYLIST }}
+          HAS_SECRETS: ${{ !github.event.repository.fork && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]' }}
         run: |
           if [ -n "$IDENTITY_DENYLIST" ]; then
             printf '%s\n' "$IDENTITY_DENYLIST" > "$RUNNER_TEMP/denylist.txt"
             echo "IRISECHO_DENYLIST=$RUNNER_TEMP/denylist.txt" >> "$GITHUB_ENV"
           fi
+          if [ "$HAS_SECRETS" = "true" ]; then
+            echo "SCAN_FLAGS=--require-denylist" >> "$GITHUB_ENV"
+          fi
 
       - name: Scan tracked files
-        run: python scripts/identity_scan.py --all
+        run: python scripts/identity_scan.py $SCAN_FLAGS --all
 
+      # A branch or tag pushed for the first time has no commit before it:
+      # then every commit that is not on the default branch yet is checked.
       - name: Check commit authors, sign-offs and messages
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null \
-             || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
-            RANGE="$HEAD"
+          if [ -n "$BASE" ] && [ "$BASE" != "0000000000000000000000000000000000000000" ] \
+             && git cat-file -e "$BASE" 2>/dev/null; then
+            set -- "$BASE..$HEAD"
+          elif git rev-parse -q --verify "refs/remotes/origin/$DEFAULT_BRANCH" >/dev/null; then
+            set -- "$HEAD" --not "refs/remotes/origin/$DEFAULT_BRANCH"
           else
-            RANGE="$BASE..$HEAD"
+            set -- "$HEAD"
           fi
           status=0
-          for c in $(git rev-list --no-merges "$RANGE"); do
+          for c in $(git rev-list --no-merges "$@"); do
             for email in $(git show -s --format='%ae %ce' "$c"); do
               case "$email" in
                 *@users.noreply.github.com|noreply@github.com) ;;
@@ -56,7 +72,8 @@ jobs:
             done
             msg="$RUNNER_TEMP/msg-$c"
             git show -s --format=%B "$c" > "$msg"
-            python scripts/identity_scan.py --commit-msg "$msg" || status=1
+            # The whole message: in a finished commit a line starting with # is text.
+            python scripts/identity_scan.py $SCAN_FLAGS --commit-msg "$msg" --full-message || status=1
           done
           exit $status
 
@@ -68,8 +85,10 @@ jobs:
         os: [windows-latest, macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
       - run: uv sync --locked
       - run: uv run ruff check
       - run: uv run ruff format --check
@@ -85,8 +104,10 @@ jobs:
     name: interface
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -97,3 +118,26 @@ jobs:
         working-directory: ui
       - run: npm run build
         working-directory: ui
+
+  shell:
+    name: desktop shell
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-11-10
+        with:
+          toolchain: stable
+      # The build bundles resources/* (the core wheel, uv and the pinned versions,
+      # staged by scripts/build_desktop.py). Checking and testing the shell only
+      # needs the folder to hold something.
+      - name: Stand-in for the bundled resources
+        shell: bash
+        run: |
+          mkdir -p desktop/src-tauri/resources
+          echo "stand-in for a CI build" > desktop/src-tauri/resources/placeholder.txt
+      - run: cargo check --locked
+        working-directory: desktop/src-tauri
+      - run: cargo test --locked
+        working-directory: desktop/src-tauri

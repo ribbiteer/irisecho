@@ -165,7 +165,7 @@ class AceStepEngine(WorkerEngine):
             cwd=self.src,
             env=env,
         )
-        await uvenv.pip_install(self.venv, ["soundfile>=0.13"], log)
+        await uvenv.pip_install(self.venv, ["soundfile>=0.13"], log, constraints=self.constraints)
         self.mark_installed()
 
     async def run(self, ctx: RunContext) -> list[dict]:
