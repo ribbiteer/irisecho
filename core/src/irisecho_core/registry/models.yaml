@@ -906,29 +906,6 @@ models:
       - *qwen-sampler
       - *qwen21-scheduler
 
-  qwen-edit-fast:
-    name: Qwen Edit Fast
-    kind: edit
-    engine: comfy
-    license: apache-2.0
-    summary: Change a picture by describing the change. Four steps, about fifteen seconds.
-    settings: {prompt_style: qwen-edit, steps: 4, cfg: 1.0, edit: {pictures: 3, areas: 1}}
-    variants:
-      - when: {backend: cuda, quant: int4}
-        workflow: qwen-edit
-        files: [qwen-edit-fast-int4, qwen25vl-fp8, qwen-image-vae]
-      - when: {backend: cuda, quant: fp4}
-        workflow: qwen-edit
-        files: [qwen-edit-fast-fp4, qwen25vl-fp8, qwen-image-vae]
-    controls:
-      - {name: steps, type: int, min: 2, max: 6, default: 4, label: Steps, help: "More is slower and sometimes finer. This model is tuned for 4."}
-      - *edit-size
-      - {name: keep_size, type: bool, default: false, label: Keep the exact framing, help: "Edits at a size the model reads without rescaling, so the unchanged parts line up with the original instead of shifting a few pixels."}
-      - {name: feather, type: int, min: 0, max: 31, default: 12, unit: px, needs: box, label: Soft edge, help: "How gradually the changed area blends into the rest when you change only an area. 0 is a hard edge."}
-      - {name: shift, type: float, tier: expert, min: 2, max: 5, step: 0.1, default: 3.0, label: Shift, help: "Higher favours overall shapes, lower favours fine detail."}
-      - *qwen-sampler
-      - *scheduler
-
   qwen-edit:
     name: Qwen Edit
     kind: edit
@@ -945,6 +922,29 @@ models:
         files: [qwen-edit-8step-fp4, qwen25vl-fp8, qwen-image-vae]
     controls:
       - {name: steps, type: int, min: 6, max: 10, default: 8, label: Steps, help: "More is slower and sometimes finer. This model is tuned for 8."}
+      - *edit-size
+      - {name: keep_size, type: bool, default: false, label: Keep the exact framing, help: "Edits at a size the model reads without rescaling, so the unchanged parts line up with the original instead of shifting a few pixels."}
+      - {name: feather, type: int, min: 0, max: 31, default: 12, unit: px, needs: box, label: Soft edge, help: "How gradually the changed area blends into the rest when you change only an area. 0 is a hard edge."}
+      - {name: shift, type: float, tier: expert, min: 2, max: 5, step: 0.1, default: 3.0, label: Shift, help: "Higher favours overall shapes, lower favours fine detail."}
+      - *qwen-sampler
+      - *scheduler
+
+  qwen-edit-fast:
+    name: Qwen Edit Fast
+    kind: edit
+    engine: comfy
+    license: apache-2.0
+    summary: Change a picture by describing the change. Four steps, about fifteen seconds.
+    settings: {prompt_style: qwen-edit, steps: 4, cfg: 1.0, edit: {pictures: 3, areas: 1}}
+    variants:
+      - when: {backend: cuda, quant: int4}
+        workflow: qwen-edit
+        files: [qwen-edit-fast-int4, qwen25vl-fp8, qwen-image-vae]
+      - when: {backend: cuda, quant: fp4}
+        workflow: qwen-edit
+        files: [qwen-edit-fast-fp4, qwen25vl-fp8, qwen-image-vae]
+    controls:
+      - {name: steps, type: int, min: 2, max: 6, default: 4, label: Steps, help: "More is slower and sometimes finer. This model is tuned for 4."}
       - *edit-size
       - {name: keep_size, type: bool, default: false, label: Keep the exact framing, help: "Edits at a size the model reads without rescaling, so the unchanged parts line up with the original instead of shifting a few pixels."}
       - {name: feather, type: int, min: 0, max: 31, default: 12, unit: px, needs: box, label: Soft edge, help: "How gradually the changed area blends into the rest when you change only an area. 0 is a hard edge."}
@@ -1576,6 +1576,50 @@ models:
       - *qwen-sampler
       - *qwen21-scheduler
 
+  qwen-image:
+    name: Qwen-Image
+    kind: image
+    engine: comfy
+    license: apache-2.0
+    summary: The one to use for words in pictures. Logos, signs, posters, labels. Eight steps.
+    settings: {prompt_style: qwen-image, steps: 8, cfg: 1.0, shift: 3.0}
+    variants:
+      - when: {backend: cuda, quant: int4}
+        workflow: qwen-image-nunchaku
+        files: [qwen-image-8step-int4, qwen25vl-fp8, qwen-image-vae]
+      - when: {backend: cuda, quant: fp4}
+        workflow: qwen-image-nunchaku
+        files: [qwen-image-8step-fp4, qwen25vl-fp8, qwen-image-vae]
+    controls:
+      - {name: steps, type: int, min: 6, max: 10, default: 8, label: Steps, help: "More is slower and sometimes finer. This model is tuned for 8."}
+      - {name: megapixels, type: float, min: 0.5, max: 2.0, step: 0.1, default: 1.7, unit: MP, label: Size, help: "How many pixels. Bigger takes longer; about 2 MP is the most a 12 GB card fits."}
+      - {name: trained_sizes, type: bool, default: false, label: Use the trained sizes, help: "Qwen-Image's own size for each shape (1664 x 928 for 16:9 and so on), instead of the Size above."}
+      - {name: shift, type: float, tier: expert, min: 2, max: 5, step: 0.1, default: 3.0, label: Shift, help: "Higher if pictures come out blurry or dark, lower for more fine detail."}
+      - *qwen-sampler
+      - *scheduler
+
+  qwen-image-fast:
+    name: Qwen-Image Fast
+    kind: image
+    engine: comfy
+    license: apache-2.0
+    summary: Qwen-Image's text and layout in four steps. Use it for drafts, then switch to Qwen-Image.
+    settings: {prompt_style: qwen-image, steps: 4, cfg: 1.0, shift: 3.0}
+    variants:
+      - when: {backend: cuda, quant: int4}
+        workflow: qwen-image-nunchaku
+        files: [qwen-image-fast-int4, qwen25vl-fp8, qwen-image-vae]
+      - when: {backend: cuda, quant: fp4}
+        workflow: qwen-image-nunchaku
+        files: [qwen-image-fast-fp4, qwen25vl-fp8, qwen-image-vae]
+    controls:
+      - {name: steps, type: int, min: 2, max: 6, default: 4, label: Steps, help: "More is slower and sometimes finer. This model is tuned for 4."}
+      - {name: megapixels, type: float, min: 0.5, max: 2.0, step: 0.1, default: 1.7, unit: MP, label: Size, help: "How many pixels. Bigger takes longer; about 2 MP is the most a 12 GB card fits."}
+      - {name: trained_sizes, type: bool, default: false, label: Use the trained sizes, help: "Qwen-Image's own size for each shape (1664 x 928 for 16:9 and so on), instead of the Size above."}
+      - {name: shift, type: float, tier: expert, min: 2, max: 5, step: 0.1, default: 3.0, label: Shift, help: "Higher if pictures come out blurry or dark, lower for more fine detail."}
+      - *qwen-sampler
+      - *scheduler
+
   z-image-turbo:
     name: Z-Image Turbo
     kind: image
@@ -1629,71 +1673,6 @@ models:
       - {name: sampler, type: choice, tier: expert, default: res_multistep, options: [res_multistep, euler, dpmpp_2m, er_sde], label: Sampler, help: "The method that removes noise at each step. res_multistep is what this model was tuned with."}
       - *scheduler
 
-  flux-schnell:
-    name: FLUX.1 schnell
-    kind: image
-    engine: comfy
-    license: apache-2.0
-    summary: Four steps to a finished image. Good for illustration and quick ideas.
-    variants:
-      - when: {backend: cuda, quant: int4}
-        workflow: flux-nunchaku
-        files: [schnell-int4, t5xxl-fp8, clip-l, flux-ae]
-      - when: {backend: cuda, quant: fp4}
-        workflow: flux-nunchaku
-        files: [schnell-fp4, t5xxl-fp8, clip-l, flux-ae]
-    settings: {prompt_style: flux-schnell, steps: 4, guidance: null}
-    controls:
-      - *size-1mp
-      - {name: steps, type: int, min: 1, max: 8, default: 4, label: Steps, help: "More is slower and sometimes finer. This model is tuned for 4."}
-      - *flux-loras
-      - *flux-sampler
-      - *scheduler
-
-  qwen-image-fast:
-    name: Qwen-Image Fast
-    kind: image
-    engine: comfy
-    license: apache-2.0
-    summary: Qwen-Image's text and layout in four steps. Use it for drafts, then switch to Qwen-Image.
-    settings: {prompt_style: qwen-image, steps: 4, cfg: 1.0, shift: 3.0}
-    variants:
-      - when: {backend: cuda, quant: int4}
-        workflow: qwen-image-nunchaku
-        files: [qwen-image-fast-int4, qwen25vl-fp8, qwen-image-vae]
-      - when: {backend: cuda, quant: fp4}
-        workflow: qwen-image-nunchaku
-        files: [qwen-image-fast-fp4, qwen25vl-fp8, qwen-image-vae]
-    controls:
-      - {name: steps, type: int, min: 2, max: 6, default: 4, label: Steps, help: "More is slower and sometimes finer. This model is tuned for 4."}
-      - {name: megapixels, type: float, min: 0.5, max: 2.0, step: 0.1, default: 1.7, unit: MP, label: Size, help: "How many pixels. Bigger takes longer; about 2 MP is the most a 12 GB card fits."}
-      - {name: trained_sizes, type: bool, default: false, label: Use the trained sizes, help: "Qwen-Image's own size for each shape (1664 x 928 for 16:9 and so on), instead of the Size above."}
-      - {name: shift, type: float, tier: expert, min: 2, max: 5, step: 0.1, default: 3.0, label: Shift, help: "Higher if pictures come out blurry or dark, lower for more fine detail."}
-      - *qwen-sampler
-      - *scheduler
-
-  qwen-image:
-    name: Qwen-Image
-    kind: image
-    engine: comfy
-    license: apache-2.0
-    summary: The one to use for words in pictures. Logos, signs, posters, labels. Eight steps.
-    settings: {prompt_style: qwen-image, steps: 8, cfg: 1.0, shift: 3.0}
-    variants:
-      - when: {backend: cuda, quant: int4}
-        workflow: qwen-image-nunchaku
-        files: [qwen-image-8step-int4, qwen25vl-fp8, qwen-image-vae]
-      - when: {backend: cuda, quant: fp4}
-        workflow: qwen-image-nunchaku
-        files: [qwen-image-8step-fp4, qwen25vl-fp8, qwen-image-vae]
-    controls:
-      - {name: steps, type: int, min: 6, max: 10, default: 8, label: Steps, help: "More is slower and sometimes finer. This model is tuned for 8."}
-      - {name: megapixels, type: float, min: 0.5, max: 2.0, step: 0.1, default: 1.7, unit: MP, label: Size, help: "How many pixels. Bigger takes longer; about 2 MP is the most a 12 GB card fits."}
-      - {name: trained_sizes, type: bool, default: false, label: Use the trained sizes, help: "Qwen-Image's own size for each shape (1664 x 928 for 16:9 and so on), instead of the Size above."}
-      - {name: shift, type: float, tier: expert, min: 2, max: 5, step: 0.1, default: 3.0, label: Shift, help: "Higher if pictures come out blurry or dark, lower for more fine detail."}
-      - *qwen-sampler
-      - *scheduler
-
   krea-2:
     name: Krea 2
     kind: image
@@ -1734,6 +1713,27 @@ models:
       - *size-1mp
       - *flux-loras
       - *flux-shift
+      - *flux-sampler
+      - *scheduler
+
+  flux-schnell:
+    name: FLUX.1 schnell
+    kind: image
+    engine: comfy
+    license: apache-2.0
+    summary: Four steps to a finished image. Good for illustration and quick ideas.
+    variants:
+      - when: {backend: cuda, quant: int4}
+        workflow: flux-nunchaku
+        files: [schnell-int4, t5xxl-fp8, clip-l, flux-ae]
+      - when: {backend: cuda, quant: fp4}
+        workflow: flux-nunchaku
+        files: [schnell-fp4, t5xxl-fp8, clip-l, flux-ae]
+    settings: {prompt_style: flux-schnell, steps: 4, guidance: null}
+    controls:
+      - *size-1mp
+      - {name: steps, type: int, min: 1, max: 8, default: 4, label: Steps, help: "More is slower and sometimes finer. This model is tuned for 4."}
+      - *flux-loras
       - *flux-sampler
       - *scheduler
 
