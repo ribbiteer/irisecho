@@ -194,19 +194,22 @@ def test_a_finished_commit_message_is_scanned_whole(tmp_path):
     assert scan.main(["--commit-msg", str(msg), "--full-message"]) == 1
 
 
-def test_the_denylist_can_be_required(tmp_path, capsys):
-    clean = tmp_path / "clean.txt"
+def test_the_denylist_can_be_required(tmp_path, capsys, monkeypatch):
+    # Relative names: a scanned file's path is checked too, and a temp folder can sit
+    # under a home folder (C:/Users/<runner>/... on a Windows CI machine).
+    monkeypatch.chdir(tmp_path)
+    clean = Path("clean.txt")
     clean.write_text("nothing to see\n", encoding="utf-8")
-    missing = tmp_path / "none.txt"
+    missing = Path("none.txt")
     # Locally and on forks: a warning, generic rules only.
     assert scan.main(["--denylist", str(missing), str(clean)]) == 0
     assert "no private denylist" in capsys.readouterr().err
     # CI on the main repository passes --require-denylist: missing or empty is an error.
     assert scan.main(["--require-denylist", "--denylist", str(missing), str(clean)]) == 2
-    empty = tmp_path / "empty.txt"
+    empty = Path("empty.txt")
     empty.write_text("# only a comment\n\n", encoding="utf-8")
     assert scan.main(["--require-denylist", "--denylist", str(empty), str(clean)]) == 2
-    real = tmp_path / "deny.txt"
+    real = Path("deny.txt")
     real.write_text("secretname\n", encoding="utf-8")
     assert scan.main(["--require-denylist", "--denylist", str(real), str(clean)]) == 0
     clean.write_text("by SecretName\n", encoding="utf-8")
