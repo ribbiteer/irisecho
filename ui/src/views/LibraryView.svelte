@@ -1,14 +1,16 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
+  import Check from "@lucide/svelte/icons/check";
   import Heart from "@lucide/svelte/icons/heart";
   import Search from "@lucide/svelte/icons/search";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
   import AudioRow from "../components/AudioRow.svelte";
   import ImageTile from "../components/ImageTile.svelte";
   import Iris from "../components/Iris.svelte";
   import { api } from "../lib/api";
   import { STUDIOS } from "../lib/studios";
-  import { app, fail, gone } from "../lib/state.svelte";
+  import { app, deleteJobs, fail, gone } from "../lib/state.svelte";
   import type { Job } from "../lib/types";
 
   const lib = app.library;
@@ -142,7 +144,45 @@
   function clear() {
     Object.assign(lib, { q: "", kind: "all", model: "", favorites: false, since: "" });
   }
+
+  // Select: pick several finished or failed jobs and delete them together (one Undo for all).
+  let selecting = $state(false);
+  let picked = $state(new Set<string>());
+  const deletable = (j: Job) => j.status !== "queued" && j.status !== "running";
+  const pickable = $derived(source.filter(deletable));
+  const chosen = $derived(pickable.filter((j) => picked.has(j.id)));
+
+  function toggle(job: Job) {
+    if (!deletable(job)) return;
+    const next = new Set(picked);
+    if (!next.delete(job.id)) next.add(job.id);
+    picked = next;
+  }
+  function stopSelecting() {
+    selecting = false;
+    picked = new Set();
+  }
+  function deleteChosen() {
+    if (!chosen.length) return;
+    deleteJobs(chosen);
+    stopSelecting();
+  }
 </script>
+
+{#snippet pick(job: Job)}
+  {#if selecting}
+    <button
+      class="pick"
+      class:on={picked.has(job.id)}
+      disabled={!deletable(job)}
+      aria-pressed={picked.has(job.id)}
+      aria-label={deletable(job) ? "Select" : "Still running"}
+      onclick={() => toggle(job)}
+    >
+      <span class="box">{#if picked.has(job.id)}<Check size={14} />{/if}</span>
+    </button>
+  {/if}
+{/snippet}
 
 <div class="library">
   <header>
@@ -192,8 +232,26 @@
           {#each modelNames as m (m.id)}<option value={m.id}>{m.name}</option>{/each}
         </select>
       {/if}
+      {#if source.length && !selecting}
+        <button class="chip" onclick={() => (selecting = true)}>Select</button>
+      {/if}
     </div>
   </header>
+
+  {#if selecting}
+    <div class="selectbar">
+      <span>{chosen.length} selected</span>
+      <button class="btn sm ghost" onclick={() => (picked = new Set(pickable.map((j) => j.id)))} disabled={!pickable.length}>
+        Select all shown
+      </button>
+      {#if chosen.length}<button class="btn sm ghost" onclick={() => (picked = new Set())}>Clear</button>{/if}
+      <span class="spacer"></span>
+      <button class="btn sm danger" onclick={deleteChosen} disabled={!chosen.length}>
+        <Trash2 size={14} /> Delete{chosen.length ? ` ${chosen.length}` : ""}
+      </button>
+      <button class="btn sm" onclick={stopSelecting}>Done</button>
+    </div>
+  {/if}
 
   <div class="content">
     {#if !source.length}
@@ -215,7 +273,10 @@
           {#if sounds.length}<h2>Pictures</h2>{/if}
           <div class="grid">
             {#each pictures as job (job.id)}
-              <ImageTile {job} />
+              <div class="item" class:picked={selecting && picked.has(job.id)}>
+                <ImageTile {job} />
+                {@render pick(job)}
+              </div>
             {/each}
           </div>
         </section>
@@ -225,7 +286,10 @@
           {#if pictures.length}<h2>Sound</h2>{/if}
           <div class="list">
             {#each sounds as job (job.id)}
-              <AudioRow {job} />
+              <div class="item" class:picked={selecting && picked.has(job.id)}>
+                <AudioRow {job} />
+                {@render pick(job)}
+              </div>
             {/each}
           </div>
         </section>
@@ -338,6 +402,58 @@
   .more {
     align-self: center;
   }
+  .selectbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 10px 32px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-2);
+    font-size: 13.5px;
+  }
+  .spacer {
+    flex: 1;
+  }
+  .item {
+    position: relative;
+  }
+  /* In Select, the whole tile or row is one button: nothing in it opens or plays. */
+  .pick {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    border: 2px solid transparent;
+    border-radius: var(--r-2);
+    background: rgb(0 0 0 / 0.08);
+    cursor: pointer;
+  }
+  .pick:disabled {
+    cursor: not-allowed;
+    background: rgb(0 0 0 / 0.3);
+  }
+  .item.picked .pick {
+    border-color: var(--violet-ink);
+    background: rgb(107 91 214 / 0.18);
+  }
+  .box {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    border: 1.5px solid var(--text-2);
+    background: var(--surface-1);
+    color: var(--text);
+  }
+  .item.picked .box {
+    background: var(--violet-ink);
+    border-color: var(--violet-ink);
+    color: #fff;
+  }
 
   @media (max-width: 820px) {
     header {
@@ -351,6 +467,9 @@
     }
     .search {
       width: 100%;
+    }
+    .selectbar {
+      padding: 10px 14px;
     }
     .content {
       padding: 16px 14px 32px !important;

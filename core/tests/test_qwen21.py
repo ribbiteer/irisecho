@@ -51,7 +51,8 @@ def classes(g: dict) -> list[str]:
 def test_both_models_share_one_set_of_files_under_the_research_license():
     reg = registry.default()
     lic = reg.licenses["qwen-research"]
-    assert not lic.commercial and lic.accept
+    # Pictures are the person's to use commercially (Qwen's statement); the files are not.
+    assert lic.commercial and lic.accept and "research" in lic.condition
     files = {
         mid: list(model(mid).variants[0].files) for mid in ("qwen-image-21", "qwen-image-21-edit")
     }

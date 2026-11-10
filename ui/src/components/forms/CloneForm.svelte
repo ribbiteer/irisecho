@@ -96,6 +96,7 @@
       hint="10 to 15 seconds of one clear voice, no music or other speakers. Phone voice memos work."
       seconds={30}
       stereo={false}
+      record
     />
   </div>
 

@@ -96,9 +96,11 @@ def render() -> str:
         '  commercial product or service using it must show "MiniMax-Music3" in its interface.',
         "- Stable Audio 3 Medium is downloaded from ComfyUI's own copy (Comfy-Org), so it",
         "  needs no Hugging Face sign-in; Stability's community license still applies.",
-        "- Qwen-Image 2.1, for pictures and edits, is under the Qwen Research License, for",
-        "  research and evaluation only, unlike the Apache-2.0 Qwen-Image and Qwen Edit.",
-        "  Anyone passing the model files on must include the license and its notice.",
+        "- Qwen-Image 2.1, for pictures and edits, is under the Qwen Research License, unlike",
+        "  the Apache-2.0 Qwen-Image and Qwen Edit. The pictures it makes are yours, commercial",
+        "  use included: Qwen has said outputs are not part of the licensed Materials",
+        "  (https://x.com/QwenDevs/status/2101917379785838660). The model files themselves stay",
+        "  under the research license; anyone passing them on must include it and its notice.",
         "",
     ]
     return "\n".join(lines)

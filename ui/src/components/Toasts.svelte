@@ -15,15 +15,23 @@
 </div>
 
 <style>
+  /* Bottom centre, clear of the delete buttons at the end of rows and on tiles. */
   .toasts {
     position: fixed;
-    right: 18px;
+    left: 50%;
+    transform: translateX(-50%);
     bottom: 18px;
     display: flex;
     flex-direction: column;
+    align-items: center;
     gap: 8px;
     z-index: 100;
-    max-width: 420px;
+    width: max-content;
+    max-width: min(420px, calc(100vw - 32px));
+    pointer-events: none;
+  }
+  .toast {
+    pointer-events: auto;
   }
   .toast {
     padding: 11px 14px;

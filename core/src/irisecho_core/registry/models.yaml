@@ -73,13 +73,20 @@ licenses:
   qwen-research:
     name: Qwen Research License
     url: https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE
-    commercial: false
+    # Qwen (QwenDevs on X, https://x.com/QwenDevs/status/2101917379785838660): "Outputs are
+    # not part of the licensed Materials. Users retain the rights to images and other content
+    # they generate using the model." So the pictures may be used commercially.
+    commercial: true
+    condition: Model files under a research license
     accept: true
     summary: >-
-      For research and evaluation only; any commercial use needs a separate
-      license from Qwen (Hangzhou Tongyi Laboratory). Sharing the model files
-      needs a copy of the license and its notice. Qwen can end the license if its
-      terms are broken; it is governed by the laws of China.
+      The pictures you make are yours to use, commercially too: Qwen has said
+      that outputs are not part of the licensed Materials and that users keep
+      the rights to what they generate. The model itself stays under the
+      research license: using, changing or offering the model files commercially
+      needs a separate license from Qwen (Hangzhou Tongyi Laboratory). Sharing
+      the model files needs a copy of the license and its notice. Qwen can end
+      the license if its terms are broken; it is governed by the laws of China.
   stability-community:
     name: Stability AI Community License
     url: https://huggingface.co/stabilityai/stable-audio-3-small-sfx/blob/main/LICENSE.md
@@ -928,7 +935,7 @@ models:
     kind: edit
     engine: comfy
     license: qwen-research
-    summary: Qwen-Image 2.1 editing a picture, up to 4 MP. Combine up to ten pictures, or change up to three marked areas. Non-commercial.
+    summary: Qwen-Image 2.1 editing a picture, up to 4 MP. Combine up to ten pictures, or change up to three marked areas. The pictures are yours to use.
     settings: {prompt_style: qwen-image-21-edit, steps: 8, cfg: 1.0, edit: {pictures: 10, areas: 3}}
     variants:
       - when: {backend: cuda, cuda_tag: cu130}
@@ -1672,7 +1679,7 @@ models:
     kind: image
     engine: comfy
     license: qwen-research
-    summary: Qwen's newer model. Long, exact lettering and fine detail up to 4 MP in eight steps. Non-commercial.
+    summary: Qwen's newer model. Long, exact lettering and fine detail up to 4 MP in eight steps. The pictures are yours to use.
     settings: {prompt_style: qwen-image-21, steps: 8, cfg: 1.0}
     variants:
       - when: {backend: cuda, cuda_tag: cu130}

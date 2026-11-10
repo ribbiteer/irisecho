@@ -175,7 +175,14 @@ function upsertJob(job: Job) {
 // toast has run out, or when the page is being left, so nothing is lost either way.
 
 export const UNDO_MS = 6000;
-const undoToasts = new Map<string, number>();
+// One Undo for every delete still waiting: deleting several in a row neither stacks
+// toasts over the page nor sends the first ones while the last can still be undone.
+let undoToast: number | null = null;
+
+function dropUndoToast() {
+  if (undoToast != null) dismissToast(undoToast);
+  undoToast = null;
+}
 
 /** Jobs taken out of view on this page; a list fetched earlier must not bring them back. */
 export const gone = new Set<string>();
@@ -191,9 +198,7 @@ function takeOutOfView(id: string) {
 /** Stops waiting on a delete without sending it (it happened elsewhere, or it was undone). */
 function forget(id: string) {
   pendingDeletes.undo(id);
-  const t = undoToasts.get(id);
-  if (t != null) dismissToast(t);
-  undoToasts.delete(id);
+  if (!pendingDeletes.ids().length) dropUndoToast();
 }
 
 async function sendDelete(id: string, job: Job, keepalive = false) {
@@ -210,41 +215,56 @@ async function sendDelete(id: string, job: Job, keepalive = false) {
 }
 
 const pendingDeletes = new PendingQueue<Job>(UNDO_MS, (id, job) => {
-  const t = undoToasts.get(id);
-  if (t != null) dismissToast(t);
-  undoToasts.delete(id);
+  if (pendingDeletes.ids().length === 0) dropUndoToast();
   sendDelete(id, job);
 });
 
+/** Brings back every delete still waiting. */
+function undoDeletes() {
+  for (const id of pendingDeletes.ids()) {
+    const back = pendingDeletes.undo(id);
+    if (back) {
+      gone.delete(back.id);
+      upsertJob(back);
+    }
+  }
+  dropUndoToast();
+  app.removals++;
+}
+
+/** Takes the jobs out of view and offers one Undo for all that are waiting; the deletes
+ * are sent together when the offer runs out. */
+export function deleteJobs(jobs: Job[]) {
+  const fresh = jobs.filter((j) => !pendingDeletes.has(j.id));
+  if (!fresh.length) return;
+  const waiting = new Map<string, Job>();
+  for (const id of pendingDeletes.ids()) {
+    const job = pendingDeletes.undo(id);
+    if (job) waiting.set(id, job);
+  }
+  for (const job of fresh) {
+    waiting.set(job.id, job);
+    takeOutOfView(job.id);
+  }
+  for (const [id, job] of waiting) pendingDeletes.add(id, job); // every wait starts again
+  dropUndoToast();
+  const n = waiting.size;
+  undoToast = toast(n === 1 ? "Deleted." : `${n} deleted.`, "info", UNDO_MS, {
+    label: n === 1 ? "Undo" : "Undo all",
+    run: undoDeletes,
+  });
+}
+
 /** Takes the job out of view and offers Undo; the delete is sent when the offer runs out. */
 export function deleteJob(job: Job) {
-  if (pendingDeletes.has(job.id)) return;
-  pendingDeletes.add(job.id, job);
-  takeOutOfView(job.id);
-  undoToasts.set(
-    job.id,
-    toast("Deleted.", "info", UNDO_MS, {
-      label: "Undo",
-      run: () => {
-        const back = pendingDeletes.undo(job.id);
-        forget(job.id);
-        if (back) {
-          gone.delete(back.id);
-          upsertJob(back);
-          app.removals++;
-        }
-      },
-    }),
-  );
+  deleteJobs([job]);
 }
 
 /** Sends every waiting delete now: the page is being hidden or closed. */
 function flushDeletes() {
+  dropUndoToast();
   for (const id of pendingDeletes.ids()) {
     const job = pendingDeletes.undo(id);
-    const t = undoToasts.get(id);
-    if (t != null) dismissToast(t);
-    undoToasts.delete(id);
     if (job) sendDelete(id, job, true);
   }
 }
