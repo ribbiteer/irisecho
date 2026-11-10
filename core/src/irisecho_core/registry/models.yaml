@@ -884,6 +884,28 @@ x-limits:
     seconds: {min: 2, max: 5, default: 3}
 
 models:
+  qwen-image-21-edit:
+    name: Qwen-Image 2.1
+    kind: edit
+    engine: comfy
+    license: qwen-research
+    summary: Qwen-Image 2.1 editing a picture, up to 4 MP. Combine up to ten pictures, or change up to three marked areas. The pictures are yours to use.
+    settings: {prompt_style: qwen-image-21-edit, steps: 8, cfg: 1.0, edit: {pictures: 10, areas: 3}}
+    variants:
+      - when: {backend: cuda, cuda_tag: cu130}
+        workflow: qwen21-edit
+        files: [qwen21-turbo-int8, qwen3vl-8b-w4a8, qwen21-vae]
+    controls:
+      - *qwen21-steps
+      - {name: megapixels, type: float, min: 0.5, max: 4.0, step: 0.1, default: 2.0, unit: MP, label: Working size, help: "The size the picture is edited at. The result comes out at this size, in the picture's own shape; up to 4 MP fits a 12 GB card."}
+      - {name: feather, type: int, min: 0, max: 31, default: 12, unit: px, needs: box, label: Soft edge, help: "How gradually the changed area blends into the rest when you change only an area. 0 is a hard edge."}
+      - {name: ref_megapixels, type: float, tier: expert, min: 0.25, max: 4.0, step: 0.05, default: 2.0, unit: MP, needs: image2, label: Size of the other pictures, help: "The size Pictures 2 and up are read at, up to 4 MP like Picture 1. Unset, they follow the working size while together they stay within 3.3 MP (1.65 MP each for two, 0.37 MP each for nine), which keeps a ten-picture edit to about a minute and a quarter on a 12 GB card. Larger keeps more of their fine detail but is slower, and many large pictures together can take many minutes."}
+      - {name: transparent, type: bool, default: false, label: Keep transparency, help: "Saves the result with a transparent background when the edit asks for one, such as 'remove the background'. Off, a result keeps transparency only when part of it really came out clear. Changing only an area always gives an opaque picture."}
+      - *qwen21-loras
+      - {name: cache, type: choice, tier: expert, default: auto, options: [auto, gpu, cpu, "off"], label: Reference memory, help: "Where the model keeps what it read from the prompt and pictures between steps. auto uses spare graphics memory, then RAM; off reads them again at every step, slower but the plainest."}
+      - *qwen-sampler
+      - *qwen21-scheduler
+
   qwen-edit-fast:
     name: Qwen Edit Fast
     kind: edit
@@ -929,28 +951,6 @@ models:
       - {name: shift, type: float, tier: expert, min: 2, max: 5, step: 0.1, default: 3.0, label: Shift, help: "Higher favours overall shapes, lower favours fine detail."}
       - *qwen-sampler
       - *scheduler
-
-  qwen-image-21-edit:
-    name: Qwen-Image 2.1
-    kind: edit
-    engine: comfy
-    license: qwen-research
-    summary: Qwen-Image 2.1 editing a picture, up to 4 MP. Combine up to ten pictures, or change up to three marked areas. The pictures are yours to use.
-    settings: {prompt_style: qwen-image-21-edit, steps: 8, cfg: 1.0, edit: {pictures: 10, areas: 3}}
-    variants:
-      - when: {backend: cuda, cuda_tag: cu130}
-        workflow: qwen21-edit
-        files: [qwen21-turbo-int8, qwen3vl-8b-w4a8, qwen21-vae]
-    controls:
-      - *qwen21-steps
-      - {name: megapixels, type: float, min: 0.5, max: 4.0, step: 0.1, default: 2.0, unit: MP, label: Working size, help: "The size the picture is edited at. The result comes out at this size, in the picture's own shape; up to 4 MP fits a 12 GB card."}
-      - {name: feather, type: int, min: 0, max: 31, default: 12, unit: px, needs: box, label: Soft edge, help: "How gradually the changed area blends into the rest when you change only an area. 0 is a hard edge."}
-      - {name: ref_megapixels, type: float, tier: expert, min: 0.25, max: 4.0, step: 0.05, default: 2.0, unit: MP, needs: image2, label: Size of the other pictures, help: "The size Pictures 2 and up are read at, up to 4 MP like Picture 1. Unset, they follow the working size while together they stay within 3.3 MP (1.65 MP each for two, 0.37 MP each for nine), which keeps a ten-picture edit to about a minute and a quarter on a 12 GB card. Larger keeps more of their fine detail but is slower, and many large pictures together can take many minutes."}
-      - {name: transparent, type: bool, default: false, label: Keep transparency, help: "Saves the result with a transparent background when the edit asks for one, such as 'remove the background'. Off, a result keeps transparency only when part of it really came out clear. Changing only an area always gives an opaque picture."}
-      - *qwen21-loras
-      - {name: cache, type: choice, tier: expert, default: auto, options: [auto, gpu, cpu, "off"], label: Reference memory, help: "Where the model keeps what it read from the prompt and pictures between steps. auto uses spare graphics memory, then RAM; off reads them again at every step, slower but the plainest."}
-      - *qwen-sampler
-      - *qwen21-scheduler
 
   flux-kontext:
     name: FLUX.1 Kontext
@@ -1556,6 +1556,26 @@ models:
       - {name: blend, type: text, default: "", label: Mix voices, help: "Mix several voices into a new one, replacing the voice chosen above. Write voice names, optionally with weights: Bella:0.6, Sky:0.4. Without weights the voices count equally. Up to 5."}
       - *audio-format
 
+  qwen-image-21:
+    name: Qwen-Image 2.1
+    kind: image
+    engine: comfy
+    license: qwen-research
+    summary: Qwen's newer model. Long, exact lettering and fine detail up to 4 MP in eight steps. The pictures are yours to use.
+    settings: {prompt_style: qwen-image-21, steps: 8, cfg: 1.0}
+    variants:
+      - when: {backend: cuda, cuda_tag: cu130}
+        workflow: qwen21-image
+        files: [qwen21-turbo-int8, qwen3vl-8b-w4a8, qwen21-vae]
+    controls:
+      - *qwen21-steps
+      - {name: megapixels, type: float, min: 0.5, max: 4.0, step: 0.1, default: 2.0, unit: MP, label: Size, help: "How many pixels. Bigger takes longer; this model is made for up to 4 MP, which a 12 GB card fits in about half a minute."}
+      - {name: trained_sizes, type: bool, default: false, label: Use the trained sizes, help: "Qwen-Image 2.1's own 4 MP size for each shape (2048 x 2048, 2752 x 1536 for 16:9 and so on), instead of the Size above."}
+      - {name: transparent, type: bool, default: false, label: Transparent background, help: "Makes a cut-out on a clear background, saved as a PNG with transparency. Describe only the subject."}
+      - *qwen21-loras
+      - *qwen-sampler
+      - *qwen21-scheduler
+
   z-image-turbo:
     name: Z-Image Turbo
     kind: image
@@ -1674,26 +1694,26 @@ models:
       - *qwen-sampler
       - *scheduler
 
-  qwen-image-21:
-    name: Qwen-Image 2.1
+  krea-2:
+    name: Krea 2
     kind: image
     engine: comfy
-    license: qwen-research
-    summary: Qwen's newer model. Long, exact lettering and fine detail up to 4 MP in eight steps. The pictures are yours to use.
-    settings: {prompt_style: qwen-image-21, steps: 8, cfg: 1.0}
+    license: krea-2-community
+    summary: Photographs with natural skin, hands and fur, even from a short prompt. Eight steps, about ten seconds.
     variants:
-      - when: {backend: cuda, cuda_tag: cu130}
-        workflow: qwen21-image
-        files: [qwen21-turbo-int8, qwen3vl-8b-w4a8, qwen21-vae]
-    controls:
-      - *qwen21-steps
-      - {name: megapixels, type: float, min: 0.5, max: 4.0, step: 0.1, default: 2.0, unit: MP, label: Size, help: "How many pixels. Bigger takes longer; this model is made for up to 4 MP, which a 12 GB card fits in about half a minute."}
-      - {name: trained_sizes, type: bool, default: false, label: Use the trained sizes, help: "Qwen-Image 2.1's own 4 MP size for each shape (2048 x 2048, 2752 x 1536 for 16:9 and so on), instead of the Size above."}
-      - {name: transparent, type: bool, default: false, label: Transparent background, help: "Makes a cut-out on a clear background, saved as a PNG with transparency. Describe only the subject."}
-      - *qwen21-loras
-      - *qwen-sampler
-      - *qwen21-scheduler
+      - when: {backend: cuda, quant: int4, cuda_tag: cu130}
+        workflow: krea2
+        files: [krea2-turbo-w4a4, krea2-text-encoder, qwen-image-vae]
+      - when: {backend: cuda, quant: fp4, cuda_tag: cu130}
+        workflow: krea2
+        files: [krea2-turbo-w4a4, krea2-text-encoder, qwen-image-vae]
+    settings: {prompt_style: krea2, steps: 8, cfg: 1.0}
 
+    controls:
+      - *size-1mp
+      - {name: steps, type: int, min: 4, max: 12, default: 8, label: Steps, help: "More is slower and sometimes finer. This model is tuned for 8."}
+      - *qwen-sampler
+      - *scheduler
   flux-dev:
     name: FLUX.1 dev
     kind: image
@@ -1738,25 +1758,4 @@ models:
       - *flux-loras
       - *flux-shift
       - *flux-sampler
-      - *scheduler
-
-  krea-2:
-    name: Krea 2
-    kind: image
-    engine: comfy
-    license: krea-2-community
-    summary: Photographs with natural skin, hands and fur, even from a short prompt. Eight steps, about ten seconds.
-    variants:
-      - when: {backend: cuda, quant: int4, cuda_tag: cu130}
-        workflow: krea2
-        files: [krea2-turbo-w4a4, krea2-text-encoder, qwen-image-vae]
-      - when: {backend: cuda, quant: fp4, cuda_tag: cu130}
-        workflow: krea2
-        files: [krea2-turbo-w4a4, krea2-text-encoder, qwen-image-vae]
-    settings: {prompt_style: krea2, steps: 8, cfg: 1.0}
-
-    controls:
-      - *size-1mp
-      - {name: steps, type: int, min: 4, max: 12, default: 8, label: Steps, help: "More is slower and sometimes finer. This model is tuned for 8."}
-      - *qwen-sampler
       - *scheduler
