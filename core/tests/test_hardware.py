@@ -74,7 +74,7 @@ def test_one_card_or_the_persons_own_choice_is_left_alone(monkeypatch):
 @pytest.fixture
 def app(tmp_path, monkeypatch):
     monkeypatch.setenv("IRISECHO_HOME", str(tmp_path / "home"))
-    monkeypatch.setattr(hardware, "_nvidia_gpus", lambda: hardware.parse_gpus(SMI))
+    monkeypatch.setattr(hardware, "_nvidia_gpus", lambda: (hardware.parse_gpus(SMI), ""))
     monkeypatch.setattr(hardware.platform, "system", lambda: "Windows")
     hardware.detect.cache_clear()
     from irisecho_core.app import App
@@ -110,3 +110,91 @@ def test_the_card_is_not_switched_under_a_running_job(app):
     with pytest.raises(Busy):
         asyncio.run(app.set_gpu("GPU-aaaa"))
     assert app.hw.gpu.uuid == "GPU-bbbb"
+
+
+# --- a failed look at the graphics card ---------------------------------------------------
+
+
+@pytest.fixture
+def windows(monkeypatch):
+    monkeypatch.setattr(hardware.platform, "system", lambda: "Windows")
+    hardware.detect.cache_clear()
+    yield
+    hardware.detect.cache_clear()
+
+
+def test_nvidia_smi_that_does_not_answer_gives_a_reason(monkeypatch):
+    import subprocess
+
+    monkeypatch.setattr(hardware.shutil, "which", lambda name: "nvidia-smi")
+
+    def hang(*args, **kwargs):
+        raise subprocess.TimeoutExpired("nvidia-smi", 10)
+
+    monkeypatch.setattr(hardware.subprocess, "run", hang)
+    gpus, problem = hardware._nvidia_gpus()
+    assert gpus == [] and "did not answer" in problem and "timed out" in problem
+    monkeypatch.setattr(hardware.shutil, "which", lambda name: None)  # no NVIDIA driver at all
+    assert hardware._nvidia_gpus() == ([], "")
+
+
+def test_an_empty_probe_is_looked_at_again_but_not_on_every_call(windows, monkeypatch):
+    answers = [
+        ([], "The graphics card did not answer (nvidia-smi timed out)."),
+        (hardware.parse_gpus(SMI), ""),
+    ]
+    calls = []
+
+    def probe():
+        calls.append(1)
+        return answers[min(len(calls), len(answers)) - 1]
+
+    monkeypatch.setattr(hardware, "_nvidia_gpus", probe)
+    now = [1000.0]
+    monkeypatch.setattr(hardware.time, "monotonic", lambda: now[0])
+    first = hardware.detect("")
+    assert first.backend == "cpu" and "did not answer" in first.problem
+    assert first.public()["problem"] == first.problem
+    assert hardware.detect("") is first and len(calls) == 1  # not again at once
+    now[0] += hardware.RETRY_AFTER + 1
+    second = hardware.detect("")
+    assert len(calls) == 2 and second.backend == "cuda" and second.problem == ""
+    now[0] += 10_000
+    assert hardware.detect("") is second and len(calls) == 2  # a good answer is kept
+
+
+def test_a_chosen_card_that_is_replaced_is_said_so(windows, monkeypatch):
+    monkeypatch.setattr(hardware, "_nvidia_gpus", lambda: (hardware.parse_gpus(SMI), ""))
+    assert hardware.detect("GPU-aaaa").note == ""
+    assert hardware.detect("").note == ""
+    old = hardware.detect("GPU-cccc")  # a GTX 1080 cannot run the engines
+    assert old.gpu.uuid == "GPU-bbbb" and not old.gpu_pinned
+    assert "GeForce GTX 1080" in old.note and "too old" in old.note and "RTX 5090" in old.note
+    gone = hardware.detect("GPU-gone")
+    assert "not found" in gone.note and "RTX 5090" in gone.note
+
+
+def test_the_app_looks_again_when_the_card_did_not_answer(app, monkeypatch):
+    first = hardware.Hardware(
+        system="Windows",
+        machine="AMD64",
+        ram_mb=1,
+        tier="supported",
+        backend="cpu",
+        quant=None,
+        cuda_tag=None,
+        problem="The graphics card did not answer (nvidia-smi timed out).",
+    )
+    app.hw = first
+    for engine in app.engines.values():
+        engine.hw = first
+    asyncio.run(app.refresh_hardware())  # the probe works now (the fixture's), the cache is warm
+    assert app.hw.backend == "cuda" and app.hw.problem == ""
+    assert all(e.hw is app.hw for e in app.engines.values())
+    again = app.hw
+    asyncio.run(app.refresh_hardware())  # nothing wrong: nothing done
+    assert app.hw is again
+    app.hw = first
+    app.current_job = "a1"  # never changes the card under a running job
+    asyncio.run(app.refresh_hardware())
+    assert app.hw is first

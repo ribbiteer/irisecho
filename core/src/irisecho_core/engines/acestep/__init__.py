@@ -7,12 +7,8 @@ uv.lock, so the environment is exactly the one its authors test.
 
 from __future__ import annotations
 
-import io
 import shutil
-import zipfile
 from pathlib import Path
-
-import httpx
 
 from irisecho_core import controls
 from irisecho_core.engines import audioformat, audiosource, uvenv
@@ -156,20 +152,7 @@ class AceStepEngine(WorkerEngine):
 
     async def install(self, log) -> None:
         self.home.mkdir(parents=True, exist_ok=True)
-        log(f"Downloading {SOURCE[0]} @ {SOURCE[1][:10]}")
-        async with httpx.AsyncClient(follow_redirects=True, timeout=180) as client:
-            r = await client.get(f"https://codeload.github.com/{SOURCE[0]}/zip/{SOURCE[1]}")
-            r.raise_for_status()
-        if self.src.exists():
-            shutil.rmtree(self.src)
-        tmp = self.home / "src.tmp"
-        if tmp.exists():
-            shutil.rmtree(tmp)
-        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
-            z.extractall(tmp)
-        (inner,) = list(tmp.iterdir())
-        inner.rename(self.src)
-        tmp.rmdir()
+        await uvenv.fetch_source(*SOURCE, self.src, log)
 
         if self.venv.exists():
             shutil.rmtree(self.venv)
@@ -184,9 +167,6 @@ class AceStepEngine(WorkerEngine):
         )
         await uvenv.pip_install(self.venv, ["soundfile>=0.13"], log)
         self.mark_installed()
-
-    def device(self) -> str:
-        return {"cuda": "cuda", "mps": "mps"}.get(self.hw.backend, "cpu")
 
     async def run(self, ctx: RunContext) -> list[dict]:
         p = ctx.params

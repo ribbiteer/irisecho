@@ -128,6 +128,19 @@ mod tests {
     }
 
     #[test]
+    fn a_missing_connection_is_told_in_plain_words() {
+        use super::looks_offline;
+        let lines = |l: &[&str]| l.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert!(looks_offline(&lines(&[
+            "error: Failed to fetch: `https://example.invalid/python.tar.gz`",
+            "  Caused by: error sending request for url",
+            "  Caused by: dns error: failed to lookup address information",
+        ])));
+        assert!(!looks_offline(&lines(&["error: No interpreter found for Python 3.12"])));
+        assert!(!looks_offline(&[]));
+    }
+
+    #[test]
     fn a_large_log_starts_over_and_its_end_can_be_quoted() {
         use super::{log_tail, rotate_log, CORE_LOG_LIMIT};
         let dir = std::env::temp_dir().join(format!("irisecho-shell-test-{}", std::process::id()));
@@ -190,6 +203,23 @@ fn uv_command(uv: &Path, data: &Path) -> Command {
     cmd
 }
 
+/// Whether uv's output says it could not reach the network (its first launch needs to
+/// download Python). Matched on uv's and the system's wording, and only on these.
+fn looks_offline(lines: &[String]) -> bool {
+    const SIGNS: [&str; 6] = [
+        "dns error",
+        "failed to lookup address",
+        "error sending request",
+        "network is unreachable",
+        "no such host is known",
+        "tcp connect error",
+    ];
+    lines.iter().any(|l| {
+        let l = l.to_lowercase();
+        SIGNS.iter().any(|sign| l.contains(sign))
+    })
+}
+
 /// Run a command to completion, feeding its output to the splash screen.
 fn run_logged(cmd: &mut Command, status: &Arc<Mutex<BootStatus>>) -> Result<(), String> {
     let mut child = cmd
@@ -217,10 +247,14 @@ fn run_logged(cmd: &mut Command, status: &Arc<Mutex<BootStatus>>) -> Result<(), 
         Ok(())
     } else {
         let tail = status.lock().unwrap().lines.iter().rev().take(6).cloned().collect::<Vec<_>>();
-        Err(format!(
-            "Setting up IrisEcho failed.\n{}",
-            tail.into_iter().rev().collect::<Vec<_>>().join("\n")
-        ))
+        let tail: Vec<String> = tail.into_iter().rev().collect();
+        let what = if looks_offline(&tail) {
+            "IrisEcho needs the internet the first time it starts, to set itself up. \
+             Check the connection and try again."
+        } else {
+            "Setting up IrisEcho failed."
+        };
+        Err(format!("{what}\n{}", tail.join("\n")))
     }
 }
 

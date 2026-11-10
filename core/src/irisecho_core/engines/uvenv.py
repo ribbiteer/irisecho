@@ -10,11 +10,15 @@ folder, so removing that folder removes everything IrisEcho installed.
 from __future__ import annotations
 
 import asyncio
+import io
 import os
 import shutil
 import sys
+import zipfile
 from collections.abc import Callable
 from pathlib import Path
+
+import httpx
 
 from irisecho_core import paths
 
@@ -79,6 +83,30 @@ async def run(args: list[str], log: Log, cwd: Path | None = None, env: dict | No
         raise RuntimeError(
             f"{Path(args[0]).name} {args[1] if len(args) > 1 else ''} failed:\n" + "\n".join(tail)
         )
+
+
+def extract_source(data: bytes, dest: Path) -> None:
+    """Unpack a GitHub source zip (one top folder) as `dest`, replacing what is there."""
+    if dest.exists():
+        shutil.rmtree(dest)
+    tmp = dest.with_name(dest.name + ".tmp")
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        z.extractall(tmp)
+    (inner,) = list(tmp.iterdir())
+    inner.rename(dest)
+    tmp.rmdir()
+
+
+async def fetch_source(repo: str, sha: str, dest: Path, log: Log, timeout: float = 180) -> None:
+    """Download the pinned commit `sha` of a GitHub repo and unpack it as `dest`."""
+    log(f"Downloading {repo} @ {sha[:10]}")
+    url = f"https://codeload.github.com/{repo}/zip/{sha}"
+    async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
+        r = await client.get(url)
+        r.raise_for_status()
+    extract_source(r.content, dest)
 
 
 async def create_venv(venv: Path, python: str, log: Log) -> None:

@@ -253,6 +253,19 @@ class Database:
                     self.conn.execute("DELETE FROM jobs_fts WHERE id = ?", (job_id,))
         return ids
 
+    def mentioning(self, names) -> set[str]:
+        """Which of `names` appear in the settings of any job, whatever its status."""
+        left = set(names)
+        found: set[str] = set()
+        with self.lock:
+            for row in self.conn.execute("SELECT params FROM jobs"):
+                for name in [n for n in left if n in row[0]]:
+                    left.discard(name)
+                    found.add(name)
+                if not left:
+                    break
+        return found
+
     def delete(self, job_id: str) -> None:
         with self.lock:
             self.conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))

@@ -26,13 +26,22 @@ export function openExternal(url: string) {
   }
 }
 
+// "http://127.0.0.1:7788.evil.example/" starts with "http://127.0.0.1:7788": compare parsed origins.
+function sameOrigin(href: string): boolean {
+  try {
+    return new URL(href, location.href).origin === location.origin;
+  } catch {
+    return false;
+  }
+}
+
 // Links that leave the app open in the system browser, never inside the app window.
 export function routeExternalLinks() {
   document.addEventListener("click", (e) => {
     const a = (e.target as HTMLElement).closest?.("a[href]") as HTMLAnchorElement | null;
     if (!a) return;
     const href = a.getAttribute("href") ?? "";
-    if (/^https?:\/\//.test(href) && !href.startsWith(location.origin)) {
+    if (/^https?:\/\//.test(href) && !sameOrigin(href)) {
       e.preventDefault();
       openExternal(href);
     }

@@ -118,9 +118,6 @@ class KokoroEngine(WorkerEngine):
         )
         self.mark_installed()
 
-    def device(self) -> str:
-        return {"cuda": "cuda", "mps": "mps"}.get(self.hw.backend, "cpu")
-
     async def run(self, ctx: RunContext) -> list[dict]:
         p = ctx.params
         blend = (p.get("blend") or "").strip()

@@ -23,7 +23,7 @@
   let newDir = $state("");
 
   // Helpers are not a studio of their own; they work inside the others.
-  const HELPERS = { kind: "prompt", label: "Helpers", verb: "", hint: "", sound: false } as const;
+  const HELPERS = { kind: "prompt", label: "Helpers", hint: "", sound: false } as const;
   const groups = $derived(
     [...STUDIOS, HELPERS]
       .map((s) => ({

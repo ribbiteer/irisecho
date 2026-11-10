@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import glob
-import io
 import json
 import os
 import random
@@ -21,7 +20,6 @@ import struct
 import sys
 import time
 import uuid
-import zipfile
 from collections import deque
 from pathlib import Path
 
@@ -48,6 +46,9 @@ CUSTOM_NODES = {
     "ComfyUI-GGUF": ("city96/ComfyUI-GGUF", "6ea2651e7df66d7585f6ffee804b20e92fb38b8a"),
 }
 TORCH = "torch==2.11.0"
+# The wheel's host is written "nunchux-ai" and the custom node's repo above "nunchaku-ai" (as
+# THIRD_PARTY_NOTICES.md lists both). Each wheel is pinned by hash, so a different owner could
+# not change what is installed; the owner should confirm the two are the same upstream.
 NUNCHAKU = "https://github.com/nunchux-ai/nunchaku/releases/download/v1.2.1/"
 NUNCHAKU_WHEELS = {
     ("win32", "cu130"): (
@@ -353,31 +354,14 @@ class ComfyEngine(Engine):
     def install_key(self) -> str:
         return f"{super().install_key()}:{COMFY[1][:12]}"
 
-    async def _fetch_source(self, repo: str, sha: str, dest: Path, log) -> None:
-        log(f"Downloading {repo} @ {sha[:10]}")
-        url = f"https://codeload.github.com/{repo}/zip/{sha}"
-        async with httpx.AsyncClient(follow_redirects=True, timeout=120) as client:
-            r = await client.get(url)
-            r.raise_for_status()
-        if dest.exists():
-            shutil.rmtree(dest)
-        tmp = dest.with_name(dest.name + ".tmp")
-        if tmp.exists():
-            shutil.rmtree(tmp)
-        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
-            z.extractall(tmp)
-        (inner,) = list(tmp.iterdir())
-        inner.rename(dest)
-        tmp.rmdir()
-
     async def install(self, log) -> None:
         self.home.mkdir(parents=True, exist_ok=True)
-        await self._fetch_source(*COMFY, self.src, log)
+        await uvenv.fetch_source(*COMFY, self.src, log, 120)
         patch_comfy(self.src)
         for name, (repo, sha) in CUSTOM_NODES.items():
             if name == "ComfyUI-nunchaku" and self.hw.backend != "cuda":
                 continue
-            await self._fetch_source(repo, sha, self.src / "custom_nodes" / name, log)
+            await uvenv.fetch_source(repo, sha, self.src / "custom_nodes" / name, log, 120)
             if name == "ComfyUI-nunchaku":
                 patch_sources(self.src / "custom_nodes" / name, NUNCHAKU_PATCHES)
 

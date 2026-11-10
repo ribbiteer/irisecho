@@ -77,20 +77,8 @@ class Hasher:
         return self.h.hexdigest() == self.expected
 
 
-def file_matches(path: Path, spec: FileSpec, progress: Callable[[int], None] | None = None) -> bool:
-    hasher = Hasher(spec)
-    done = 0
-    with open(path, "rb") as f:
-        while chunk := f.read(8 << 20):
-            hasher.update(chunk)
-            done += len(chunk)
-            if progress:
-                progress(done)
-    return hasher.ok()
-
-
-def sha256_file(path: Path, progress: Callable[[int], None] | None = None) -> str:
-    digest = hashlib.sha256()
+def hash_file(path: Path, digest, progress: Callable[[int], None] | None = None) -> None:
+    """Feed a file to `digest` (anything with update()), reporting the bytes read so far."""
     done = 0
     with open(path, "rb") as f:
         while chunk := f.read(8 << 20):
@@ -98,6 +86,17 @@ def sha256_file(path: Path, progress: Callable[[int], None] | None = None) -> st
             done += len(chunk)
             if progress:
                 progress(done)
+
+
+def file_matches(path: Path, spec: FileSpec, progress: Callable[[int], None] | None = None) -> bool:
+    hasher = Hasher(spec)
+    hash_file(path, hasher, progress)
+    return hasher.ok()
+
+
+def sha256_file(path: Path, progress: Callable[[int], None] | None = None) -> str:
+    digest = hashlib.sha256()
+    hash_file(path, digest, progress)
     return digest.hexdigest()
 
 

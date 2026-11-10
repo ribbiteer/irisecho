@@ -196,7 +196,7 @@ def test_from_is_for_the_image_models_that_start_from_a_picture():
 
 
 def test_json_for_a_job_that_finished(backend, capsys):
-    backend.warnings = ["Z-Image Turbo does not use 'x'; it was ignored."]
+    backend.warnings = ["Z-Image Turbo does not use 'x'; it has no effect."]
     code = cli.main(["image", "a fox", "--count", "2", "--json", "--set", "x=1"])
     out, err = capsys.readouterr()
     assert code == 0

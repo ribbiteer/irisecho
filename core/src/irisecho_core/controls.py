@@ -14,8 +14,9 @@ import re
 
 from irisecho_core.registry import LIMITED, Control, ModelSpec
 
-# Params each kind of model took before controls existed. Unknown params are
-# reported back as warnings (and ignored), not refused, so older scripts keep working.
+# Params each kind of model took before controls existed. Unknown params are kept in the
+# job and reported back as warnings, not refused, so older scripts keep working; engines
+# read only the params they know, so an unknown one has no effect.
 BASE: dict[str, set[str]] = {
     "image": {
         "prompt",
@@ -232,7 +233,7 @@ def coerce(c: Control, value):
 
 
 def check(model: ModelSpec, params: dict) -> tuple[dict, list[str]]:
-    """Validated params plus warnings about params the model does not use.
+    """Validated params plus warnings about params the model does not use (kept, but unused).
 
     Control values are converted to their type; `None` means "recommended" and is
     dropped, as is a LoRA list that is empty.
@@ -253,7 +254,7 @@ def check(model: ModelSpec, params: dict) -> tuple[dict, list[str]]:
             out[key] = value
             continue
         if key not in base:
-            warnings.append(f"{model.name} does not use '{key}'; it was ignored.")
+            warnings.append(f"{model.name} does not use '{key}'; it has no effect.")
         elif key in LIMITED and value is not None and limit(model.settings, key):
             value = _limited(model, key, value)
         out[key] = value
@@ -304,11 +305,3 @@ def _check_edit(model: ModelSpec, params: dict) -> None:
             or not (0 <= b[0] < b[2] <= 1 and 0 <= b[1] < b[3] <= 1)
         ):
             raise ControlError(BOX_MESSAGE)
-
-
-def opt(params: dict, settings: dict, name: str, fallback=None):
-    """The value a builder should use: the job's, else the model's setting, else the fallback."""
-    value = params.get(name)
-    if value is not None:
-        return value
-    return settings.get(name, fallback)

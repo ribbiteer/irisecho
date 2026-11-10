@@ -33,7 +33,7 @@ generating command for one JSON object per job on stdout instead:
 
 - `label` is the cue id (empty without one). `outputs` are the files, in the
   `--out` folder if you gave one. `error` is the reason a job failed.
-- `warnings` names params the model does not use (they were ignored). The same
+- `warnings` names params the model does not use (they have no effect). The same
   lines are printed on stderr as `warning: ...`.
 - A job that never ran still gets an object: `id` is null (or the job's id if
   it was queued), `status` is `failed`, `error` says why, and `needs` says what
@@ -254,12 +254,12 @@ between shells, so a body file and `-` is the dependable way.
 | `POST /api/models/{id}/verify` | re-hash a model's files against their recorded hashes: per file `ok`, `wrong_hash` or `missing`; changes nothing, and reads several GB, so it takes a while |
 | `POST /api/jobs` with `{"model", "params"}` | queue a job; 400 for a value out of range or a body that is not a JSON object with a `model`, 404 for an unknown model, 409 with `needs` if the model is not ready |
 | `GET /api/jobs/{id}` | `status` (`queued`, `running`, `done`, `failed`, `cancelled`, `interrupted`), `progress`, `message`, `error`, `outputs` |
-| `GET /api/jobs?q=fox&kind=image&limit=20` | search what has been made |
+| `GET /api/jobs?q=fox&kind=image&limit=20` | search what has been made; `limit` is 1 to 500 (400 outside that) |
 | `POST /api/jobs/{id}/cancel` | stop a queued or running job; 404 for an unknown id, 409 with the job's `status` if it has already ended |
 | `DELETE /api/jobs/{id}` | remove a finished job and its files; 404 for an unknown id, 409 while it is queued or running or if a file is open in another program (nothing is lost; close it and retry) |
 | `POST /api/jobs/{id}/favorite` with `{"favorite": true}` | mark or unmark a job; 404 for an unknown id |
-| `POST /api/uploads` (multipart `file`) | add a picture or sound for a job to use; returns its `id` |
-| `GET /api/system` | GPU, memory in use right now (`vram`: `used_mb` and `free_mb` per card, the whole card), what is loaded, queue length |
+| `POST /api/uploads` (multipart `file`) | add a picture or sound for a job to use; returns its `id`. Up to 64 MB (413); the kind is read from the file's first bytes: PNG, JPEG, WebP, MP4, WAV, MP3, FLAC or OGG, else 415. Uploads no job mentions are deleted after a week |
+| `GET /api/system` | GPU (`hardware.problem` says why the card could not be read, `hardware.note` that the card chosen in Settings is not in use), memory in use right now (`vram`: `used_mb` and `free_mb` per card, the whole card), what is loaded, queue length |
 | `POST /api/system/unload` | free the GPU for another program; 409 while a job is running |
 | `GET /api/jobs/{id}/outputs/{n}/export?format=stl&height_mm=80` | a 3D model in `glb`, `stl`, `3mf` (millimetres, upright on the plate), `obj` (zip) or `ply` |
 | `GET /api/jobs/{id}/outputs/{n}/preview` | the still picture of a 3D model |
@@ -369,7 +369,7 @@ nothing.
   (`takes`, `duration`, `seconds` and `loop` without `bpm` too: nothing is
   clamped or dropped quietly). `limits` holds the range and default of `takes`,
   `duration` or `seconds` where the model has one: `{"takes": {"min": 1, "max": 4, "default": 1}}`.
-  A param the model does not use is ignored and named in the response's
+  A param the model does not use has no effect and is named in the response's
   `warnings` (`irisecho` prints them too).
 - Add-ons (LoRAs): `.safetensors` files in the `loras` folder of the models
   folder (or of a linked models folder). `GET /api/loras?family=flux` lists them
@@ -452,12 +452,13 @@ through HTTP.
 1. The person turns on Settings → Phone and network access, chooses Pair a
    phone, and gives you the pairing link (`http://HOST:7789/pair?code=CODE`).
    The code works once and expires after five minutes.
-2. Open that link with a client that keeps cookies. The answer sets the cookie
-   `irisecho_device`; send it with every call from then on. It lasts until the
-   person revokes the device in Settings.
+2. Send the code to `/pair` as a form (opening the link in a browser only shows
+   a page with a Pair button, so a link preview cannot use the code up). The
+   answer sets the cookie `irisecho_device`; send it with every call from then
+   on. It lasts until the person revokes the device in Settings.
 
 ```sh
-curl -c jar.txt -L "http://HOST:7789/pair?code=CODE"
+curl -c jar.txt -d "code=CODE" http://HOST:7789/pair
 curl -b jar.txt http://HOST:7789/api/models
 curl -b jar.txt -H "X-IrisEcho: 1" -H "Content-Type: application/json" -d @job.json http://HOST:7789/api/jobs
 curl -b jar.txt -o result.png http://HOST:7789/api/jobs/JOB_ID/outputs/0
@@ -476,7 +477,7 @@ In Windows PowerShell, `curl` is another command: type `curl.exe`.
   `/api/jobs/{id}/outputs/{n}`. Pictures and sounds for a job must be uploaded:
   the `uploads` folder is out of reach.
 - 401 with `"pair": true` means the cookie is missing or was revoked: ask the
-  person for a new code. After five wrong codes, pairing pauses for a minute.
+  person for a new code. After five wrong codes from one address (or twenty from all), pairing pauses for a minute.
 - The connection is plain HTTP. Anyone who can see the network traffic can see
   the cookie and everything you send, so use it only on a network the person
   trusts, and keep the cookie out of logs, prompts and commits.

@@ -213,6 +213,8 @@ export interface System {
     gpu: Gpu | null; // the card the engines run on
     gpu_pinned: boolean; // chosen in Settings, not picked automatically
     vram_mb: number;
+    problem: string; // why the graphics card could not be read, or ""
+    note: string; // the card chosen in Settings is not in use, and what runs instead, or ""
   };
   vram: { used_mb: number; free_mb: number }[]; // live, whole card, by nvidia-smi index; empty without nvidia-smi
   queue: { current: string | null; waiting: number };

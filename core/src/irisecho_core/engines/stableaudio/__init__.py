@@ -3,12 +3,8 @@
 
 from __future__ import annotations
 
-import io
 import shutil
-import zipfile
 from pathlib import Path
-
-import httpx
 
 from irisecho_core import controls
 from irisecho_core.engines import audioformat, audiosource, uvenv
@@ -64,20 +60,7 @@ class StableAudioEngine(WorkerEngine):
 
     async def install(self, log) -> None:
         self.home.mkdir(parents=True, exist_ok=True)
-        log(f"Downloading {SOURCE[0]} @ {SOURCE[1][:10]}")
-        async with httpx.AsyncClient(follow_redirects=True, timeout=180) as client:
-            r = await client.get(f"https://codeload.github.com/{SOURCE[0]}/zip/{SOURCE[1]}")
-            r.raise_for_status()
-        if self.src.exists():
-            shutil.rmtree(self.src)
-        tmp = self.home / "src.tmp"
-        if tmp.exists():
-            shutil.rmtree(tmp)
-        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
-            z.extractall(tmp)
-        (inner,) = list(tmp.iterdir())
-        inner.rename(self.src)
-        tmp.rmdir()
+        await uvenv.fetch_source(*SOURCE, self.src, log)
 
         if self.venv.exists():
             shutil.rmtree(self.venv)
@@ -93,9 +76,6 @@ class StableAudioEngine(WorkerEngine):
         if self.hw.backend == "cuda":
             await uvenv.pip_install(self.venv, TORCH, log, "--torch-backend", "cu128")
         self.mark_installed()
-
-    def device(self) -> str:
-        return {"cuda": "cuda", "mps": "mps"}.get(self.hw.backend, "cpu")
 
     @staticmethod
     def bounded(ctx: RunContext, name: str, value, kind):

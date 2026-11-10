@@ -26,7 +26,7 @@ import httpx
 from irisecho_core import credentials
 from irisecho_core.events import EventBus, Throttle
 from irisecho_core.registry import FileSpec
-from irisecho_core.store import Hasher, Store
+from irisecho_core.store import Hasher, Store, hash_file
 
 CHUNK = 1 << 20
 PARALLEL = 2
@@ -224,7 +224,7 @@ class DownloadManager:
             if offset:
                 d.state = "verifying"
                 self._emit(d)
-                await asyncio.to_thread(_hash_into, part, digest)
+                await asyncio.to_thread(hash_file, part, digest)
         d._digest = digest
         d.done = offset
         if offset == spec.size:
@@ -279,9 +279,3 @@ class DownloadManager:
 
         if d.done != spec.size:
             raise _Stopped(f"download stopped at {d.done} of {spec.size} bytes; retry to resume")
-
-
-def _hash_into(path, digest) -> None:
-    with open(path, "rb") as f:
-        while chunk := f.read(8 << 20):
-            digest.update(chunk)

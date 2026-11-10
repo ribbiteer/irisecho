@@ -62,9 +62,6 @@ class PromptWriterEngine(WorkerEngine):
         )
         self.mark_installed()
 
-    def device(self) -> str:
-        return {"cuda": "cuda", "mps": "mps"}.get(self.hw.backend, "cpu")
-
     async def run(self, ctx: RunContext) -> list[dict]:
         p = ctx.params
         mode = p.get("mode") or "improve"

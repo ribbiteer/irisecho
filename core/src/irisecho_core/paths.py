@@ -61,6 +61,15 @@ def upload(name, what: str = "file") -> Path:
     return sub("uploads") / name
 
 
+def note(log: str, text: str) -> None:
+    """Add a line to logs/<log>.log, for a problem that is not worth stopping for; never raises."""
+    try:
+        with (sub("logs") / f"{log}.log").open("a", encoding="utf-8") as f:
+            f.write(" ".join(text.split())[:500] + "\n")
+    except OSError:
+        pass
+
+
 def move_aside(path: Path, why: str) -> Path | None:
     """Rename an unreadable data file to `<name>.bad` (then `.bad2`, ...) and log it.
 

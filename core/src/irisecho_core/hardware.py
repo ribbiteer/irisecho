@@ -19,8 +19,8 @@ import subprocess
 import sys
 import time
 from dataclasses import asdict, dataclass, field
-from functools import lru_cache
 
+from irisecho_core import paths
 from irisecho_core.platform_support import support_tier
 
 # The newest CUDA build of torch needs at least this driver.
@@ -49,6 +49,8 @@ class Hardware:
     gpus: list[Gpu] = field(default_factory=list)
     gpu_uuid: str | None = None  # the card the engines run on
     gpu_pinned: bool = False  # chosen in Settings rather than picked automatically
+    problem: str = ""  # why the graphics card could not be read, for people
+    note: str = ""  # the card chosen in Settings could not be used, and what ran instead
 
     @property
     def gpu(self) -> Gpu | None:
@@ -83,10 +85,11 @@ def parse_gpus(out: str) -> list[Gpu]:
     return gpus
 
 
-def _nvidia_gpus() -> list[Gpu]:
+def _nvidia_gpus() -> tuple[list[Gpu], str]:
+    """The NVIDIA cards, and why none were read when nvidia-smi is there but did not answer."""
     exe = shutil.which("nvidia-smi")
     if not exe:
-        return []
+        return [], ""
     try:
         out = subprocess.run(
             [
@@ -101,9 +104,15 @@ def _nvidia_gpus() -> list[Gpu]:
             check=True,
             creationflags=0x08000000 if sys.platform == "win32" else 0,  # CREATE_NO_WINDOW
         ).stdout
-    except (OSError, subprocess.SubprocessError):
-        return []
-    return parse_gpus(out)
+    except subprocess.TimeoutExpired:
+        return [], "The graphics card did not answer (nvidia-smi timed out)."
+    except (OSError, subprocess.SubprocessError) as e:
+        paths.note("hardware", f"nvidia-smi failed: {type(e).__name__}: {e}")
+        return [], "The graphics card could not be read (nvidia-smi failed)."
+    gpus = parse_gpus(out)
+    if not gpus:
+        return [], "The graphics card could not be read (nvidia-smi listed none)."
+    return gpus, ""
 
 
 _vram: tuple[float, list[dict]] = (-1e9, [])
@@ -168,8 +177,8 @@ def _ram_mb() -> int:
             for line in f:
                 if line.startswith("MemTotal:"):
                     return int(line.split()[1]) // 1024
-    except Exception:
-        pass
+    except Exception as e:
+        paths.note("hardware", f"Could not read the memory size: {type(e).__name__}: {e}")
     return 0
 
 
@@ -201,11 +210,22 @@ def classify(
     return "cpu", None, None
 
 
-@lru_cache(maxsize=4)
-def detect(wanted: str = "") -> Hardware:
-    """This machine, running on the card whose uuid is `wanted` (empty: pick automatically)."""
+def _chosen_note(gpus: list[Gpu], wanted: str, gpu: Gpu | None) -> str:
+    """Says so when the card picked in Settings is not the one that will be used."""
+    if not wanted or not gpus or (gpu and gpu.uuid == wanted):
+        return ""
+    instead = f"using {gpu.name} instead" if gpu else "running without a graphics card"
+    card = next((g for g in gpus if g.uuid == wanted), None)
+    if card:
+        return (
+            f"The graphics card chosen in Settings ({card.name}) is too old to run on; {instead}."
+        )
+    return f"The graphics card chosen in Settings was not found; {instead}."
+
+
+def _detect(wanted: str) -> Hardware:
     system, machine = platform.system(), platform.machine()
-    gpus = _nvidia_gpus() if system in ("Windows", "Linux") else []
+    gpus, problem = _nvidia_gpus() if system in ("Windows", "Linux") else ([], "")
     backend, quant, cuda_tag = classify(system, machine, gpus, wanted)
     gpu = choose(gpus, wanted) if backend == "cuda" else None
     return Hardware(
@@ -219,7 +239,30 @@ def detect(wanted: str = "") -> Hardware:
         gpus=gpus,
         gpu_uuid=gpu.uuid if gpu and gpu.uuid else None,
         gpu_pinned=bool(gpu and wanted and gpu.uuid == wanted),
+        problem=problem,
+        note=_chosen_note(gpus, wanted, gpu),
     )
+
+
+# A failed look at the graphics card is tried again, but not on every request.
+RETRY_AFTER = 30.0
+_seen: dict[str, tuple[float, Hardware]] = {}
+
+
+def detect(wanted: str = "") -> Hardware:
+    """This machine, running on the card whose uuid is `wanted` (empty: pick automatically).
+
+    The answer is kept, except one that carries a `problem`: that is looked at again
+    once RETRY_AFTER seconds have passed."""
+    found = _seen.get(wanted)
+    if found and (not found[1].problem or time.monotonic() - found[0] < RETRY_AFTER):
+        return found[1]
+    hw = _detect(wanted)
+    _seen[wanted] = (time.monotonic(), hw)
+    return hw
+
+
+detect.cache_clear = _seen.clear  # type: ignore[attr-defined]
 
 
 def gpu_env(hw: Hardware) -> dict[str, str]:

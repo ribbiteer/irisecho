@@ -242,6 +242,24 @@ class IrisEchoMarkArea:
         return (torch.where(ring, red, out),)
 
 
+_tools = None
+
+
+def _audio_tools():
+    """IrisEcho's audio code, copied beside this file; loaded once."""
+    global _tools
+    if _tools is None:
+        import importlib.util
+        from pathlib import Path
+
+        spec = importlib.util.spec_from_file_location(
+            "irisecho_audio", Path(__file__).with_name("irisecho_audio.py")
+        )
+        _tools = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(_tools)
+    return _tools
+
+
 class IrisEchoLoudness:
     """A clip's sound brought to an integrated loudness (BS.1770), peaks limited at -1 dB,
     with IrisEcho's own audio code (copied beside this file as irisecho_audio.py)."""
@@ -260,14 +278,7 @@ class IrisEchoLoudness:
     CATEGORY = "irisecho"
 
     def level(self, audio, lufs):
-        import importlib.util
-        from pathlib import Path
-
-        spec = importlib.util.spec_from_file_location(
-            "irisecho_audio", Path(__file__).with_name("irisecho_audio.py")
-        )
-        tools = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(tools)
+        tools = _audio_tools()
         wave, sr = audio["waveform"], int(audio["sample_rate"])
         out = []
         for clip in wave:  # [channels, samples]
@@ -275,18 +286,6 @@ class IrisEchoLoudness:
             data = tools.normalize(data, sr, float(lufs))
             out.append(torch.from_numpy(data.T.copy()).to(wave.dtype))
         return ({"waveform": torch.stack(out), "sample_rate": sr},)
-
-
-def _audio_tools():
-    import importlib.util
-    from pathlib import Path
-
-    spec = importlib.util.spec_from_file_location(
-        "irisecho_audio", Path(__file__).with_name("irisecho_audio.py")
-    )
-    tools = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(tools)
-    return tools
 
 
 def _write_wav(path, data, sr: int, bits: int) -> None:

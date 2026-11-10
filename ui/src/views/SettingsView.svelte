@@ -272,6 +272,7 @@
         <dt>Graphics</dt>
         <dd>
           {#if gpu}{gpu.name} · {Math.round(gpu.vram_mb / 1024)} GB{:else if hw?.backend === "mps"}Apple Silicon (Metal){:else}None found (CPU only){/if}
+          {#if hw?.problem || hw?.note}<p class="note warn">{hw.problem || hw.note}</p>{/if}
         </dd>
         {#if cards.length > 1}
           <dt>Run on</dt>

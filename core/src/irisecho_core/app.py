@@ -24,6 +24,11 @@ from irisecho_core.events import EventBus, Throttle
 from irisecho_core.registry import ModelSpec
 from irisecho_core.store import Store
 
+# Uploads no job mentions are removed after this long. The wait is long because a person
+# can come back to a form they left open, and an agent may put a file in the folder first.
+UPLOAD_KEEP = 7 * 24 * 3600
+UPLOAD_PRUNE_EVERY = 6 * 3600
+
 
 class NotReady(Exception):
     """A model cannot run yet; `needs` says what the person has to do."""
@@ -90,6 +95,7 @@ class App:
         self._gpu = asyncio.Lock()  # held while a job runs or the GPU is being freed
         self._runner: asyncio.Task | None = None
         self._instance: instance.InstanceLock | None = None
+        self._pruned = float("-inf")
 
     # --- lifecycle ---------------------------------------------------------
 
@@ -106,6 +112,7 @@ class App:
         self.claim()
         self.bus.bind(asyncio.get_running_loop())
         self.db.interrupted()
+        await asyncio.to_thread(self.prune_uploads)
         self._runner = asyncio.create_task(self._run_queue())
         if self.store.needs_scan():
             # New models (or new folders) since the last look: check linked folders again.
@@ -123,11 +130,44 @@ class App:
         for engine in self.engines.values():
             try:
                 await engine.shutdown()
-            except Exception:
-                pass
+            except Exception as e:
+                paths.note(
+                    "jobs", f"{engine.id} did not shut down cleanly: {type(e).__name__}: {e}"
+                )
         if self._instance:
             self._instance.release()
             self._instance = None
+
+    def prune_uploads(self, keep: float = UPLOAD_KEEP, every: float = UPLOAD_PRUNE_EVERY) -> int:
+        """Delete uploads that are old and that no job mentions. Returns how many.
+
+        Age is the later of the file's modified and created/changed times: a copy an agent
+        made keeps its old modified time. Anything a queued or running job uses is in the
+        database, so it is kept like the settings of every finished job. Runs at most once
+        every `every` seconds."""
+        now = time.monotonic()
+        if now - self._pruned < every:
+            return 0
+        self._pruned = now
+        folder = paths.sub("uploads")
+        cutoff = time.time() - keep
+        old: dict[str, Path] = {}
+        for path in folder.iterdir():
+            try:
+                info = path.stat()
+                if path.is_file() and paths.UPLOAD_NAME.fullmatch(path.name):
+                    if max(info.st_mtime, info.st_ctime) < cutoff:
+                        old[path.name] = path
+            except OSError:
+                continue
+        removed = 0
+        for name in set(old) - self.db.mentioning(old):
+            try:
+                old[name].unlink()
+                removed += 1
+            except OSError as e:
+                paths.note("jobs", f"Could not remove the old upload {name}: {type(e).__name__}")
+        return removed
 
     # --- models ------------------------------------------------------------
 
@@ -692,6 +732,29 @@ class App:
                 self.loaded_model = None
                 self.bus.publish("engines", {})
 
+    def check_gpu(self, uuid: str) -> None:
+        """ValueError unless `uuid` is empty (automatic) or names a card in this computer."""
+        if uuid and uuid not in {g.uuid for g in self.hw.gpus}:
+            raise ValueError("That graphics card was not found.")
+
+    async def refresh_hardware(self) -> None:
+        """Look at the graphics card again when the last look failed (detect spaces them out).
+
+        Skipped while a job runs or the card is being changed; engines pick up a card that
+        answers now, as they do after the person chooses another."""
+        if not self.hw.problem or self.current_job or self._gpu.locked():
+            return
+        hw = await asyncio.to_thread(hardware.detect, self.settings.gpu)
+        if hw is self.hw:
+            return
+        changed = hw != self.hw
+        self.hw = hw
+        for engine in self.engines.values():
+            engine.hw = hw
+        if changed:
+            self.bus.publish("engines", {})
+            self.bus.publish("models", {})
+
     async def set_gpu(self, uuid: str) -> None:
         """Run on another card (empty: pick automatically). Refused while a job runs.
 
@@ -699,8 +762,7 @@ class App:
         different generation can need other model builds or engine installs; the
         Models page then says so as it does on any new machine.
         """
-        if uuid and uuid not in {g.uuid for g in self.hw.gpus}:
-            raise ValueError("That graphics card was not found.")
+        self.check_gpu(uuid)
         if self.current_job or self._gpu.locked():
             raise Busy("A job is running. Try again when the queue is empty.")
         async with self._gpu:

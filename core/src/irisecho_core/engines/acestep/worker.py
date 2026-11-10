@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import random
+import sys
 
 import numpy as np
 from irisecho_audio import loop_cut, trim_end, write_audio
@@ -72,8 +73,10 @@ def release_planner() -> None:
     if llm is not None:
         try:
             llm.unload()
-        except Exception:
-            pass
+        except Exception as e:
+            print(
+                f"The song planner did not unload cleanly: {type(e).__name__}: {e}", file=sys.stderr
+            )
         del llm
         _empty_cache()
 
@@ -94,8 +97,8 @@ def _empty_cache() -> None:
 
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Could not empty the GPU cache: {type(e).__name__}: {e}", file=sys.stderr)
 
 
 def source_task(params: dict) -> dict:
@@ -315,8 +318,10 @@ def made_seconds(params: dict) -> float:
 
             length = float(sf.info(params["source"]).duration)
             return length + float(params.get("extend_by") or 0)
-        except Exception:
-            pass
+        except Exception as e:
+            print(
+                f"Could not read the recording's length: {type(e).__name__}: {e}", file=sys.stderr
+            )
     return float(params["duration"])
 
 

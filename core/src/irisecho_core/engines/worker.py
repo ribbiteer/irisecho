@@ -244,6 +244,9 @@ class WorkerEngine(Engine):
     def worker_env(self) -> dict[str, str]:
         return {}
 
+    def device(self) -> str:
+        return {"cuda": "cuda", "mps": "mps"}.get(self.hw.backend, "cpu")
+
     async def ensure_worker(self, report: Progress) -> WorkerProcess:
         async with self._lock:
             if self.worker and self.worker.alive:

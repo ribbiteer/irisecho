@@ -32,6 +32,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import uvicorn
 
@@ -42,8 +43,11 @@ DEFAULT_PORT = 7789
 CODE_TTL = 300  # seconds a pairing code stays valid
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O/1/I
 CODE_LENGTH = 8
-MAX_WRONG = 5  # wrong codes allowed per LOCKOUT window, across all callers
+MAX_WRONG = 5  # wrong codes allowed per LOCKOUT window from one address
+MAX_WRONG_ALL = 20  # and across all addresses together
 LOCKOUT = 60
+SAVE_EVERY = 30  # seconds between writes of the "last seen" times
+LOOPBACK = ("127.0.0.1", "localhost", "::1")
 
 # What a paired device may call. Everything else is for the computer itself.
 DEVICE_ALLOWED = [
@@ -76,13 +80,42 @@ def device_may(method: str, path: str) -> bool:
     return any(m == method and rx.match(path) for m, rx in _ALLOWED)
 
 
+def split_host(value: str | None) -> tuple[str, int | None]:
+    """The host name and port in a Host header or in an Origin's authority.
+
+    IPv6 addresses are in brackets ("[::1]:7788"). ("", None) when it is not one."""
+    text = (value or "").strip().lower()
+    if not text or any(c in text for c in " /@?#\\"):
+        return "", None
+    if text.startswith("["):
+        end = text.find("]")
+        host, port = text[1:end], text[end + 1 :]
+        try:
+            ipaddress.IPv6Address(host)
+        except ValueError:
+            return "", None
+        if port and not port.startswith(":"):
+            return "", None
+    else:
+        host, colon, port = text.partition(":")
+        port = colon + port
+    port = port[1:]
+    if not host or (port and not (port.isdigit() and int(port) <= 65535)):
+        return "", None
+    return host, int(port) if port else None
+
+
+def loopback_host(host_header: str | None) -> bool:
+    """True when a Host header names this computer (127.0.0.1, localhost or [::1])."""
+    return split_host(host_header)[0] in LOOPBACK
+
+
 def host_ok(host_header: str) -> bool:
     """Hosts a LAN request may name: an address, a bare machine name or a .local name.
 
     A public DNS name has no business reaching this listener (DNS rebinding).
     """
-    text = (host_header or "").strip().lower()
-    host = text[1 : text.index("]")] if text.startswith("[") and "]" in text else text.split(":")[0]
+    host = split_host(host_header)[0]
     if not host:
         return False
     try:
@@ -91,6 +124,24 @@ def host_ok(host_header: str) -> bool:
     except ValueError:
         pass
     return "." not in host or host.endswith(".local")
+
+
+def origin_ok(origin: str | None, host_header: str | None) -> bool:
+    """False when a request names an Origin that is not this server's own address.
+
+    A browser sends Origin on a WebSocket handshake, and a page from another site or another
+    local server cannot change it. Clients that are not browsers send none: that is allowed
+    (they still need the session or device cookie)."""
+    if origin is None:
+        return True
+    try:
+        parts = urlsplit(origin)
+    except ValueError:
+        return False
+    if parts.scheme not in ("http", "https") or parts.path not in ("", "/") or parts.query:
+        return False
+    host, port = split_host(parts.netloc)
+    return bool(host) and (host, port) == split_host(host_header)
 
 
 def lan_addresses() -> list[str]:
@@ -177,7 +228,7 @@ class Devices:
     def __init__(self, path: Path | None = None):
         self.path = path or paths.data_dir() / "devices.json"
         self.items: dict[str, Device] = {}
-        self._touched: dict[str, float] = {}
+        self._saved = 0.0  # when the last-seen times were last written
         try:
             for raw in json.loads(self.path.read_text(encoding="utf-8")):
                 self.items[raw["id"]] = Device(**raw)
@@ -188,7 +239,12 @@ class Devices:
         fd, tmp = tempfile.mkstemp(dir=self.path.parent, prefix=".devices-", suffix=".json")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump([d.__dict__ for d in self.items.values()], f, indent=1)
-        os.replace(tmp, self.path)
+        try:
+            os.replace(tmp, self.path)
+        except OSError:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+            raise
         if os.name != "nt":
             self.path.chmod(0o600)
 
@@ -207,10 +263,13 @@ class Devices:
         for device in self.items.values():
             if secrets.compare_digest(device.token_hash, digest):
                 now = time.time()
-                if now - self._touched.get(device.id, 0) > 30:
-                    self._touched[device.id] = now
-                    device.last_seen = now
-                    self._save()
+                device.last_seen = now
+                if now - self._saved > SAVE_EVERY:
+                    self._saved = now  # also after a failure: try again in SAVE_EVERY, not per call
+                    try:
+                        self._save()
+                    except OSError:
+                        pass  # a file held by another program must not turn into a refusal
                 return device
         return None
 
@@ -225,11 +284,13 @@ class Devices:
 
 
 class PairingCodes:
-    """Short-lived single-use codes, with a lockout against guessing."""
+    """Short-lived single-use codes, with a lockout against guessing.
+
+    Wrong codes are counted per address, with a ceiling across all of them."""
 
     def __init__(self) -> None:
         self.codes: dict[str, float] = {}
-        self.wrong: list[float] = []
+        self.wrong: list[tuple[float, str]] = []
 
     def create(self) -> tuple[str, int]:
         self._expire()
@@ -240,21 +301,23 @@ class PairingCodes:
     def _expire(self) -> None:
         now = time.time()
         self.codes = {c: t for c, t in self.codes.items() if t > now}
-        self.wrong = [t for t in self.wrong if now - t < LOCKOUT]
+        self.wrong = [w for w in self.wrong if now - w[0] < LOCKOUT]
 
-    def locked(self) -> bool:
+    def locked(self, client: str = "") -> bool:
         self._expire()
-        return len(self.wrong) >= MAX_WRONG
+        if len(self.wrong) >= MAX_WRONG_ALL:
+            return True
+        return sum(1 for _, who in self.wrong if who == client) >= MAX_WRONG
 
-    def redeem(self, code: str) -> bool:
+    def redeem(self, code: str, client: str = "") -> bool:
         self._expire()
-        if self.locked():
+        if self.locked(client):
             return False
         code = re.sub(r"[\s-]", "", code or "").upper()
         if code in self.codes:
             del self.codes[code]
             return True
-        self.wrong.append(time.time())
+        self.wrong.append((time.time(), client))
         return False
 
 

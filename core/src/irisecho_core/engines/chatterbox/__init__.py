@@ -100,9 +100,6 @@ class ChatterboxEngine(WorkerEngine):
         await uvenv.pip_install(self.venv, ["chatterbox-tts==0.1.7"], log, "--no-deps")
         self.mark_installed()
 
-    def device(self) -> str:
-        return {"cuda": "cuda", "mps": "mps"}.get(self.hw.backend, "cpu")
-
     async def run(self, ctx: RunContext) -> list[dict]:
         p = ctx.params
         text = (p.get("text") or "").strip()

@@ -69,7 +69,7 @@ def test_none_means_recommended_and_is_dropped():
 def test_unknown_params_are_kept_but_reported():
     out, warnings = controls.check(spec(STEPS), {"prompt": "x", "cfg_scale": 7, "id": "cue-1"})
     assert out == {"prompt": "x", "cfg_scale": 7, "id": "cue-1"}
-    assert warnings == ["Test does not use 'cfg_scale'; it was ignored."]
+    assert warnings == ["Test does not use 'cfg_scale'; it has no effect."]
 
 
 def test_loras_are_checked():
@@ -94,12 +94,6 @@ def test_paired_loras_take_a_high_and_or_low_file():
     assert out["loras"] == [{"high": "h.safetensors", "low": "l.safetensors", "strength": 1.0}]
     with pytest.raises(ControlError, match="high- or low-noise"):
         controls.check(spec(PAIRS), {"loras": [{"strength": 1}]})
-
-
-def test_opt_prefers_the_job_then_the_model_then_the_fallback():
-    assert controls.opt({"steps": 12}, {"steps": 20}, "steps", 9) == 12
-    assert controls.opt({}, {"steps": 20}, "steps", 9) == 20
-    assert controls.opt({}, {}, "steps", 9) == 9
 
 
 def test_every_registry_control_is_well_formed():

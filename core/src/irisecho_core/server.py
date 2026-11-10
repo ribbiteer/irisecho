@@ -5,6 +5,7 @@ Security model (local mode):
 
 * binds to 127.0.0.1 only;
 * rejects requests whose Host header is not this machine (blocks DNS rebinding);
+* the event socket also refuses a handshake whose Origin is not this server's own address;
 * the page is served with a random per-run token in an HttpOnly, SameSite=Strict
   cookie, which every API call must carry;
 * state-changing calls must also send the `X-IrisEcho` header, which a page on
@@ -18,6 +19,7 @@ cookie instead, and may only make the calls on lan.DEVICE_ALLOWED.
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import os
 import re
@@ -30,7 +32,7 @@ from pathlib import Path
 
 import httpx
 import segno
-from fastapi import FastAPI, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -62,19 +64,9 @@ from irisecho_core.controls import ControlError
 
 WEB = Path(__file__).parent / "web"
 COOKIE = "irisecho_session"
-UPLOAD_TYPES = {
-    "image/png": ".png",
-    "image/jpeg": ".jpg",
-    "image/webp": ".webp",
-    "video/mp4": ".mp4",
-    "audio/wav": ".wav",
-    "audio/x-wav": ".wav",
-    "audio/wave": ".wav",
-    "audio/mpeg": ".mp3",
-    "audio/flac": ".flac",
-    "audio/ogg": ".ogg",
-}
 MAX_UPLOAD = 64 << 20
+MULTIPART_SLACK = 1 << 16  # what a form's boundaries and headers may add to the file
+MAX_LIST = 500  # most jobs one /api/jobs call returns
 # What the standard library may not know (Windows answers from the registry).
 MEDIA_TYPES = {".glb": "model/gltf-binary", ".flac": "audio/flac"}
 EXPORT_TYPES = {
@@ -84,6 +76,32 @@ EXPORT_TYPES = {
     "ply": "application/octet-stream",
     "zip": "application/zip",
 }
+
+
+PNG_MAGIC = bytes.fromhex("89504e470d0a1a0a")
+JPEG_MAGIC = bytes.fromhex("ffd8ff")
+
+
+def sniff_upload(head: bytes) -> tuple[str, str] | None:
+    """(media type, extension) from the first bytes of an upload; None for a kind we do not take."""
+    riff = head[:4] == b"RIFF"
+    if head[:8] == PNG_MAGIC:
+        return "image/png", ".png"
+    if head[:3] == JPEG_MAGIC:
+        return "image/jpeg", ".jpg"
+    if riff and head[8:12] == b"WEBP":
+        return "image/webp", ".webp"
+    if riff and head[8:12] == b"WAVE":
+        return "audio/wav", ".wav"
+    if head[4:8] == b"ftyp":
+        return "video/mp4", ".mp4"
+    if head[:4] == b"fLaC":
+        return "audio/flac", ".flac"
+    if head[:4] == b"OggS":
+        return "audio/ogg", ".ogg"
+    if head[:3] == b"ID3" or (len(head) > 1 and head[0] == 0xFF and head[1] & 0xE0 == 0xE0):
+        return "audio/mpeg", ".mp3"
+    return None
 
 
 def error_response(message: str, code: int, /, **extra) -> JSONResponse:
@@ -127,8 +145,7 @@ class Guard(BaseHTTPMiddleware):
                 return self.forbidden_host(path)
             request.state.device = self.devices.find(request.cookies.get(lan.DEVICE_COOKIE))
         else:
-            host = host_header.split(":")[0].strip("[]").lower()
-            if host not in ("127.0.0.1", "localhost", "::1"):
+            if not lan.loopback_host(host_header):
                 return self.forbidden_host(path)
         if path.startswith("/api/"):
             if on_lan:
@@ -164,6 +181,13 @@ def qr_svg(text: str) -> str:
 
 def pair_page(message: str = "", code: str = "") -> HTMLResponse:
     note = f'<p class="err">{message}</p>' if message else ""
+    code = html.escape(code[:24], quote=True)
+    intro = (
+        "Tap Pair to connect this device to IrisEcho."
+        if code
+        else "On the computer running IrisEcho, open Settings, then Phone and network access, "
+        "and choose Pair a phone. Type the code shown there."
+    )
     return HTMLResponse(
         "<!doctype html><html lang=en><meta charset=utf-8>"
         "<meta name=viewport content='width=device-width,initial-scale=1'>"
@@ -178,8 +202,7 @@ def pair_page(message: str = "", code: str = "") -> HTMLResponse:
         "button{margin-top:12px;background:#6B5BD6;color:#fff;border:0;font-weight:600}"
         ".err{color:#F7A1A9}small{display:block;margin-top:18px;color:#F3F0FA77}"
         "</style><main><h1>Pair this device</h1>"
-        "<p>On the computer running IrisEcho, open Settings, then Phone and network access, "
-        "and choose Pair a phone. Type the code shown there.</p>"
+        f"<p>{intro}</p>"
         f"{note}<form method=post action=/pair>"
         f"<input name=code value='{code}' autocomplete=off autocapitalize=characters "
         "maxlength=12 placeholder='CODE' aria-label='Pairing code' autofocus>"
@@ -282,6 +305,7 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
 
     @api.get("/api/bootstrap")
     async def bootstrap(request: Request):
+        await core.refresh_hardware()
         await asyncio.to_thread(hardware.vram_usage)  # read it off the event loop
         return {
             "version": __version__,
@@ -304,6 +328,7 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
 
     @api.get("/api/system")
     async def system(request: Request):
+        await core.refresh_hardware()
         await asyncio.to_thread(hardware.vram_usage)  # read it off the event loop
         return public_system(request)
 
@@ -412,10 +437,12 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
         model: str | None = None,
         q: str | None = None,
     ):
+        if not 1 <= limit <= MAX_LIST:
+            raise HTTPException(400, f"limit must be between 1 and {MAX_LIST}.")
         return core.db.list(
             kind=kind,
             favorite=favorite,
-            limit=min(limit, 500),
+            limit=limit,
             before=before,
             after=after,
             model=model,
@@ -563,19 +590,56 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
 
     # --- uploads (reference images, voice samples) -------------------------
 
+    class TooLarge(Exception):
+        pass
+
     @api.post("/api/uploads")
-    async def upload(file: UploadFile):
-        ext = UPLOAD_TYPES.get(file.content_type or "")
-        if not ext:
+    async def upload(request: Request):
+        too_big = HTTPException(413, f"That file is larger than {MAX_UPLOAD >> 20} MB.")
+        # Refused on the size it announces, before a byte of it is read ...
+        try:
+            announced = int(request.headers.get("content-length") or 0)
+        except ValueError:
+            raise HTTPException(400, "The request is malformed.") from None
+        if announced > MAX_UPLOAD + MULTIPART_SLACK:
+            raise too_big
+        seen = 0
+
+        async def receive():
+            # ... and, for a body that does not announce its size, as it arrives.
+            nonlocal seen
+            message = await request.receive()
+            seen += len(message.get("body", b""))
+            if seen > MAX_UPLOAD + MULTIPART_SLACK:
+                raise TooLarge
+            return message
+
+        try:
+            form = await Request(request.scope, receive).form()
+        except TooLarge:
+            raise too_big from None
+        except Exception:
+            raise HTTPException(400, "Send the file as a form with a field named file.") from None
+        try:
+            file = form.get("file")
+            if not hasattr(file, "read"):
+                raise HTTPException(400, "Send the file as a form with a field named file.")
+            data = await file.read(MAX_UPLOAD + 1)
+        finally:
+            await form.close()
+        if len(data) > MAX_UPLOAD:
+            raise too_big
+        # The kind of file comes from its first bytes, not from what the client calls it.
+        kind = sniff_upload(data[:32])
+        if not kind:
             raise HTTPException(
                 415, "Use a PNG, JPEG or WebP image, an MP4 clip, or a WAV, MP3, FLAC or OGG sound."
             )
-        data = await file.read(MAX_UPLOAD + 1)
-        if len(data) > MAX_UPLOAD:
-            raise HTTPException(413, "That file is larger than 64 MB.")
+        mime, ext = kind
         name = f"{uuid.uuid4().hex}{ext}"
         (paths.sub("uploads") / name).write_bytes(data)
-        return {"id": name, "type": file.content_type, "size": len(data)}
+        await asyncio.to_thread(core.prune_uploads)
+        return {"id": name, "type": mime, "size": len(data)}
 
     def upload_file(name: str) -> Path:
         try:
@@ -609,6 +673,17 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
     @api.patch("/api/settings")
     async def patch_settings(request: Request):
         body = await read_body(request)
+        allowed = {"outputs_dir", "models_dir", "strip_metadata", "advanced"}
+        changes = {k: v for k, v in body.items() if k in allowed}
+        if "advanced" in changes:
+            changes["advanced"] = changes["advanced"] is True
+        # Everything is checked before anything is changed.
+        for key in ("outputs_dir", "models_dir"):
+            if changes.get(key):
+                try:
+                    settings.check_folder(changes[key])
+                except ValueError as e:
+                    raise HTTPException(400, str(e)) from e
         if "gpu" in body and body["gpu"] != core.settings.gpu:
             try:
                 await core.set_gpu(str(body["gpu"] or ""))
@@ -616,16 +691,6 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
                 raise HTTPException(409, str(e)) from None
             except ValueError as e:
                 raise HTTPException(400, str(e)) from None
-        allowed = {"outputs_dir", "models_dir", "strip_metadata", "advanced"}
-        changes = {k: v for k, v in body.items() if k in allowed}
-        if "advanced" in changes:
-            changes["advanced"] = changes["advanced"] is True
-        for key in ("outputs_dir", "models_dir"):
-            if changes.get(key):
-                try:
-                    settings.check_folder(changes[key])
-                except ValueError as e:
-                    raise HTTPException(400, str(e)) from e
         settings.update(core.settings, changes)
         if "models_dir" in changes:
             await core.downloads.move_to(core.settings.models_path)
@@ -653,13 +718,34 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
         token = (body.get("token") or "").strip()
         if not token.startswith("hf_"):
             raise HTTPException(400, "Hugging Face tokens start with hf_.")
-        async with httpx.AsyncClient(timeout=20) as client:
-            r = await client.get(
-                "https://huggingface.co/api/whoami-v2", headers={"Authorization": f"Bearer {token}"}
+        # No keychain: 501 (this computer cannot do it). Offline or Hugging Face down: 503 / 502.
+        if not credentials.available():
+            raise HTTPException(
+                501,
+                "This computer has no secure storage to keep the token in. "
+                "Set the HF_TOKEN environment variable instead.",
             )
-        if r.status_code != 200:
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                r = await client.get(
+                    "https://huggingface.co/api/whoami-v2",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+        except httpx.HTTPError:
+            raise HTTPException(
+                503,
+                "Could not reach Hugging Face to check the token. Check the internet connection.",
+            ) from None
+        if r.status_code in (401, 403):
             raise HTTPException(400, "Hugging Face did not accept that token.")
-        credentials.store(credentials.HF, token)
+        if r.status_code != 200:
+            raise HTTPException(
+                502, "Hugging Face could not check the token just now. Try again later."
+            )
+        try:
+            credentials.store(credentials.HF, token)
+        except credentials.NoKeychain as e:
+            raise HTTPException(501, str(e)) from None
         return {"ok": True, "account": r.json().get("name")}
 
     @api.delete("/api/credentials/huggingface")
@@ -723,12 +809,16 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
                 pass
         return {"ok": ok}
 
+    def client_of(request: Request) -> str:
+        return request.client.host if request.client else ""
+
     async def redeem(request: Request, code: str) -> Response:
         if not request.scope.get("irisecho_lan"):
             raise HTTPException(404, "not found")
-        if codes.locked():
+        who = client_of(request)
+        if codes.locked(who):
             return pair_page("Too many wrong codes. Wait a minute and try again.")
-        if not codes.redeem(code):
+        if not codes.redeem(code, who):
             return pair_page("That code was not right, or it has expired.")
         device, token = devices.add(lan.device_name(request.headers.get("user-agent", "")))
         resp = RedirectResponse("/", status_code=303)
@@ -744,13 +834,13 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
 
     @api.get("/pair")
     async def pair_get(request: Request, code: str = ""):
+        """The page to pair on. A code in the link only fills the box: a link previewer that
+        fetches the page cannot use it up, so pairing takes a tap on the button (POST)."""
         if not request.scope.get("irisecho_lan"):
             raise HTTPException(404, "not found")
-        if code:
-            return await redeem(request, code)
-        if request.state.device:
+        if request.state.device and not code:
             return RedirectResponse("/", status_code=303)
-        return pair_page()
+        return pair_page(code=code)
 
     @api.post("/pair")
     async def pair_post(request: Request):
@@ -762,16 +852,20 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
     @api.websocket("/api/events")
     async def events(ws: WebSocket):
         device = None
+        host_header = ws.headers.get("host") or ""
+        # Cookies ignore ports, so a page from another local server would carry ours.
+        # A browser always names its page's origin on a socket; it must be this address.
+        if not lan.origin_ok(ws.headers.get("origin"), host_header):
+            await ws.close(code=4403)
+            return
         if ws.scope.get("irisecho_lan"):
             device = devices.find(ws.cookies.get(lan.DEVICE_COOKIE))
-            if device is None or not lan.host_ok(ws.headers.get("host") or ""):
+            if device is None or not lan.host_ok(host_header):
                 await ws.close(code=4401)
                 return
-        else:
-            host = (ws.headers.get("host") or "").split(":")[0].lower()
-            if ws.cookies.get(COOKIE) != session or host not in ("127.0.0.1", "localhost"):
-                await ws.close(code=4401)
-                return
+        elif ws.cookies.get(COOKIE) != session or not lan.loopback_host(host_header):
+            await ws.close(code=4401)
+            return
         await ws.accept()
         if device:
             device_sockets.setdefault(device.id, set()).add(ws)
