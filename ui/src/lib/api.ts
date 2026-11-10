@@ -9,6 +9,8 @@ export class ApiError extends Error {
     message: string,
     public status: number,
     public needs: string[] = [],
+    /** The rest of the error body: `status` on a job conflict, `pair` on a refused device. */
+    public data: Record<string, unknown> = {},
   ) {
     super(message);
   }
@@ -16,7 +18,7 @@ export class ApiError extends Error {
 
 export async function api<T = any>(
   path: string,
-  options: { method?: string; body?: unknown; form?: FormData } = {},
+  options: { method?: string; body?: unknown; form?: FormData; keepalive?: boolean } = {},
 ): Promise<T> {
   const method = options.method ?? (options.body !== undefined || options.form ? "POST" : "GET");
   const headers: Record<string, string> = { "X-IrisEcho": "1" };
@@ -29,21 +31,23 @@ export async function api<T = any>(
   }
   let res: Response;
   try {
-    res = await fetch(`/api${path}`, { method, headers, body, credentials: "same-origin" });
+    res = await fetch(`/api${path}`, { method, headers, body, credentials: "same-origin", keepalive: options.keepalive });
   } catch {
     throw new ApiError("IrisEcho is not responding. Is it still running?", 0);
   }
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
     let needs: string[] = [];
+    let extra: Record<string, unknown> = {};
     try {
       const data = await res.json();
-      message = data.error ?? data.detail ?? message;
-      needs = data.needs ?? [];
+      message = (typeof data.error === "string" && data.error) || (typeof data.detail === "string" && data.detail) || message;
+      needs = Array.isArray(data.needs) ? data.needs : [];
+      extra = data && typeof data === "object" ? data : {};
     } catch {
       /* not JSON */
     }
-    throw new ApiError(message, res.status, needs);
+    throw new ApiError(message, res.status, needs, extra);
   }
   return res.status === 204 ? (undefined as T) : res.json();
 }
@@ -72,6 +76,7 @@ export async function outputToUpload(job: Job, n = 0): Promise<string> {
 export function connectEvents(
   onEvent: (e: { type: string; data: any }) => void,
   onStatus: (connected: boolean) => void,
+  onAuthLost: () => void = () => {},
 ): () => void {
   let ws: WebSocket | null = null;
   let closed = false;
@@ -93,10 +98,28 @@ export function connectEvents(
         /* ignore */
       }
     };
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       onStatus(false);
       if (closed) return;
-      timer = window.setTimeout(open, delay);
+      // 4401: the core closed it because this device was removed. A refused reconnect shows
+      // no code, so a plain request tells whether the device is still known.
+      if (ev.code === 4401) {
+        closed = true;
+        onAuthLost();
+        return;
+      }
+      timer = window.setTimeout(async () => {
+        try {
+          await api("/system");
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 401) {
+            closed = true;
+            onAuthLost();
+            return;
+          }
+        }
+        open();
+      }, delay);
       delay = Math.min(delay * 1.7, 8000);
     };
   };

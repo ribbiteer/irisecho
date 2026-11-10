@@ -2,6 +2,7 @@
   Sits under a prompt box: rewrite the draft for the chosen model, or describe a
   picture as a prompt. The rewrite is shown first; nothing changes until it is accepted. -->
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import Check from "@lucide/svelte/icons/check";
   import ImageUp from "@lucide/svelte/icons/image-up";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
@@ -75,16 +76,21 @@
     return false;
   }
 
+  // Leaving the form stops following the prompt job.
+  let watching: AbortController | null = null;
+  onDestroy(() => watching?.abort());
+
   async function run(mode: "improve" | "describe" | "improve_image", images: string[]) {
     if (busy || !(await ensure())) return;
     busy = true;
     suggestion = "";
     const target = written(model);
+    watching = new AbortController();
     try {
-      suggestion = await writePrompt({ mode, target: model.id, text: value.trim(), images }, (m) => (status = m));
+      suggestion = await writePrompt({ mode, target: model.id, text: value.trim(), images }, (m) => (status = m), watching.signal);
       suggestionFor = target;
     } catch (e) {
-      fail(e);
+      if (!watching?.signal.aborted) fail(e);
     } finally {
       busy = false;
       status = "";

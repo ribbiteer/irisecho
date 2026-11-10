@@ -8,7 +8,7 @@
   import Iris from "../components/Iris.svelte";
   import { api } from "../lib/api";
   import { STUDIOS } from "../lib/studios";
-  import { app, fail } from "../lib/state.svelte";
+  import { app, fail, gone } from "../lib/state.svelte";
   import type { Job } from "../lib/types";
 
   const lib = app.library;
@@ -18,27 +18,68 @@
     ["7", "This week"],
     ["30", "This month"],
   ] as const;
+  const PAGE = 60;
 
   const filtered = $derived(
     lib.q.trim() !== "" || lib.model !== "" || lib.since !== "" || lib.kind !== "all" || lib.favorites,
   );
-  // With no filter the live list is shown; with one, the core searches everything it has kept.
+  // The core is asked for everything it has kept, a page at a time, so work older than the
+  // newest jobs is there too. Live events still update what is shown (see `source`).
   let found = $state<Job[]>([]);
+  let total = $state(0); // how many the core has for these filters
+  let made = $state(0); // finished ones, with no filter
+  let loaded = $state(false);
   let searching = $state(false);
+  let more = $state(false);
   let token = 0;
+  let lastFilters = "";
 
-  async function search() {
-    const mine = ++token;
-    const p = new URLSearchParams({ limit: "300" });
+  function filterParams(): URLSearchParams {
+    const p = new URLSearchParams();
     if (lib.q.trim()) p.set("q", lib.q.trim());
     if (lib.kind !== "all") p.set("kind", lib.kind);
     if (lib.model) p.set("model", lib.model);
     if (lib.favorites) p.set("favorite", "true");
     if (lib.since) p.set("after", String(Date.now() / 1000 - Number(lib.since) * 86400));
+    return p;
+  }
+
+  // The core answers at most 500 at a time; further pages start after the last one seen.
+  async function fetchJobs(p: URLSearchParams, want: number, after?: Job): Promise<Job[]> {
+    const out: Job[] = [];
+    let last = after;
+    while (out.length < want) {
+      const size = Math.min(500, want - out.length);
+      const q = new URLSearchParams(p);
+      q.set("limit", String(size));
+      if (last) q.set("before", String(last.created));
+      const page = await api<Job[]>(`/jobs?${q}`);
+      out.push(...page);
+      if (page.length < size) break;
+      last = page[page.length - 1];
+    }
+    return out;
+  }
+
+  async function search() {
+    const mine = ++token;
+    const p = filterParams();
+    const key = [lib.q.trim(), lib.kind, lib.model, lib.since, lib.favorites].join("|");
+    // The same filters again (a job changed): look at as many as are already shown.
+    const want = key === lastFilters ? Math.max(PAGE, found.length) : PAGE;
     searching = true;
     try {
-      const jobs = await api<Job[]>(`/jobs?${p}`);
-      if (mine === token) found = jobs;
+      const [jobs, count, finished] = await Promise.all([
+        fetchJobs(p, want),
+        api<{ total: number }>(`/jobs/count?${p}`),
+        filtered ? null : api<{ total: number }>(`/jobs/count?${p}&status=done`),
+      ]);
+      if (mine !== token) return;
+      found = jobs;
+      total = count.total;
+      if (finished) made = finished.total;
+      lastFilters = key;
+      loaded = true;
     } catch (e) {
       if (mine === token) fail(e);
     } finally {
@@ -46,17 +87,47 @@
     }
   }
 
-  // Search again when a filter changes (after a pause while typing), and when jobs
-  // finish, are favourited or deleted.
+  async function showMore() {
+    if (more || !found.length) return;
+    const mine = token;
+    more = true;
+    try {
+      const next = await fetchJobs(filterParams(), PAGE, found[found.length - 1]);
+      if (mine !== token) return;
+      const have = new Set(found.map((j) => j.id));
+      found = [...found, ...next.filter((j) => !have.has(j.id))];
+    } catch (e) {
+      fail(e);
+    } finally {
+      more = false;
+    }
+  }
+
+  // Look again when a filter changes (after a pause while typing), and when jobs
+  // arrive, finish, are favourited or are deleted.
   const signature = $derived(app.jobs.map((j) => `${j.id}${j.status}${j.favorite}`).join());
   $effect(() => {
-    void [lib.q, lib.kind, lib.model, lib.since, lib.favorites, signature];
-    if (!filtered) return;
+    void [lib.q, lib.kind, lib.model, lib.since, lib.favorites, signature, app.removals];
     const t = setTimeout(search, lib.q ? 220 : 0);
     return () => clearTimeout(t);
   });
 
-  const source = $derived(filtered ? found : app.jobs);
+  // What is shown: the core's list with the page's live copies laid over it (progress,
+  // favorites), without anything taken away here and not yet gone from the core.
+  const source = $derived.by(() => {
+    void app.removals;
+    const live = new Map(app.jobs.map((j) => [j.id, j]));
+    return (loaded ? found : app.jobs).filter((j) => !gone.has(j.id)).map((j) => live.get(j.id) ?? j);
+  });
+  const hidden = $derived(found.filter((j) => gone.has(j.id)).length);
+  const count = $derived(Math.max(source.length, (loaded ? total : source.length) - hidden));
+  const canMore = $derived(loaded && found.length < total);
+
+  // The lightbox moves through what is on this page.
+  $effect(() => {
+    app.shown = source;
+    return () => (app.shown = null);
+  });
   const kinds = $derived(STUDIOS.filter((s) => app.jobs.some((j) => j.kind === s.kind)));
   const modelNames = $derived(
     [...new Set(app.jobs.map((j) => j.model))]
@@ -79,8 +150,8 @@
       <h1>Library</h1>
       <p>
         {filtered
-          ? `${source.length} match${source.length === 1 ? "" : "es"}${searching ? "…" : ""}`
-          : `${app.jobs.filter((j) => j.status === "done").length} things made on this computer`}{active
+          ? `${count} match${count === 1 ? "" : "es"}${searching ? "…" : ""}`
+          : `${loaded ? Math.max(0, made - hidden) : app.jobs.filter((j) => j.status === "done").length} things made on this computer`}{active
           ? ` · ${active} in progress`
           : ""}.
       </p>
@@ -158,6 +229,11 @@
             {/each}
           </div>
         </section>
+      {/if}
+      {#if canMore}
+        <button class="btn more" onclick={showMore} disabled={more}>
+          {more ? "Loading…" : `Show more (${Math.max(0, total - found.length)} left)`}
+        </button>
       {/if}
     {/if}
   </div>
@@ -258,6 +334,9 @@
   }
   .empty {
     margin: auto;
+  }
+  .more {
+    align-self: center;
   }
 
   @media (max-width: 820px) {

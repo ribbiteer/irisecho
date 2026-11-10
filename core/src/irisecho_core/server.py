@@ -422,6 +422,29 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
             q=q,
         )
 
+    @api.get("/api/jobs/count")
+    async def jobs_count(
+        kind: str | None = None,
+        status: str | None = None,
+        favorite: bool | None = None,
+        before: float | None = None,
+        after: float | None = None,
+        model: str | None = None,
+        q: str | None = None,
+    ):
+        """How many jobs a /api/jobs search would find in all, for paging."""
+        return {
+            "total": core.db.count(
+                kind=kind,
+                status=status,
+                favorite=favorite,
+                before=before,
+                after=after,
+                model=model,
+                q=q,
+            )
+        }
+
     @api.post("/api/jobs")
     async def submit(request: Request):
         body = await read_body(request)

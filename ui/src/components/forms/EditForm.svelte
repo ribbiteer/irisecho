@@ -8,7 +8,7 @@
   import ImageDrop from "../ImageDrop.svelte";
   import PictureTray from "../PictureTray.svelte";
   import SeedField from "../SeedField.svelte";
-  import { controlParams, nextSeed, reuseCommon } from "../../lib/controls";
+  import { applyReuse, controlParams, ctrlEnter, nextSeed, submitEach } from "../../lib/controls";
   import { app, submit } from "../../lib/state.svelte";
   import type { Studio } from "../../lib/studios";
   import type { Model } from "../../lib/types";
@@ -53,11 +53,10 @@
       const b = r.params.box;
       boxes = Array.isArray(b) && b.length ? (Array.isArray(b[0]) ? b : [b]) : [];
       regionOn = boxes.length > 0;
-      const { seed: s } = reuseCommon(model, r);
-      if (s != null) {
-        seed = s;
-        fixedSeed = true;
-      }
+      applyReuse(model, r, (s) => {
+        fixedSeed = s != null;
+        if (s != null) seed = s;
+      });
       app.reuse = null;
     }
   });
@@ -76,25 +75,26 @@
     sent.forEach((id, i) => {
       if (id) pictures[`image${i + 2}`] = id;
     });
-    for (let i = 0; i < count; i++) {
-      await submit(model, {
-        prompt: prompt.trim(),
-        image1,
-        ...pictures,
-        seed: nextSeed(fixedSeed, seed, i),
-        ...(box ? { box } : {}),
-        ...controlParams(model, { image1, image2: sent[0] ?? null, box }),
-      });
+    const first = image1;
+    try {
+      await submitEach(Array.from({ length: count }, (_, i) => i), (i) =>
+        submit(model, {
+          prompt: prompt.trim(),
+          image1: first,
+          ...pictures,
+          seed: nextSeed(fixedSeed, seed, i),
+          ...(box ? { box } : {}),
+          ...controlParams(model, { image1: first, image2: sent[0] ?? null, box }),
+        }),
+      );
+    } finally {
+      sending = false;
     }
-    sending = false;
   }
 
-  function onKey(e: KeyboardEvent) {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-      e.preventDefault();
-      if (model.ready) go();
-    }
-  }
+  const onKey = ctrlEnter(() => {
+    if (model.ready) go();
+  });
 </script>
 
 <div class="form" onkeydown={onKey} role="presentation">

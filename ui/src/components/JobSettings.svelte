@@ -4,6 +4,7 @@
   import Braces from "@lucide/svelte/icons/braces";
   import Terminal from "@lucide/svelte/icons/terminal";
   import CompareSetting from "./CompareSetting.svelte";
+  import { copyText } from "../lib/clipboard";
   import { isChanged, showValue } from "../lib/controls";
   import { app, toast } from "../lib/state.svelte";
   import type { Job, Model } from "../lib/types";
@@ -27,12 +28,8 @@
   }
 
   async function copy(text: string, what: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast(`${what} copied.`, "ok");
-    } catch {
-      toast("Copying is not available here.", "error");
-    }
+    if (await copyText(text)) toast(`${what} copied.`, "ok");
+    else toast("Copying is not available here.", "error");
   }
   const json = () => copy(JSON.stringify(body(), null, 2), "The job as API JSON");
   // The body goes in through stdin; single quotes are escaped the way this computer's shell

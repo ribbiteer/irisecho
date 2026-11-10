@@ -1,15 +1,12 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
-  import FileAudio from "@lucide/svelte/icons/file-audio";
-  import X from "@lucide/svelte/icons/x";
   import ActionBar from "../ActionBar.svelte";
   import AdvancedControls from "../AdvancedControls.svelte";
   import SeedField from "../SeedField.svelte";
-  import Waveform from "../Waveform.svelte";
-  import { api, uploadUrl } from "../../lib/api";
-  import { looksLikeAudio, readableAudio } from "../../lib/audio";
-  import { controlParams, reuseCommon } from "../../lib/controls";
-  import { app, fail, submit } from "../../lib/state.svelte";
+  import SourceAudio from "../SourceAudio.svelte";
+  import { applyReuse, controlParams, ctrlEnter, MAX_BATCH, seedParam, splitLines, submitEach } from "../../lib/controls";
+  import { takeChoices } from "../../lib/limits";
+  import { app, submit } from "../../lib/state.svelte";
   import type { Studio } from "../../lib/studios";
   import type { Model } from "../../lib/types";
 
@@ -19,8 +16,6 @@
   const turbo = $derived(model.id === "chatterbox-turbo");
 
   let ref = $state<{ id: string; name: string } | null>(null);
-  let uploading = $state(false);
-  let dragging = $state(false);
   let text = $state("");
   let perLine = $state(false);
   let takes = $state(2);
@@ -43,39 +38,13 @@
       exaggeration = r.params.exaggeration ?? 0.5;
       cfg = r.params.cfg ?? 0.5;
       clean = r.params.clean ?? true;
-      const { seed: s } = reuseCommon(model, r);
-      if (s != null) {
-        seed = s;
-        fixedSeed = true;
-      }
+      applyReuse(model, r, (s) => {
+        fixedSeed = s != null;
+        if (s != null) seed = s;
+      });
       app.reuse = null;
     }
   });
-
-  async function upload(file: File) {
-    if (!looksLikeAudio(file)) {
-      fail("Use a WAV, MP3, FLAC, OGG or M4A recording.");
-      return;
-    }
-    uploading = true;
-    try {
-      const form = new FormData();
-      form.append("file", await readableAudio(file));
-      const r = await api<{ id: string }>("/uploads", { form });
-      ref = { id: r.id, name: file.name };
-    } catch (e) {
-      fail(e);
-    } finally {
-      uploading = false;
-    }
-  }
-
-  function onDrop(e: DragEvent) {
-    e.preventDefault();
-    dragging = false;
-    const file = e.dataTransfer?.files?.[0];
-    if (file) upload(file);
-  }
 
   function insertTag(tag: string) {
     const start = textarea?.selectionStart ?? text.length;
@@ -88,81 +57,46 @@
     });
   }
 
-  const lines = $derived(
-    perLine
-      ? text
-          .split("\n")
-          .map((l) => l.trim())
-          .filter((l) => l && !l.startsWith("#"))
-      : text.trim()
-        ? [text.trim()]
-        : [],
-  );
+  const lines = $derived(splitLines(text, perLine));
 
   async function go() {
-    if (!lines.length || !ref || !consent || sending) return;
+    if (!lines.length || lines.length > MAX_BATCH || !ref || !consent || sending) return;
     sending = true;
-    for (const line of lines) {
-      await submit(model, {
-        text: line,
-        ref: ref.id,
-        consent,
-        takes,
-        exaggeration,
-        cfg,
-        clean,
-        ...(fixedSeed ? { seed: Number(seed) } : {}),
-        ...controlParams(model),
-      });
+    const sample = ref.id;
+    try {
+      await submitEach(lines, (line) =>
+        submit(model, {
+          text: line,
+          ref: sample,
+          consent,
+          takes,
+          exaggeration,
+          cfg,
+          clean,
+          ...seedParam(fixedSeed, seed),
+          ...controlParams(model),
+        }),
+      );
+    } finally {
+      sending = false;
     }
-    sending = false;
   }
 
-  function onKey(e: KeyboardEvent) {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-      e.preventDefault();
-      if (model.ready) go();
-    }
-  }
+  const onKey = ctrlEnter(() => {
+    if (model.ready) go();
+  });
 </script>
 
 <div class="form" onkeydown={onKey} role="presentation">
   <div class="field">
     <span class="label">Voice sample</span>
-    {#if ref}
-      <div class="sample">
-        <div class="sample-head">
-          <FileAudio size={16} />
-          <span class="fname">{ref.name}</span>
-          <button class="btn sm icon ghost" title="Use a different sample" onclick={() => (ref = null)}><X size={14} /></button>
-        </div>
-        <Waveform src={uploadUrl(ref.id)} bars={64} height={32} />
-      </div>
-    {:else}
-      <label
-        class="drop"
-        class:dragging
-        ondragover={(e) => {
-          e.preventDefault();
-          dragging = true;
-        }}
-        ondragleave={() => (dragging = false)}
-        ondrop={onDrop}
-      >
-        <input
-          type="file"
-          accept="audio/*"
-          class="sr-only"
-          onchange={(e) => {
-            const f = (e.currentTarget as HTMLInputElement).files?.[0];
-            if (f) upload(f);
-          }}
-        />
-        <FileAudio size={22} />
-        <strong>{uploading ? "Adding…" : "Drop a recording, or choose a file"}</strong>
-        <small>10 to 15 seconds of one clear voice, no music or other speakers. Phone voice memos work.</small>
-      </label>
-    {/if}
+    <SourceAudio
+      bind:value={ref}
+      prompt="Drop a recording, or choose a file"
+      hint="10 to 15 seconds of one clear voice, no music or other speakers. Phone voice memos work."
+      seconds={30}
+      stereo={false}
+    />
   </div>
 
   <div class="field">
@@ -208,7 +142,7 @@
     <div class="field">
       <span class="label">Takes of each line</span>
       <div class="chips">
-        {#each [1, 2, 3, 4] as n (n)}
+        {#each takeChoices(model) as n (n)}
           <button class="chip num" aria-pressed={takes === n} onclick={() => (takes = n)}>{n}</button>
         {/each}
       </div>
@@ -237,8 +171,8 @@
   <ActionBar
     {model}
     label={lines.length > 1 ? `Speak ${lines.length} lines` : "Speak"}
-    hint={!ref ? "Add a voice sample" : !consent ? "Confirm permission" : ""}
-    disabled={!lines.length || !ref || !consent || sending}
+    hint={!ref ? "Add a voice sample" : !consent ? "Confirm permission" : lines.length > MAX_BATCH ? `At most ${MAX_BATCH} lines at a time` : ""}
+    disabled={!lines.length || lines.length > MAX_BATCH || !ref || !consent || sending}
     onsubmit={go}
   />
 </div>
@@ -249,59 +183,6 @@
     flex-direction: column;
     gap: 16px;
     flex: 1;
-  }
-  .drop {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    padding: 20px 16px;
-    border-radius: var(--r-3);
-    border: 1.5px dashed var(--line-3);
-    background: var(--surface-2);
-    text-align: center;
-    color: var(--accent-ink);
-    cursor: pointer;
-    transition:
-      border-color 0.15s,
-      background 0.15s;
-  }
-  .drop strong {
-    color: var(--text);
-    font-weight: 580;
-  }
-  .drop small {
-    color: var(--text-3);
-    font-size: 12px;
-    max-width: 280px;
-  }
-  .drop:hover,
-  .drop.dragging {
-    border-color: var(--accent);
-    background: color-mix(in oklab, var(--accent) 10%, var(--surface-2));
-  }
-  .sample {
-    padding: 10px 12px 12px;
-    border-radius: var(--r-3);
-    background: var(--surface-2);
-    border: 1px solid var(--line-2);
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .sample-head {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--accent-ink);
-  }
-  .fname {
-    flex: 1;
-    color: var(--text);
-    font-size: 13px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .inline {
     display: flex;

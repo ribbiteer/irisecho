@@ -5,7 +5,12 @@
 
 <div class="toasts" role="status" aria-live="polite">
   {#each app.toasts as t (t.id)}
-    <div class="toast {t.tone}">{t.text}</div>
+    <div class="toast {t.tone}">
+      <span>{t.text}</span>
+      {#if t.action}
+        <button class="undo" onclick={() => { t.action?.run(); }}>{t.action.label}</button>
+      {/if}
+    </div>
   {/each}
 </div>
 
@@ -29,6 +34,26 @@
     font-size: 13.5px;
     animation: rise 0.3s var(--ease);
     white-space: pre-line;
+  }
+  .toast:has(.undo) {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    justify-content: space-between;
+  }
+  .undo {
+    border: 0;
+    background: transparent;
+    color: var(--violet-ink);
+    font: inherit;
+    font-weight: 600;
+    padding: 4px 6px;
+    margin: -4px -6px;
+    cursor: pointer;
+    border-radius: var(--r-1, 6px);
+  }
+  .undo:hover {
+    text-decoration: underline;
   }
   .toast.ok {
     border-color: rgb(47 184 166 / 0.4);

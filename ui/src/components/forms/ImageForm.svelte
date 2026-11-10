@@ -5,7 +5,7 @@
   import ImageDrop from "../ImageDrop.svelte";
   import PromptTools from "../PromptTools.svelte";
   import SeedField from "../SeedField.svelte";
-  import { controlParams, nextSeed, reuseCommon, settingsFromPicture } from "../../lib/controls";
+  import { applyReuse, controlParams, ctrlEnter, nextSeed, settingsFromPicture, submitEach } from "../../lib/controls";
   import { app, fail, submit, toast } from "../../lib/state.svelte";
   import type { Studio } from "../../lib/studios";
   import type { Model } from "../../lib/types";
@@ -48,11 +48,10 @@
     if (r && r.kind === studio.kind) {
       prompt = r.params.prompt ?? "";
       aspect = r.params.aspect ?? "1:1";
-      const { seed: s } = reuseCommon(model, r);
-      if (s != null) {
-        seed = s;
-        fixedSeed = true;
-      }
+      applyReuse(model, r, (s) => {
+        fixedSeed = s != null;
+        if (s != null) seed = s;
+      });
       image1 = advanced && !guided ? (r.params.image1 ?? null) : null;
       if (guided) {
         guide = r.params.guide ?? null;
@@ -78,24 +77,24 @@
     if (!prompt.trim() || sending || (guided && !guide)) return;
     sending = true;
     const from = guided ? { guide, guide_type: guideType } : advanced && image1 ? { image1, denoise } : {};
-    for (let i = 0; i < count; i++) {
-      await submit(model, {
-        prompt: prompt.trim(),
-        aspect,
-        seed: nextSeed(fixedSeed, seed, i),
-        ...from,
-        ...controlParams(model, from),
-      });
+    try {
+      await submitEach(Array.from({ length: count }, (_, i) => i), (i) =>
+        submit(model, {
+          prompt: prompt.trim(),
+          aspect,
+          seed: nextSeed(fixedSeed, seed, i),
+          ...from,
+          ...controlParams(model, from),
+        }),
+      );
+    } finally {
+      sending = false;
     }
-    sending = false;
   }
 
-  function onKey(e: KeyboardEvent) {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-      e.preventDefault();
-      if (model.ready) go();
-    }
-  }
+  const onKey = ctrlEnter(() => {
+    if (model.ready) go();
+  });
 </script>
 
 <div class="form" onkeydown={onKey} role="presentation">

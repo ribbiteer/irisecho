@@ -37,7 +37,12 @@
       {/if}
     </main>
   </div>
-  {#if !app.connected}
+  {#if app.unpaired}
+    <div class="offline" role="alert">
+      This device is no longer paired with IrisEcho.
+      <button class="again" onclick={() => location.reload()}>Pair it again</button>
+    </div>
+  {:else if !app.connected}
     <div class="offline" role="status">Reconnecting to IrisEcho…</div>
   {/if}
   {#if app.lightbox}
@@ -64,6 +69,16 @@
   main {
     min-height: 0;
     overflow: hidden;
+  }
+  .again {
+    margin-left: 8px;
+    border: 0;
+    background: transparent;
+    color: var(--violet-ink);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: underline;
   }
   .offline {
     position: fixed;

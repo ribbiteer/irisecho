@@ -5,7 +5,8 @@
   import PromptTools from "../PromptTools.svelte";
   import ImageDrop from "../ImageDrop.svelte";
   import SeedField from "../SeedField.svelte";
-  import { controlParams, nextSeed, reuseCommon } from "../../lib/controls";
+  import { applyReuse, controlParams, ctrlEnter, nextSeed } from "../../lib/controls";
+  import { rangeOf, within } from "../../lib/limits";
   import { app, submit } from "../../lib/state.svelte";
   import type { Studio } from "../../lib/studios";
   import type { Model, VideoOptions, VideoSize } from "../../lib/types";
@@ -41,6 +42,10 @@
   let prompt = $state("");
   let aspect = $state("16:9");
   let seconds = $state(3);
+  const clip = $derived(rangeOf(model, "seconds", { min: 2, max: 5 }));
+  $effect(() => {
+    if (seconds > clip.max || seconds < clip.min) seconds = within(seconds, clip);
+  });
   let size = $state<VideoSize>("standard");
   let smooth = $state(false);
   let camera = $state("zoom_in");
@@ -65,13 +70,10 @@
       size = r.params.size ?? "standard";
       smooth = !!r.params.smooth;
       if (r.params.camera) camera = r.params.camera;
-      const { seed: s } = reuseCommon(model, r);
-      if (s != null) {
-        seed = s;
-        fixedSeed = true;
-      } else {
-        fixedSeed = false;
-      }
+      applyReuse(model, r, (s) => {
+        fixedSeed = s != null;
+        if (s != null) seed = s;
+      });
       app.reuse = null;
     }
   });
@@ -106,12 +108,9 @@
     sending = false;
   }
 
-  function onKey(e: KeyboardEvent) {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-      e.preventDefault();
-      if (model.ready) go();
-    }
-  }
+  const onKey = ctrlEnter(() => {
+    if (model.ready) go();
+  });
 </script>
 
 <div class="form" onkeydown={onKey} role="presentation">
@@ -179,7 +178,7 @@
 
   <div class="field">
     <span class="label">Length <span class="mono value">{seconds} s</span></span>
-    <input type="range" min="2" max="5" step="1" bind:value={seconds} aria-label="Length in seconds" />
+    <input type="range" min={clip.min} max={clip.max} step="1" bind:value={seconds} aria-label="Length in seconds" />
   </div>
 
   <div class="field">

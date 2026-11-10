@@ -14,7 +14,7 @@
   </span>
   {#if fixed}
     <div class="seed">
-      <input class="input mono" type="number" min="0" bind:value={seed} aria-label="Seed" />
+      <input class="input mono" type="number" min="0" placeholder="Random" bind:value={seed} aria-label="Seed" />
       <button class="btn icon" title="New seed" onclick={() => (seed = Math.floor(Math.random() * 1e9))}>
         <Dices size={16} />
       </button>

@@ -4,7 +4,8 @@
   import AdvancedControls from "../AdvancedControls.svelte";
   import SeedField from "../SeedField.svelte";
   import SourceAudio from "../SourceAudio.svelte";
-  import { controlParams, reuseCommon } from "../../lib/controls";
+  import { applyReuse, controlParams, ctrlEnter, seedParam } from "../../lib/controls";
+  import { rangeOf, takeChoices, within } from "../../lib/limits";
   import { app, submit } from "../../lib/state.svelte";
   import type { Studio } from "../../lib/studios";
   import type { Model } from "../../lib/types";
@@ -39,6 +40,11 @@
   const advanced = $derived(!!app.settings?.advanced);
   // What this model takes; ACE-Step models have no music options and take everything.
   const caps = $derived(model.options?.music ?? { lyrics: true, planner: true, source: true, loop: true });
+  const lengths = $derived(rangeOf(model, "duration", { min: 10, max: 240 }));
+  // Another model may reach less far than the one the length was set for.
+  $effect(() => {
+    if (duration > lengths.max || duration < lengths.min) duration = within(duration, lengths);
+  });
   let source = $state<{ id: string; name: string } | null>(null);
   let task = $state<Task>("cover");
   let regionStart = $state(0);
@@ -62,11 +68,10 @@
       takes = r.params.takes ?? 2;
       thinking = r.params.thinking !== false;
       loop = !!r.params.loop;
-      const { seed: s } = reuseCommon(model, r);
-      if (s != null) {
-        seed = s;
-        fixedSeed = true;
-      }
+      applyReuse(model, r, (s) => {
+        fixedSeed = s != null;
+        if (s != null) seed = s;
+      });
       app.reuse = null;
     }
   });
@@ -124,18 +129,15 @@
       takes,
       thinking: caps.planner ? thinking : false,
       loop: caps.loop && loop && setBpm,
-      ...(fixedSeed ? { seed: Number(seed) } : {}),
+      ...seedParam(fixedSeed, seed),
       ...controlParams(model, context),
     });
     sending = false;
   }
 
-  function onKey(e: KeyboardEvent) {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-      e.preventDefault();
-      if (model.ready) go();
-    }
-  }
+  const onKey = ctrlEnter(() => {
+    if (model.ready) go();
+  });
 </script>
 
 <div class="form" onkeydown={onKey} role="presentation">
@@ -191,7 +193,7 @@
 
   <div class="field">
     <span class="label">Length <span class="mono value">{duration} s</span></span>
-    <input type="range" min="10" max="240" step="5" bind:value={duration} aria-label="Length in seconds" disabled={fromSource} />
+    <input type="range" min={lengths.min} max={lengths.max} step="5" bind:value={duration} aria-label="Length in seconds" disabled={fromSource} />
     {#if caps.ends_by && duration > caps.ends_by && !(withLyrics && lyrics.trim())}
       <p class="tip">
         {model.name} usually ends an instrumental at about {Math.round(caps.ends_by / 30) / 2} minutes, whatever length you set. For a
@@ -218,7 +220,7 @@
     <div class="field">
       <span class="label">Takes</span>
       <div class="chips">
-        {#each [1, 2, 3, 4] as n (n)}
+        {#each takeChoices(model) as n (n)}
           <button class="chip num" aria-pressed={takes === n} onclick={() => (takes = n)}>{n}</button>
         {/each}
       </div>

@@ -52,7 +52,17 @@ export function restoreControls(model: Model, params: Record<string, unknown>): 
 
 /** A seed for the i-th job of a batch: the fixed one counting up, or a fresh random one. */
 export function nextSeed(fixed: boolean, seed: number, i: number): number {
-  return fixed ? Number(seed) + i : Math.floor(Math.random() * 2 ** 50);
+  return usableSeed(fixed, seed) ? Number(seed) + i : Math.floor(Math.random() * 2 ** 50);
+}
+
+/** A fixed seed is only used when the field holds a number: an emptied field means no seed, not seed 0. */
+export function usableSeed(fixed: boolean, seed: unknown): boolean {
+  return fixed && seed !== null && seed !== undefined && seed !== "" && Number.isFinite(Number(seed));
+}
+
+/** The seed part of a job's params: the fixed seed, or nothing so the core draws one. */
+export function seedParam(fixed: boolean, seed: unknown): { seed?: number } {
+  return usableSeed(fixed, seed) ? { seed: Number(seed) } : {};
 }
 
 /**
@@ -113,4 +123,44 @@ export function showValue(c: Control | undefined, v: unknown): string {
   const opt = c?.options?.find((o) => o.value === v);
   if (opt) return opt.label;
   return `${v}${c?.unit ? ` ${c.unit}` : ""}`;
+}
+
+/**
+ * "Use these settings again" for the seed too: a recorded seed becomes the fixed seed, and a
+ * job that had none puts the form back to a random one. `setSeed` receives the recorded seed or null.
+ */
+export function applyReuse(model: Model, job: Job, setSeed: (seed: number | null) => void): void {
+  setSeed(reuseCommon(model, job).seed);
+}
+
+/** The most jobs one "one file per line" press may queue. */
+export const MAX_BATCH = 40;
+
+/** The lines to make one job each from; with `perLine` off, the whole text is one. Lines starting with # are notes. */
+export function splitLines(text: string, perLine: boolean): string[] {
+  if (!perLine) return text.trim() ? [text.trim()] : [];
+  return text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#"));
+}
+
+/** Ctrl+Enter (Cmd+Enter) anywhere in a form makes it go. */
+export function ctrlEnter(run: () => void): (e: KeyboardEvent) => void {
+  return (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      run();
+    }
+  };
+}
+
+/** Submits each item in turn and stops at the first one that does not go through. Returns how many did. */
+export async function submitEach<T>(items: T[], send: (item: T, i: number) => Promise<unknown>): Promise<number> {
+  let sent = 0;
+  for (const [i, item] of items.entries()) {
+    if (!(await send(item, i))) break;
+    sent++;
+  }
+  return sent;
 }

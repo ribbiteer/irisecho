@@ -59,6 +59,8 @@ export interface Model {
   downloads: Download[];
   installing: boolean;
   controls: Control[];
+  /** How many takes, how long (seconds) and how many video seconds a job may ask for; empty when the model declares none. */
+  limits?: Partial<Record<"takes" | "duration" | "seconds", { min: number; max: number; default?: number }>>;
   options: {
     voices?: VoiceOption[];
     video?: VideoOptions;
@@ -243,7 +245,7 @@ export interface Bootstrap {
   downloads: Download[];
   scan?: { state: "scanning" | "idle" };
   guide?: { cli: string; path: string };
-  credentials: { huggingface: boolean; keychain: boolean };
+  credentials: { huggingface: boolean; huggingface_source?: "environment" | "saved" | null; keychain: boolean };
 }
 
 export interface PairedDevice {

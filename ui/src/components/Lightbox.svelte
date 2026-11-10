@@ -21,16 +21,22 @@
   import Viewer3D from "./Viewer3D.svelte";
   import JobSettings from "./JobSettings.svelte";
   import { api, exportUrl, outputUrl } from "../lib/api";
+  import { copyText } from "../lib/clipboard";
   import { ago, elapsed } from "../lib/format";
-  import { app, fail, modelById, submit, toast } from "../lib/state.svelte";
+  import { app, deleteJob, fail, jobPost, modelById, submit, toast } from "../lib/state.svelte";
 
   const lb = $derived(app.lightbox!);
   const job = $derived(lb.job);
   const model = $derived(modelById(job.model));
-  const siblings = $derived(app.jobs.filter((j) => j.kind === job.kind && j.status === "done" && j.outputs.length));
+  // Previous and next follow the list the person opened this from (the Library's, which can
+  // reach beyond the newest jobs), not only the newest ones.
+  const siblings = $derived(
+    (app.shown ?? app.jobs).filter((j) => j.kind === job.kind && j.status === "done" && j.outputs.length),
+  );
   const at = $derived(siblings.findIndex((j) => j.id === job.id));
 
   function go(delta: number) {
+    if (at < 0) return;
     const next = siblings[at + delta];
     if (next) app.lightbox = { job: next, index: 0 };
   }
@@ -39,24 +45,18 @@
   }
   function onKey(e: KeyboardEvent) {
     if (e.key === "Escape") close();
+    // Arrows belong to a field the person is typing in (the printed height).
+    const t = e.target as HTMLElement | null;
+    if (t && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName))) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === "ArrowLeft") go(-1);
     if (e.key === "ArrowRight") go(1);
   }
-  async function post(path: string, body: unknown = {}) {
-    try {
-      await api(path, { body });
-    } catch (e) {
-      fail(e);
-    }
-  }
-  async function remove() {
-    const next = siblings[at + 1] ?? siblings[at - 1];
-    try {
-      await api(`/jobs/${job.id}`, { method: "DELETE" });
-      app.lightbox = next ? { job: next, index: 0 } : null;
-    } catch (e) {
-      fail(e);
-    }
+  const post = jobPost;
+  function remove() {
+    const next = at >= 0 ? (siblings[at + 1] ?? siblings[at - 1]) : undefined;
+    deleteJob(job); // closes this view; the next one takes its place
+    app.lightbox = next ? { job: next, index: 0 } : null;
   }
   function reuse() {
     // The same model too, so its advanced values come back with it.
@@ -108,8 +108,8 @@
     expanded = false;
   });
   async function copyPrompt() {
-    await navigator.clipboard.writeText(job.params.prompt ?? job.params.text ?? "");
-    toast("Prompt copied", "ok", 1800);
+    if (await copyText(job.params.prompt ?? job.params.text ?? "")) toast("Prompt copied", "ok", 1800);
+    else toast("Copying is not available here; select the text instead.", "error");
   }
 
   // Redraw the whole picture with FLUX.1 Krea at about twice the pixels and a
@@ -199,6 +199,7 @@
     redrawing = true;
     try {
       const res = await fetch(outputUrl(job, lb.index), { credentials: "same-origin" });
+      if (!res.ok) throw new Error("That picture is no longer available.");
       const blob = await res.blob();
       const form = new FormData();
       form.append("file", new File([blob], "redraw.png", { type: blob.type || "image/png" }));
@@ -251,7 +252,7 @@
     {#if at > 0}
       <button class="nav prev btn icon" onclick={() => go(-1)} aria-label="Previous"><ChevronLeft size={20} /></button>
     {/if}
-    {#if at < siblings.length - 1}
+    {#if at >= 0 && at < siblings.length - 1}
       <button class="nav next btn icon" onclick={() => go(1)} aria-label="Next"><ChevronRight size={20} /></button>
     {/if}
   </div>

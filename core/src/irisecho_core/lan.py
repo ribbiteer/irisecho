@@ -58,6 +58,7 @@ DEVICE_ALLOWED = [
     ("GET", r"/api/settings"),
     ("GET", r"/api/jobs"),
     ("POST", r"/api/jobs"),
+    ("GET", r"/api/jobs/count"),
     ("GET", r"/api/jobs/[0-9a-f]+"),
     ("DELETE", r"/api/jobs/[0-9a-f]+"),
     ("POST", r"/api/jobs/[0-9a-f]+/(cancel|favorite)"),

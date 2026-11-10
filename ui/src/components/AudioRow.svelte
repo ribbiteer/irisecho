@@ -12,7 +12,7 @@
   import Waveform from "./Waveform.svelte";
   import { api, outputUrl } from "../lib/api";
   import { ago } from "../lib/format";
-  import { app, fail, modelById, submit } from "../lib/state.svelte";
+  import { app, deleteJob, fail, jobPost, modelById, submit } from "../lib/state.svelte";
   import type { Job } from "../lib/types";
 
   let { job }: { job: Job } = $props();
@@ -23,13 +23,7 @@
   let take = $state(0);
   const current = $derived(Math.min(take, Math.max(0, job.outputs.length - 1)));
 
-  async function post(path: string, body: unknown = {}) {
-    try {
-      await api(path, { body });
-    } catch (e) {
-      fail(e);
-    }
-  }
+  const post = jobPost;
   // Start a new song from this take (advanced mode): the take is uploaded as the recording to cover.
   const canUseAsSource = $derived(
     !!app.settings?.advanced && job.kind === "music" && job.status === "done" && !!job.outputs[current],
@@ -59,13 +53,7 @@
       preparing = false;
     }
   }
-  async function remove() {
-    try {
-      await api(`/jobs/${job.id}`, { method: "DELETE" });
-    } catch (e) {
-      fail(e);
-    }
-  }
+  const remove = () => deleteJob(job);
 </script>
 
 <article class="row sound" class:failed={job.status === "failed"}>

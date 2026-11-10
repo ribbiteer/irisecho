@@ -8,6 +8,7 @@
   import Iris from "../components/Iris.svelte";
   import LanCard from "../components/LanCard.svelte";
   import { api } from "../lib/api";
+  import { copyText } from "../lib/clipboard";
   import { pickFolder } from "../lib/shell";
   import { app, fail, refresh, toast } from "../lib/state.svelte";
   import type { Settings, System } from "../lib/types";
@@ -86,12 +87,8 @@
   );
 
   async function copy(text: string, what: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast(`${what} copied.`, "ok");
-    } catch {
-      toast("Copying is not available here; select the text instead.", "error");
-    }
+    if (await copyText(text)) toast(`${what} copied.`, "ok");
+    else toast("Copying is not available here; select the text instead.", "error");
   }
 
   async function patch(changes: Partial<Settings>) {
@@ -165,9 +162,19 @@
         </div>
         {#if app.credentials.huggingface}
           <div class="value">
-            <span class="badge ok"><Check size={12} /> Token saved</span>
-            <button class="btn sm ghost danger" onclick={removeToken}>Remove</button>
+            {#if app.credentials.huggingface_source === "environment"}
+              <span class="badge ok"><Check size={12} /> Token in use</span>
+            {:else}
+              <span class="badge ok"><Check size={12} /> Token saved</span>
+              <button class="btn sm ghost danger" onclick={removeToken}>Remove</button>
+            {/if}
           </div>
+          {#if app.credentials.huggingface_source === "environment"}
+            <p class="note">
+              This token comes from the HF_TOKEN setting of the computer, so it is used instead of any saved one. Remove it
+              there to change it.
+            </p>
+          {/if}
         {:else}
           <div class="edit">
             <input class="input mono" type="password" placeholder="hf_…" bind:value={token} autocomplete="off" />

@@ -126,22 +126,21 @@ class Database:
             row = self.conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
         return self._row(row)
 
-    def list(
+    def _filters(
         self,
-        kind: str | None = None,
-        status: str | None = None,
-        favorite: bool | None = None,
-        limit: int = 100,
-        before: float | None = None,
-        after: float | None = None,
-        model: str | None = None,
-        q: str | None = None,
-    ) -> list[dict]:
+        kind: str | None,
+        status: str | None,
+        favorite: bool | None,
+        before: float | None,
+        after: float | None,
+        model: str | None,
+        q: str | None,
+    ) -> tuple[list[str], list] | None:
+        """The WHERE parts and their arguments; None when nothing can match."""
         where, args = [], []
-        order = "created DESC"
         match = fts_query(q or "")
         if q and q.strip() and not match:
-            return []  # only punctuation: nothing can match
+            return None  # only punctuation: nothing can match
         if match and self.fts:
             where.append("id IN (SELECT id FROM jobs_fts WHERE jobs_fts MATCH ?)")
             args.append(match)
@@ -170,13 +169,51 @@ class Database:
         if before:
             where.append("created < ?")
             args.append(before)
+        return where, args
+
+    def list(
+        self,
+        kind: str | None = None,
+        status: str | None = None,
+        favorite: bool | None = None,
+        limit: int = 100,
+        before: float | None = None,
+        after: float | None = None,
+        model: str | None = None,
+        q: str | None = None,
+    ) -> list[dict]:
+        found = self._filters(kind, status, favorite, before, after, model, q)
+        if found is None:
+            return []
+        where, args = found
         sql = "SELECT * FROM jobs"
         if where:
             sql += " WHERE " + " AND ".join(where)
-        sql += f" ORDER BY {order} LIMIT ?"
+        sql += " ORDER BY created DESC LIMIT ?"
         with self.lock:
             rows = self.conn.execute(sql, [*args, limit]).fetchall()
         return [self._row(r) for r in rows]
+
+    def count(
+        self,
+        kind: str | None = None,
+        status: str | None = None,
+        favorite: bool | None = None,
+        before: float | None = None,
+        after: float | None = None,
+        model: str | None = None,
+        q: str | None = None,
+    ) -> int:
+        """How many jobs list() would find with no limit."""
+        found = self._filters(kind, status, favorite, before, after, model, q)
+        if found is None:
+            return 0
+        where, args = found
+        sql = "SELECT COUNT(*) FROM jobs"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        with self.lock:
+            return self.conn.execute(sql, args).fetchone()[0]
 
     def queued(self) -> list[dict]:
         """Every job still waiting its turn, oldest first, working kinds included."""

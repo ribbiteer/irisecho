@@ -136,6 +136,26 @@ def test_library_search(client):
     assert len(ids()) == 4
 
 
+def test_job_count_matches_search(client):
+    client.get("/")
+    db = client.app.state.core.db
+    _job(db, "c1", "z-image-turbo", "image", {"prompt": "A red fox"}, 1000)
+    _job(db, "c2", "flux-dev", "image", {"prompt": "Foxes in snow"}, 2000, favorite=1)
+    _job(db, "c3", "kokoro", "voice", {"text": "Nothing to see"}, 3000)
+
+    def total(**params):
+        return client.get("/api/jobs/count", params=params).json()["total"]
+
+    assert total() == 3
+    assert total(q="fox") == 2
+    assert total(kind="voice") == 1
+    assert total(favorite="true") == 1
+    assert total(status="done") == 3
+    assert total(status="failed") == 0
+    assert total(q="!!!") == 0
+    assert total(before=2500, after=1500) == 1
+
+
 def test_search_follows_edits_and_deletes(client):
     client.get("/")
     db = client.app.state.core.db

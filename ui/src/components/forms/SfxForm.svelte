@@ -5,7 +5,8 @@
   import PromptTools from "../PromptTools.svelte";
   import SeedField from "../SeedField.svelte";
   import SourceAudio from "../SourceAudio.svelte";
-  import { controlParams, reuseCommon } from "../../lib/controls";
+  import { applyReuse, controlParams, ctrlEnter, MAX_BATCH, seedParam, splitLines, submitEach } from "../../lib/controls";
+  import { takeChoices } from "../../lib/limits";
   import { app, submit } from "../../lib/state.svelte";
   import type { Studio } from "../../lib/studios";
   import type { Model } from "../../lib/types";
@@ -47,25 +48,15 @@
       duration = r.params.duration ?? 3;
       takes = r.params.takes ?? 3;
       trim = r.params.trim ?? true;
-      const { seed: s } = reuseCommon(model, r);
-      if (s != null) {
-        seed = s;
-        fixedSeed = true;
-      }
+      applyReuse(model, r, (s) => {
+        fixedSeed = s != null;
+        if (s != null) seed = s;
+      });
       app.reuse = null;
     }
   });
 
-  const lines = $derived(
-    perLine
-      ? prompt
-          .split("\n")
-          .map((l) => l.trim())
-          .filter((l) => l && !l.startsWith("#"))
-      : prompt.trim()
-        ? [prompt.trim()]
-        : [],
-  );
+  const lines = $derived(splitLines(prompt, perLine));
 
   const fromSound = $derived(advanced && !!initAudio);
   // The strength control only applies to a variation, not to a replaced part.
@@ -87,28 +78,28 @@
   );
 
   async function go() {
-    if (!lines.length || soundProblem || sending) return;
+    if (!lines.length || lines.length > MAX_BATCH || soundProblem || sending) return;
     sending = true;
-    for (const line of lines) {
-      await submit(model, {
-        ...soundParams,
-        prompt: line,
-        duration,
-        takes,
-        trim,
-        ...(fixedSeed ? { seed: Number(seed) } : {}),
-        ...controlParams(model, context),
-      });
+    try {
+      await submitEach(lines, (line) =>
+        submit(model, {
+          ...soundParams,
+          prompt: line,
+          duration,
+          takes,
+          trim,
+          ...seedParam(fixedSeed, seed),
+          ...controlParams(model, context),
+        }),
+      );
+    } finally {
+      sending = false;
     }
-    sending = false;
   }
 
-  function onKey(e: KeyboardEvent) {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-      e.preventDefault();
-      if (model.ready) go();
-    }
-  }
+  const onKey = ctrlEnter(() => {
+    if (model.ready) go();
+  });
 </script>
 
 <div class="form" onkeydown={onKey} role="presentation">
@@ -140,7 +131,7 @@
     <div class="field">
       <span class="label">Takes of each</span>
       <div class="chips">
-        {#each [1, 2, 3, 4] as n (n)}
+        {#each takeChoices(model) as n (n)}
           <button class="chip num" aria-pressed={takes === n} onclick={() => (takes = n)}>{n}</button>
         {/each}
       </div>
@@ -191,8 +182,8 @@
   <ActionBar
     {model}
     label={lines.length > 1 ? `Generate ${lines.length} sounds` : "Generate"}
-    hint={takes > 1 ? `${takes} takes each` : ""}
-    disabled={!lines.length || !!soundProblem || sending}
+    hint={lines.length > MAX_BATCH ? `At most ${MAX_BATCH} lines at a time` : takes > 1 ? `${takes} takes each` : ""}
+    disabled={!lines.length || lines.length > MAX_BATCH || !!soundProblem || sending}
     onsubmit={go}
   />
 </div>

@@ -2,7 +2,7 @@
 <script lang="ts">
   import ActionBar from "../ActionBar.svelte";
   import AdvancedControls from "../AdvancedControls.svelte";
-  import { controlParams, reuseCommon } from "../../lib/controls";
+  import { controlParams, ctrlEnter, MAX_BATCH, reuseCommon, splitLines, submitEach } from "../../lib/controls";
   import { app, submit } from "../../lib/state.svelte";
   import type { Studio } from "../../lib/studios";
   import type { Model } from "../../lib/types";
@@ -32,30 +32,21 @@
     }
   });
 
-  const lines = $derived(
-    perLine
-      ? text
-          .split("\n")
-          .map((l) => l.trim())
-          .filter((l) => l && !l.startsWith("#"))
-      : text.trim()
-        ? [text.trim()]
-        : [],
-  );
+  const lines = $derived(splitLines(text, perLine));
 
   async function go() {
-    if (!lines.length || sending) return;
+    if (!lines.length || lines.length > MAX_BATCH || sending) return;
     sending = true;
-    for (const line of lines) await submit(model, { text: line, voice, speed, clean, ...controlParams(model) });
-    sending = false;
-  }
-
-  function onKey(e: KeyboardEvent) {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-      e.preventDefault();
-      if (model.ready) go();
+    try {
+      await submitEach(lines, (line) => submit(model, { text: line, voice, speed, clean, ...controlParams(model) }));
+    } finally {
+      sending = false;
     }
   }
+
+  const onKey = ctrlEnter(() => {
+    if (model.ready) go();
+  });
 </script>
 
 <div class="form" onkeydown={onKey} role="presentation">
@@ -121,7 +112,8 @@
   <ActionBar
     {model}
     label={lines.length > 1 ? `Speak ${lines.length} lines` : "Speak"}
-    disabled={!lines.length || sending}
+    hint={lines.length > MAX_BATCH ? `At most ${MAX_BATCH} lines at a time` : ""}
+    disabled={!lines.length || lines.length > MAX_BATCH || sending}
     onsubmit={go}
   />
 </div>

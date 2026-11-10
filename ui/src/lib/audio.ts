@@ -12,9 +12,34 @@ export function looksLikeAudio(file: File): boolean {
   return file.type.startsWith("audio/") || AUDIO_EXT.test(file.name);
 }
 
-/** The file as is when the server reads its format, otherwise a 16-bit mono WAV of it. */
+/** How long a recording is, from its header; null when the browser cannot tell quickly. */
+function lengthOf(file: File): Promise<number | null> {
+  return new Promise((resolve) => {
+    const el = document.createElement("audio");
+    const url = URL.createObjectURL(file);
+    const done = (v: number | null) => {
+      clearTimeout(timer);
+      el.removeAttribute("src");
+      URL.revokeObjectURL(url);
+      resolve(v);
+    };
+    const timer = setTimeout(() => done(null), 4000);
+    el.preload = "metadata";
+    el.onloadedmetadata = () => done(Number.isFinite(el.duration) ? el.duration : null);
+    el.onerror = () => done(null);
+    el.src = url;
+  });
+}
+
+/**
+ * The file as is when the server reads its format and it is short enough, otherwise a 16-bit
+ * WAV of it cut to `seconds` (mono unless `stereo`). The limit holds for every format.
+ */
 export async function readableAudio(file: File, options: { seconds?: number; stereo?: boolean } = {}): Promise<File> {
-  if (READABLE.has(file.type)) return file;
+  if (READABLE.has(file.type)) {
+    const length = await lengthOf(file);
+    if (length != null && length <= (options.seconds ?? KEEP_SECONDS) + 0.05) return file;
+  }
   const Ctx = window.AudioContext ?? (window as any).webkitAudioContext;
   if (!Ctx) throw new Error("This browser cannot read that recording. Use a WAV or MP3 file.");
   const ctx: AudioContext = new Ctx();

@@ -10,6 +10,7 @@
   import Trash from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
   import Iris from "../components/Iris.svelte";
+  import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import SetupPanel from "../components/SetupPanel.svelte";
   import { api } from "../lib/api";
   import { bytes, speed } from "../lib/format";
@@ -96,13 +97,24 @@
     document.getElementById(`model-${m.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
+  // Removing downloaded files asks first, naming the model and what it frees.
+  let removing = $state<Model | null>(null);
+  let removeBusy = $state(false);
+  const freesUpTo = (m: Model) => m.files.filter((f) => f.state === "ready").reduce((sum, f) => sum + f.size, 0);
+
   async function remove(m: Model) {
+    removeBusy = true;
     try {
       const { freed } = await api<{ freed: number }>(`/models/${m.id}/files`, { method: "DELETE" });
       toast(freed ? `Removed ${m.name} and freed ${bytes(freed)}.` : `${m.name}'s files are shared with other models, so they were kept.`, "ok");
       refreshModels();
     } catch (e) {
+      // 409: a file is in use right now; the message says which.
       fail(e);
+      refreshModels();
+    } finally {
+      removeBusy = false;
+      removing = null;
     }
   }
 
@@ -199,7 +211,7 @@
                         {st.label}
                       </span>
                       {#if m.ready && m.files.some((f) => f.state === "ready")}
-                        <button class="btn sm ghost danger" onclick={() => remove(m)} title="Remove downloaded files">
+                        <button class="btn sm ghost danger" onclick={() => (removing = m)} title="Remove downloaded files">
                           <Trash size={14} /> Remove
                         </button>
                       {:else if m.ready}
@@ -357,6 +369,18 @@
     </div>
   </div>
 </div>
+
+{#if removing}
+  {@const m = removing}
+  <ConfirmDialog
+    title={`Remove ${m.name}?`}
+    text={`Its downloaded files are deleted from this computer${freesUpTo(m) ? `, which frees up to ${bytes(freesUpTo(m))}` : ""}. Files other models share are kept. You can download it again later.`}
+    confirm="Remove"
+    busy={removeBusy}
+    onconfirm={() => remove(m)}
+    oncancel={() => (removing = null)}
+  />
+{/if}
 
 <style>
   .models {

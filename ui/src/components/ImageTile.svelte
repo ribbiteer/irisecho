@@ -7,10 +7,10 @@
   import X from "@lucide/svelte/icons/x";
   import Iris from "./Iris.svelte";
   import Box from "@lucide/svelte/icons/box";
-  import { api, outputUrl, previewUrl } from "../lib/api";
+  import { outputUrl, previewUrl } from "../lib/api";
   import { elapsed } from "../lib/format";
   import { inView } from "../lib/inview";
-  import { app, fail, modelById, submit, toast } from "../lib/state.svelte";
+  import { app, deleteJob, jobPost, modelById, submit, toast } from "../lib/state.svelte";
   import type { Job } from "../lib/types";
 
   let { job }: { job: Job } = $props();
@@ -42,30 +42,12 @@
       .findIndex((j) => j.id === job.id) + 1,
   );
 
-  async function cancel() {
-    try {
-      await api(`/jobs/${job.id}/cancel`, { body: {} });
-    } catch (e) {
-      fail(e);
-    }
-  }
-  async function favorite() {
-    try {
-      await api(`/jobs/${job.id}/favorite`, { body: { favorite: !job.favorite } });
-    } catch (e) {
-      fail(e);
-    }
-  }
+  const cancel = () => jobPost(`/jobs/${job.id}/cancel`);
+  const favorite = () => jobPost(`/jobs/${job.id}/favorite`, { favorite: !job.favorite });
   function retry() {
     if (model) submit(model, job.params);
   }
-  async function remove() {
-    try {
-      await api(`/jobs/${job.id}`, { method: "DELETE" });
-    } catch (e) {
-      fail(e);
-    }
-  }
+  const remove = () => deleteJob(job);
 </script>
 
 <article class="tile" bind:this={tileEl} style:aspect-ratio={ratio} class:done={job.status === "done"}>

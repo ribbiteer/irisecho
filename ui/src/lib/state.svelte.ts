@@ -2,6 +2,8 @@
 // Application state, kept current by the core's event stream.
 
 import { api, ApiError, connectEvents } from "./api";
+import { PendingQueue } from "./pending";
+import { pollJob } from "./poll";
 import type { Bootstrap, ControlValue, Download, Engine, Job, Kind, Model, Settings, System } from "./types";
 
 export type View = "create" | "library" | "models" | "settings";
@@ -10,11 +12,14 @@ interface Toast {
   id: number;
   text: string;
   tone: "info" | "ok" | "error";
+  action?: { label: string; run: () => void };
 }
 
 export const app = $state({
   loaded: false,
   connected: false,
+  // This device was removed from the paired list: it will not get back in by reconnecting.
+  unpaired: false,
   failed: "",
   version: "",
   // True on a paired phone or other device: no models, settings or folders here.
@@ -25,7 +30,11 @@ export const app = $state({
   models: [] as Model[],
   jobs: [] as Job[],
   downloads: {} as Record<string, Download>,
-  credentials: { huggingface: false, keychain: true },
+  // Counts jobs taken away (here or by an event), so lists kept elsewhere know to look again.
+  removals: 0,
+  // The jobs the Library is showing, so the lightbox moves through those and not only the newest.
+  shown: null as null | Job[],
+  credentials: { huggingface: false, huggingface_source: null as "environment" | "saved" | null, keychain: true },
   // The command line of this installation and its guide for scripts and agents.
   guide: { cli: "", path: "" },
   engineLog: {} as Record<string, string>,
@@ -57,20 +66,30 @@ export const app = $state({
 });
 
 let toastId = 0;
-export function toast(text: string, tone: Toast["tone"] = "info", ms = 4200) {
-  if (app.toasts.some((t) => t.text === text)) return; // already saying exactly this
+export function toast(text: string, tone: Toast["tone"] = "info", ms = 4200, action?: Toast["action"]): number {
+  // A message with a button is never merged with another: each Undo belongs to its own delete.
+  const same = action ? undefined : app.toasts.find((t) => t.text === text && !t.action);
+  if (same) return same.id; // already saying exactly this
   const id = ++toastId;
-  app.toasts.push({ id, text, tone });
-  setTimeout(() => {
-    app.toasts = app.toasts.filter((t) => t.id !== id);
-  }, ms);
+  app.toasts.push({ id, text, tone, action });
+  setTimeout(() => dismissToast(id), ms);
+  return id;
+}
+
+export function dismissToast(id: number) {
+  app.toasts = app.toasts.filter((t) => t.id !== id);
 }
 
 export function fail(e: unknown) {
   toast(e instanceof Error ? e.message : String(e), "error", 6000);
 }
 
+// When an event last spoke of each job: a snapshot fetched before that is older than the event.
+const eventAt = new Map<string, number>();
+const BOOTSTRAP_JOBS = 80; // what the core sends in the snapshot
+
 export async function refresh() {
+  const asked = Date.now();
   try {
     const b = await api<Bootstrap>("/bootstrap");
     app.version = b.version;
@@ -80,8 +99,9 @@ export async function refresh() {
     app.settings = b.settings;
     app.engines = b.engines;
     app.models = b.models;
-    app.jobs = b.jobs;
-    app.credentials = b.credentials;
+    // Merged, not replaced: an event that arrived while this was on its way is newer than it.
+    mergeSnapshot(b.jobs, asked);
+    app.credentials = { huggingface_source: null, ...b.credentials };
     app.guide = b.guide ?? { cli: "", path: "" };
     app.downloads = Object.fromEntries(b.downloads.map((d) => [d.id, d]));
     // A scan that began before this page loaded, or ended while it was disconnected.
@@ -91,6 +111,24 @@ export async function refresh() {
     app.failed = "";
   } catch (e) {
     app.failed = e instanceof ApiError && e.status === 401 ? "reload" : (e as Error).message;
+  }
+}
+
+function mergeSnapshot(snapshot: Job[], asked: number) {
+  const inSnapshot = new Set(snapshot.map((j) => j.id));
+  for (const job of snapshot) {
+    if (gone.has(job.id) || (eventAt.get(job.id) ?? 0) >= asked) continue;
+    upsertJob(job);
+  }
+  // A finished job the snapshot lacks (where it would reach back that far) was deleted meanwhile.
+  const oldest = snapshot.length >= BOOTSTRAP_JOBS ? Math.min(...snapshot.map((j) => j.created)) : 0;
+  const lost = app.jobs.filter(
+    (j) => !inSnapshot.has(j.id) && j.created >= oldest && RANK[j.status] === 2 && (eventAt.get(j.id) ?? 0) < asked,
+  );
+  if (lost.length) {
+    const ids = new Set(lost.map((j) => j.id));
+    app.jobs = app.jobs.filter((j) => !ids.has(j.id));
+    app.removals++;
   }
 }
 
@@ -132,10 +170,108 @@ function upsertJob(job: Job) {
   }
 }
 
+// --- deleting jobs -----------------------------------------------------------
+// A delete hides the job at once and shows an Undo; the request goes out when the
+// toast has run out, or when the page is being left, so nothing is lost either way.
+
+export const UNDO_MS = 6000;
+const undoToasts = new Map<string, number>();
+
+/** Jobs taken out of view on this page; a list fetched earlier must not bring them back. */
+export const gone = new Set<string>();
+
+/** Drops a job from every list on the page. */
+function takeOutOfView(id: string) {
+  gone.add(id);
+  app.jobs = app.jobs.filter((j) => j.id !== id);
+  if (app.lightbox?.job.id === id) app.lightbox = null;
+  app.removals++;
+}
+
+/** Stops waiting on a delete without sending it (it happened elsewhere, or it was undone). */
+function forget(id: string) {
+  pendingDeletes.undo(id);
+  const t = undoToasts.get(id);
+  if (t != null) dismissToast(t);
+  undoToasts.delete(id);
+}
+
+async function sendDelete(id: string, job: Job, keepalive = false) {
+  try {
+    await api(`/jobs/${id}`, { method: "DELETE", keepalive });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return; // already gone
+    // Kept, for example because a file is open: bring it back and say why.
+    gone.delete(id);
+    upsertJob({ ...job });
+    fail(e);
+  }
+  app.removals++;
+}
+
+const pendingDeletes = new PendingQueue<Job>(UNDO_MS, (id, job) => {
+  const t = undoToasts.get(id);
+  if (t != null) dismissToast(t);
+  undoToasts.delete(id);
+  sendDelete(id, job);
+});
+
+/** Takes the job out of view and offers Undo; the delete is sent when the offer runs out. */
+export function deleteJob(job: Job) {
+  if (pendingDeletes.has(job.id)) return;
+  pendingDeletes.add(job.id, job);
+  takeOutOfView(job.id);
+  undoToasts.set(
+    job.id,
+    toast("Deleted.", "info", UNDO_MS, {
+      label: "Undo",
+      run: () => {
+        const back = pendingDeletes.undo(job.id);
+        forget(job.id);
+        if (back) {
+          gone.delete(back.id);
+          upsertJob(back);
+          app.removals++;
+        }
+      },
+    }),
+  );
+}
+
+/** Sends every waiting delete now: the page is being hidden or closed. */
+function flushDeletes() {
+  for (const id of pendingDeletes.ids()) {
+    const job = pendingDeletes.undo(id);
+    const t = undoToasts.get(id);
+    if (t != null) dismissToast(t);
+    undoToasts.delete(id);
+    if (job) sendDelete(id, job, true);
+  }
+}
+
+/** A change to one job (cancel, favorite, reveal). A job the core no longer knows is taken out of view. */
+export async function jobPost(path: string, body: unknown = {}): Promise<boolean> {
+  try {
+    await api(path, { body });
+    return true;
+  } catch (e) {
+    const id = /^\/jobs\/([^/]+)/.exec(path)?.[1];
+    if (e instanceof ApiError && e.status === 404 && id) {
+      takeOutOfView(id);
+      toast("That one is already gone.");
+    } else {
+      fail(e);
+    }
+    return false;
+  }
+}
+
 function onEvent(e: { type: string; data: any }) {
   switch (e.type) {
     case "job": {
       const prev = app.jobs.find((j) => j.id === e.data.id);
+      eventAt.set(e.data.id, Date.now());
+      if (pendingDeletes.has(e.data.id)) break; // it is on its way out; the page already hid it
       upsertJob(e.data);
       if (prev && prev.status !== e.data.status) {
         if (e.data.status === "failed") toast(e.data.error ?? "That did not work.", "error", 7000);
@@ -144,7 +280,10 @@ function onEvent(e: { type: string; data: any }) {
       break;
     }
     case "job.deleted":
-      app.jobs = app.jobs.filter((j) => j.id !== e.data.id);
+      eventAt.set(e.data.id, Date.now());
+      // Deleted from somewhere else too (or by this page's own request): nothing left to undo.
+      forget(e.data.id);
+      takeOutOfView(e.data.id);
       break;
     case "download": {
       const prev = app.downloads[e.data.id];
@@ -234,12 +373,21 @@ export function start() {
   });
   refresh();
   let first = true;
-  connectEvents(onEvent, (connected) => {
-    app.connected = connected;
-    // After a reconnect, catch up on anything missed.
-    if (connected && !first) refresh();
-    first = false;
+  connectEvents(
+    onEvent,
+    (connected) => {
+      app.connected = connected;
+      // After a reconnect, catch up on anything missed.
+      if (connected && !first) refresh();
+      first = false;
+    },
+    () => (app.unpaired = true),
+  );
+  // Deletes wait for their Undo; leaving the page must not lose them.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushDeletes();
   });
+  window.addEventListener("pagehide", flushDeletes);
 }
 
 // --- derived helpers ---------------------------------------------------------
@@ -287,15 +435,19 @@ export async function submit(model: Model, params: Record<string, unknown>): Pro
 }
 
 /** Follow a job that is not shown in the feed until it ends; resolves with the finished job. */
-export async function followJob(job: Job, onStatus: (message: string, progress: number | null) => void): Promise<Job> {
-  for (;;) {
-    if (job.status === "done") return job;
-    if (job.status === "failed") throw new Error(job.error ?? "That did not work.");
-    if (job.status === "cancelled" || job.status === "interrupted") throw new Error("Cancelled.");
-    onStatus(job.status === "queued" ? "Waiting for the graphics card" : (job.message ?? "Working"), job.progress);
-    await new Promise((r) => setTimeout(r, 400));
-    job = await api<Job>(`/jobs/${job.id}`);
-  }
+export async function followJob(
+  job: Job,
+  onStatus: (message: string, progress: number | null) => void,
+  signal?: AbortSignal,
+): Promise<Job> {
+  const ended = await pollJob(job, {
+    fetchJob: (id) => api<Job>(`/jobs/${id}`),
+    onStatus: (j) => onStatus(j.status === "queued" ? "Waiting for the graphics card" : (j.message ?? "Working"), j.progress),
+    signal,
+  });
+  if (ended.status === "failed") throw new Error(ended.error ?? "That did not work.");
+  if (ended.status !== "done") throw new Error("Cancelled.");
+  return ended;
 }
 
 // --- prompt writer -----------------------------------------------------------
@@ -311,16 +463,16 @@ export interface WriteRequest {
 
 // Runs a prompt-writer job and resolves with the text. The job goes through the
 // same queue as everything else, so it waits for the graphics card like any job.
-export async function writePrompt(req: WriteRequest, onStatus: (message: string) => void): Promise<string> {
-  let job = await api<Job>("/jobs", {
+export async function writePrompt(req: WriteRequest, onStatus: (message: string) => void, signal?: AbortSignal): Promise<string> {
+  const job = await api<Job>("/jobs", {
     body: { model: "prompt-writer", params: { mode: req.mode, target: req.target, text: req.text ?? "", images: req.images ?? [] } },
   });
-  for (;;) {
-    if (job.status === "done") return job.outputs[0]?.text ?? "";
-    if (job.status === "failed") throw new Error(job.error ?? "The prompt writer failed.");
-    if (job.status === "cancelled" || job.status === "interrupted") throw new Error("Cancelled.");
-    onStatus(job.status === "queued" ? "Waiting for the graphics card" : (job.message ?? "Writing"));
-    await new Promise((r) => setTimeout(r, 400));
-    job = await api<Job>(`/jobs/${job.id}`);
-  }
+  const ended = await pollJob(job, {
+    fetchJob: (id) => api<Job>(`/jobs/${id}`),
+    onStatus: (j) => onStatus(j.status === "queued" ? "Waiting for the graphics card" : (j.message ?? "Writing")),
+    signal,
+  });
+  if (ended.status === "failed") throw new Error(ended.error ?? "The prompt writer failed.");
+  if (ended.status !== "done") throw new Error("Cancelled.");
+  return ended.outputs[0]?.text ?? "";
 }

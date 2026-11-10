@@ -14,7 +14,8 @@
     prompt = "Drop a recording, or choose a file",
     hint = "",
     seconds = 240,
-  }: { value: Source; prompt?: string; hint?: string; seconds?: number } = $props();
+    stereo = true,
+  }: { value: Source; prompt?: string; hint?: string; seconds?: number; stereo?: boolean } = $props();
 
   let uploading = $state(false);
   let dragging = $state(false);
@@ -27,7 +28,7 @@
     uploading = true;
     try {
       const form = new FormData();
-      form.append("file", await readableAudio(file, { seconds, stereo: true }));
+      form.append("file", await readableAudio(file, { seconds, stereo }));
       const r = await api<{ id: string }>("/uploads", { form });
       value = { id: r.id, name: file.name };
     } catch (e) {

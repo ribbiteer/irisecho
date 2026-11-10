@@ -16,7 +16,8 @@
   import Iris from "../Iris.svelte";
   import SeedField from "../SeedField.svelte";
   import SetupPanel from "../SetupPanel.svelte";
-  import { controlParams, nextSeed, reuseCommon } from "../../lib/controls";
+  import { onDestroy } from "svelte";
+  import { applyReuse, controlParams, ctrlEnter, nextSeed, submitEach } from "../../lib/controls";
   import { api, outputToUpload, outputUrl, uploadUrl } from "../../lib/api";
   import { app, fail, followJob, modelById, modelsOf, submit, toast } from "../../lib/state.svelte";
   import type { Studio } from "../../lib/studios";
@@ -54,18 +55,26 @@
     );
   }
 
+  let makingPictures = $state(false);
   async function makePictures() {
-    if (!imageModel || !description.trim()) return;
+    if (!imageModel || !description.trim() || makingPictures) return;
+    makingPictures = true;
     const ids: string[] = [];
-    for (let i = 0; i < 4; i++) {
-      const job = await submit(imageModel, {
-        prompt: objectPrompt(description),
-        aspect: "1:1",
-        seed: Math.floor(Math.random() * 2 ** 50),
+    try {
+      // Stops at the first picture that is refused instead of queueing the rest.
+      await submitEach([0, 1, 2, 3], async () => {
+        const job = await submit(imageModel, {
+          prompt: objectPrompt(description),
+          aspect: "1:1",
+          seed: Math.floor(Math.random() * 2 ** 50),
+        });
+        if (job) ids.push(job.id);
+        return job;
       });
-      if (job) ids.push(job.id);
+      candidates = ids;
+    } finally {
+      makingPictures = false;
     }
-    candidates = ids;
   }
 
   let choosing = $state<string | null>(null);
@@ -100,9 +109,14 @@
   let backWords = $state("");
   const advanced = $derived(!!app.settings?.advanced);
   let run = 0; // the latest views request; older ones are ignored when they finish
+  let watching: AbortController | null = null; // stops following the views job of an older request
+  onDestroy(() => watching?.abort());
 
   async function makeViews(image: string, level: "auto" | "best" | "keep") {
     const mine = ++run;
+    watching?.abort();
+    watching = new AbortController();
+    const signal = watching.signal;
     const previous = views?.job;
     if (previous && (previous.status === "queued" || previous.status === "running")) {
       api(`/jobs/${previous.id}/cancel`, { body: {} }).catch(() => {});
@@ -122,9 +136,13 @@
       });
       if (mine !== run) return;
       views.job = job;
-      job = await followJob(job, (message, progress) => {
-        if (mine === run && views) Object.assign(views, { message, progress });
-      });
+      job = await followJob(
+        job,
+        (message, progress) => {
+          if (mine === run && views) Object.assign(views, { message, progress });
+        },
+        signal,
+      );
       if (mine !== run) return;
       const roles = Object.fromEntries(job.outputs.map((o, i) => [o.role, i]));
       if (roles.back === undefined) {
@@ -158,6 +176,7 @@
     onlyPicture = false;
     if (!picture) {
       run++;
+      watching?.abort();
       views = null;
     } else if (viewsReady && !restored) {
       makeViews(picture, "auto");
@@ -226,9 +245,14 @@
       textures = r.params.textures ?? true;
       keepOpenings = r.params.openings === "keep";
       const reused = modelById(r.model);
-      const s = reused ? reuseCommon(reused, r).seed : null;
-      fixedSeed = s != null;
-      if (s != null) seed = s;
+      if (reused) {
+        applyReuse(reused, r, (s) => {
+          fixedSeed = s != null;
+          if (s != null) seed = s;
+        });
+      } else {
+        fixedSeed = false;
+      }
       source = "picture";
       restored = true;
       picture = r.params.front ?? null;
@@ -263,12 +287,9 @@
     sending = false;
   }
 
-  function onKey(e: KeyboardEvent) {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-      e.preventDefault();
-      if (buildModel?.ready) build();
-    }
-  }
+  const onKey = ctrlEnter(() => {
+    if (buildModel?.ready) build();
+  });
 </script>
 
 <div class="form" onkeydown={onKey} role="presentation">
@@ -286,7 +307,7 @@
       <label class="label" for="object">What should it be?</label>
       <textarea id="object" class="textarea" rows="3" bind:value={description} placeholder="a small ceramic owl figurine standing on a round base"></textarea>
       {#if imageModel}
-        <button class="btn" onclick={makePictures} disabled={!description.trim()}>
+        <button class="btn" onclick={makePictures} disabled={!description.trim() || makingPictures}>
           <Sparkles size={15} /> Make 4 pictures with {imageModel.name}
         </button>
         <p class="tip">Each picture shows the whole object straight on, which is what 3D works best from. Pick the one to build.</p>

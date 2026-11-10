@@ -30,6 +30,15 @@
   const studios = $derived(STUDIOS.filter((s) => app.models.some((m) => m.kind === s.kind)));
   const current = $derived(studios.find((s) => s.kind === app.studio) ?? studios[0]);
   const firstSound = $derived(studios.findIndex((s) => s.sound));
+
+  // A studio's form stays mounted (hidden) once it has been opened, so a long prompt, uploaded
+  // pictures or a lyrics page are still there when the person comes back to it.
+  let opened = $state<Kind[]>([]);
+  $effect(() => {
+    const kind = current?.kind;
+    if (kind && !opened.includes(kind)) opened = [...opened, kind];
+  });
+  const forms = $derived(opened.map((k) => studios.find((s) => s.kind === k)).filter((s) => !!s));
 </script>
 
 <div class="create" class:sound={current?.sound}>
@@ -50,9 +59,13 @@
     {/each}
   </nav>
 
+  {#each forms as s (s.kind)}
+    <div class="slot" class:off={s.kind !== current?.kind}>
+      <Composer studio={s} />
+    </div>
+  {/each}
   {#if current}
     {#key current.kind}
-      <Composer studio={current} />
       <Feed studio={current} />
     {/key}
   {/if}
@@ -64,6 +77,13 @@
     display: grid;
     grid-template-columns: 84px minmax(360px, 420px) 1fr;
     min-height: 0;
+  }
+  /* The wrapper adds no box of its own: the form is still a column of the grid. */
+  .slot {
+    display: contents;
+  }
+  .slot.off {
+    display: none;
   }
   .rail {
     display: flex;

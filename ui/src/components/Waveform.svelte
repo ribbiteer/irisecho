@@ -10,8 +10,8 @@
 <script lang="ts">
   import Pause from "@lucide/svelte/icons/pause";
   import Play from "@lucide/svelte/icons/play";
-  import { onMount } from "svelte";
   import { clock } from "../lib/format";
+  import { inView } from "../lib/inview";
 
   let {
     src,
@@ -27,39 +27,60 @@
   let isPlaying = $state(false);
   const uid = `wf-${Math.random().toString(36).slice(2, 8)}`;
 
-  onMount(() => {
+  let root = $state<HTMLElement | null>(null);
+
+  // The file is fetched and decoded once the player comes near the screen, not on mount:
+  // a long Library would otherwise download and decode every take it holds.
+  async function load(src: string, isCancelled: () => boolean) {
     const cached = peakCache.get(src);
     if (cached) {
       peaks = cached;
       return;
     }
-    let cancelled = false;
-    (async () => {
-      try {
-        const buf = await (await fetch(src, { credentials: "same-origin" })).arrayBuffer();
-        const ctx = new AudioContext();
-        const decoded = await ctx.decodeAudioData(buf);
-        ctx.close();
-        const data = decoded.getChannelData(0);
-        const step = Math.max(1, Math.floor(data.length / bars));
-        const out: number[] = [];
-        for (let i = 0; i < bars; i++) {
-          let sum = 0;
-          const start = i * step;
-          const end = Math.min(data.length, start + step);
-          for (let j = start; j < end; j++) sum += data[j] * data[j];
-          out.push(Math.sqrt(sum / Math.max(1, end - start)));
-        }
-        const max = Math.max(...out, 1e-6);
-        const norm = out.map((v) => Math.max(0.06, Math.pow(v / max, 0.7)));
-        peakCache.set(src, norm);
-        if (!cancelled) peaks = norm;
-      } catch {
-        if (!cancelled) peaks = Array(bars).fill(0.2);
+    let ctx: AudioContext | null = null;
+    try {
+      const res = await fetch(src, { credentials: "same-origin" });
+      if (!res.ok) throw new Error("not available");
+      const buf = await res.arrayBuffer();
+      ctx = new AudioContext();
+      const decoded = await ctx.decodeAudioData(buf);
+      const data = decoded.getChannelData(0);
+      const step = Math.max(1, Math.floor(data.length / bars));
+      const out: number[] = [];
+      for (let i = 0; i < bars; i++) {
+        let sum = 0;
+        const start = i * step;
+        const end = Math.min(data.length, start + step);
+        for (let j = start; j < end; j++) sum += data[j] * data[j];
+        out.push(Math.sqrt(sum / Math.max(1, end - start)));
       }
-    })();
+      const max = Math.max(...out, 1e-6);
+      const norm = out.map((v) => Math.max(0.06, Math.pow(v / max, 0.7)));
+      peakCache.set(src, norm);
+      if (!isCancelled()) peaks = norm;
+    } catch {
+      if (!isCancelled()) peaks = Array(bars).fill(0.2);
+    } finally {
+      ctx?.close().catch(() => {});
+    }
+  }
+
+  $effect(() => {
+    if (!root) return;
+    let cancelled = false;
+    let started = false;
+    const stop = inView(
+      root,
+      (v) => {
+        if (!v || started) return;
+        started = true;
+        load(src, () => cancelled);
+      },
+      "300px 0px",
+    );
     return () => {
       cancelled = true;
+      stop();
     };
   });
 
@@ -85,7 +106,7 @@
   const gap = 1.6;
 </script>
 
-<div class="wave">
+<div class="wave" bind:this={root}>
   <button class="play" onclick={toggle} aria-label={isPlaying ? "Pause" : "Play"}>
     {#if isPlaying}<Pause size={16} fill="currentColor" />{:else}<Play size={16} fill="currentColor" />{/if}
   </button>

@@ -68,6 +68,7 @@
   } = $props();
 
   let busy = $state(false);
+  let dragging = $state(false);
   let pad = $state(false);
   let box = $state<HTMLElement>();
   let padEl = $state<HTMLElement>();
@@ -134,6 +135,15 @@
     padEl?.focus();
   }
 
+  // A picture dropped on the slot fills it (otherwise the browser would open it in place of this page).
+  function onDrop(e: DragEvent) {
+    e.preventDefault();
+    dragging = false;
+    const [first, ...more] = [...(e.dataTransfer?.files ?? [])].filter((f) => f.type.startsWith("image/"));
+    if (!first) fail("Use a PNG, JPEG or WebP picture.");
+    else upload(first, onmore ? more : []);
+  }
+
   function onPadPaste(e: ClipboardEvent) {
     e.preventDefault();
     e.stopPropagation(); // the page-wide Ctrl+V handler would take it a second time
@@ -151,7 +161,19 @@
     <button class="btn sm icon glass" title="Remove" onclick={() => (value = null)}><X size={14} /></button>
   </div>
 {:else}
-  <div class="drop" class:compact bind:this={box}>
+  <div
+    class="drop"
+    class:compact
+    class:dragging
+    bind:this={box}
+    role="presentation"
+    ondragover={(e) => {
+      e.preventDefault();
+      dragging = true;
+    }}
+    ondragleave={() => (dragging = false)}
+    ondrop={onDrop}
+  >
     <label class="choose">
       <input
         type="file"
@@ -248,6 +270,7 @@
     font-size: 12px;
     max-width: 260px;
   }
+  .drop.dragging,
   .drop:hover,
   .drop:focus-within {
     border-color: var(--accent);
