@@ -165,8 +165,17 @@ detailed music in about twice the time; `ace-step-xl-sft` refines each song in 5
 steps with prompt guidance (`cfg`) for the most detail, several times slower. Both
 are separate downloads (a 19 GB renderer each, plus an 8 GB planner they share) and run on a 12 GB
 card by keeping only the model at work on it, the others waiting in system memory
-(about 23 GB of it, so 32 GB of RAM); long songs with several takes are made two
-takes at a time.
+(about 23 GB of it, so 32 GB of RAM). Several takes of a long song are made in
+passes: `ace-step-xl` holds up to 8 minutes of music in a pass (two 4-minute
+takes), `ace-step-xl-sft` up to 4 (one 3-minute take, two of 2 minutes). Each
+pass plans its own songs, so only takes from the same pass share a `plan`, and a
+pass that runs out of graphics memory is made again with half the takes. On a
+12 GB card with the model loaded, 60 s of `ace-step` takes about 16 s, four 60 s
+takes of `ace-step-xl` about 100 s and four 3-minute takes of `ace-step-xl-sft`
+about 9 minutes; the planner is more than half of that for the first two and
+about 40% for SFT. An ACE-Step job with the same settings and `seed` gets the same
+plan and the same music again, planner on or off (the files match to the ear, not
+bit for bit: the renderer itself differs slightly from run to run).
 
 Three more music models run in the image engine (ComfyUI) and suit instrumentals
 best: `yue2` (non-commercial license; plans a melody-and-chord score first, which

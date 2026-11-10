@@ -1375,6 +1375,8 @@ models:
       dit: acestep-v15-xl-sft
       dit_files: ace-step-xl-sft
       sft: true
+      # Guidance renders every take twice in one batch, so a pass holds half of XL's.
+      pass_seconds: 240
     variants:
       - when: {backend: cuda}
         files: [*ace-step-shared, ace-step-xl-sft, ace-step-lm-4b]

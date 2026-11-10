@@ -145,7 +145,9 @@ def compose(params: dict, report: Reporter) -> dict:
     outs = params["outs"]
     base_seed = params.get("seed")
     if base_seed is None:
-        base_seed = random.randrange(2**31)
+        # Not from `random`, which every pass seeds: the seed picked for a job without
+        # one must not follow from the job before it.
+        base_seed = random.SystemRandom().randrange(2**31)
     seeds = [int(base_seed) + i for i in range(len(outs))]
     lyrics = params.get("lyrics") or ""
     instrumental = not lyrics.strip()
@@ -174,20 +176,6 @@ def compose(params: dict, report: Reporter) -> dict:
         extra["dcw_enabled"] = False
     extra.update(source_task(params))
 
-    gen = GenerationParams(
-        caption=params["caption"],
-        lyrics=lyrics if not instrumental else "[inst]",
-        instrumental=instrumental,
-        bpm=params.get("bpm"),
-        duration=params["duration"],
-        thinking=bool(params.get("thinking")) and state["llm"] is not None,
-        # The turbo model is distilled for a timestep shift of 3; ACE-Step's
-        # own app uses 3, while the library default of 1 is for the base model.
-        shift=params.get("shift", 3.0),
-        seed=seeds[0],
-        **extra,
-    )
-
     # ACE-Step quietly makes fewer takes than asked when free VRAM is short (its VRAM
     # guard, core/generation/handler/memory_utils.py _vram_guard_reduce_batch, allows
     # about 0.5 GB a take plus 0.15 GB per extra minute, so a 4-minute song with the
@@ -196,9 +184,25 @@ def compose(params: dict, report: Reporter) -> dict:
     takes: list[dict] = []
     first_plan: dict = {}
     seconds = made_seconds(params) if params.get("pass_seconds") else params["duration"]
+    most = len(outs)  # the most takes one pass may hold; halved when the card runs out
     while len(takes) < len(outs):
         done = len(takes)
         batch = pass_size(state["dit"], len(outs) - done, seconds, params.get("pass_seconds"))
+        batch = min(batch, most)
+        # Built for each pass: ACE-Step writes what the planner chose back into it.
+        gen = GenerationParams(
+            caption=params["caption"],
+            lyrics=lyrics if not instrumental else "[inst]",
+            instrumental=instrumental,
+            bpm=params.get("bpm"),
+            duration=params["duration"],
+            thinking=bool(params.get("thinking")) and state["llm"] is not None,
+            # The turbo model is distilled for a timestep shift of 3; ACE-Step's
+            # own app uses 3, while the library default of 1 is for the base model.
+            shift=params.get("shift", 3.0),
+            seed=seeds[done],
+            **extra,
+        )
         config = GenerationConfig(
             batch_size=batch,
             use_random_seed=False,
@@ -217,11 +221,36 @@ def compose(params: dict, report: Reporter) -> dict:
             report.progress(fraction, _label if not desc else str(desc)[:80])
 
         report.progress(max(0.02, done / len(outs)), label)
-        result = generate_music(
-            state["dit"], state["llm"], gen, config, save_dir=None, progress=progress
-        )
-        if not result.success:
-            raise RuntimeError(result.error or "ACE-Step did not return any music.")
+        # ACE-Step seeds the renderer's noise from `seeds`, but its planner samples from
+        # torch's global generator (llm_inference.py _sample_tokens), which nothing seeds
+        # for the plan or for a pass of one take. Seeded here, the same job with the same
+        # seed plans and makes the same music again.
+        seed_everything(seeds[done])
+        try:
+            result = generate_music(
+                state["dit"], state["llm"], gen, config, save_dir=None, progress=progress
+            )
+            error = None if result.success else result.error or "ACE-Step did not return any music."
+        except Exception as e:
+            # Only the text is kept: the exception itself holds the tensors it died with.
+            result, error = None, f"{type(e).__name__}: {e}"
+            if not out_of_memory(error):
+                raise
+        if error is not None:
+            if not out_of_memory(error):
+                raise RuntimeError(error)
+            # ACE-Step usually catches the error and returns its text (inference.py
+            # generate_music), so both ways end here: clear the card and make this pass
+            # again with half the takes, which the rest of the job keeps to.
+            result = None
+            _empty_cache()
+            if batch <= 1:
+                raise RuntimeError(
+                    "The graphics card ran out of memory making one take of this length. "
+                    "Close other programs that use it, or make a shorter piece."
+                )
+            most = batch // 2
+            continue
         plan = planned(result)
         first_plan = first_plan or plan
         made = 0
@@ -257,6 +286,26 @@ def compose(params: dict, report: Reporter) -> dict:
     return {"takes": takes, "plan": first_plan}
 
 
+def seed_everything(seed: int) -> None:
+    """Seed every generator a pass can draw from: Python's, numpy's and torch's (CPU and CUDA)."""
+    random.seed(seed)
+    np.random.seed(seed % 2**32)
+    try:
+        import torch
+    except ImportError:
+        return
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+def out_of_memory(error: str) -> bool:
+    """Whether an error text is the card running out of memory (torch.OutOfMemoryError,
+    "CUDA out of memory. Tried to allocate ...")."""
+    text = error.lower()
+    return "out of memory" in text or "outofmemoryerror" in text
+
+
 def made_seconds(params: dict) -> float:
     """How long each take will be: the recording's length for cover and repaint, plus
     the added part for extend; otherwise the duration asked for."""
@@ -276,7 +325,8 @@ def pass_size(dit, wanted: int, duration, pass_seconds=None) -> int:
 
     With CPU offload on (the XL models) the guard does not check free memory for up to
     its tier's batch limit (memory_utils.py), so a model can also set `pass_seconds`:
-    the most music one pass may hold (two 4-minute takes, as measured on 12 GB).
+    the most music one pass may hold (two 4-minute takes for XL, as measured on 12 GB;
+    half of that for XL SFT, whose guidance renders every take twice in one batch).
     """
     if pass_seconds and duration:
         wanted = min(wanted, max(1, int(float(pass_seconds) // float(duration))))

@@ -168,6 +168,169 @@ def test_pass_limit_caps_takes_per_pass():
     assert worker.pass_size(allow_all, 3, 240) == 3  # no limit: as before
 
 
+def test_xl_sft_makes_one_three_minute_take_per_pass(home):
+    # SFT renders with guidance, which doubles what a pass holds on the card, so it
+    # gets half of XL's limit: one 3-minute take per pass where XL makes two.
+    worker = load_worker()
+    allow_all = SimpleNamespace(_vram_guard_reduce_batch=lambda n, **k: n)
+    models = registry.default().models
+    xl = models["ace-step-xl"].settings["pass_seconds"]
+    sft = models["ace-step-xl-sft"].settings["pass_seconds"]
+    assert (xl, sft) == (480, 240)
+    assert worker.pass_size(allow_all, 4, 180, sft) == 1
+    assert worker.pass_size(allow_all, 4, 120, sft) == 2
+    assert worker.pass_size(allow_all, 4, 180, xl) == 2  # XL as before
+    request = run("ace-step-xl-sft", {"prompt": "jazz", "takes": 4}, home)["compose"]
+    assert request["pass_seconds"] == sft
+
+
+class FakeTensor:
+    """What compose reads from a take: tensor.detach().cpu().float().numpy() as [channels, n]."""
+
+    def detach(self):
+        return self
+
+    cpu = float = detach
+
+    def numpy(self):
+        import numpy as np
+
+        return np.zeros((2, 480), dtype="float32")
+
+
+class OutOfMemoryError(RuntimeError):
+    """Named and worded as torch's own."""
+
+    def __init__(self):
+        super().__init__("CUDA out of memory. Tried to allocate 2.00 GiB.")
+
+
+def fake_torch(monkeypatch, seeded: list, emptied: list):
+    torch = types.ModuleType("torch")
+    torch.manual_seed = lambda s: seeded.append(("cpu", s))
+    torch.cuda = SimpleNamespace(
+        is_available=lambda: True,
+        manual_seed_all=lambda s: seeded.append(("cuda", s)),
+        empty_cache=lambda: emptied.append(True),
+    )
+    monkeypatch.setitem(sys.modules, "torch", torch)
+
+
+def composing(monkeypatch, generate_music):
+    """The worker with a renderer of our own; returns it and the paths it wrote."""
+    worker = load_worker()
+    inference = types.SimpleNamespace(
+        GenerationParams=lambda **kw: SimpleNamespace(**kw),
+        GenerationConfig=lambda **kw: SimpleNamespace(**kw),
+        generate_music=generate_music,
+    )
+    monkeypatch.setitem(sys.modules, "acestep", types.ModuleType("acestep"))
+    monkeypatch.setitem(sys.modules, "acestep.inference", inference)
+    monkeypatch.setitem(worker.state, "dit", SimpleNamespace())
+    written: list = []
+    monkeypatch.setattr(worker, "write_audio", lambda path, *a: written.append(path))
+    return worker, written
+
+
+def made(config):
+    audios = [{"tensor": FakeTensor(), "params": {"seed": s}} for s in config.seeds]
+    return SimpleNamespace(success=True, audios=audios, error=None, extra_outputs={})
+
+
+REPORTER = SimpleNamespace(progress=lambda *a: None)
+FOUR = {"caption": "c", "duration": 60, "outs": ["a", "b", "c", "d"], "seed": 5}
+
+
+@pytest.mark.parametrize("raised", [True, False])
+def test_a_pass_that_runs_out_of_memory_is_made_again_with_half_the_takes(monkeypatch, raised):
+    seeded, emptied, passes = [], [], []
+    fake_torch(monkeypatch, seeded, emptied)
+
+    def generate_music(dit, llm, gen, config, save_dir=None, progress=None):
+        passes.append(list(config.seeds))
+        if len(passes) == 1:
+            if raised:
+                raise OutOfMemoryError
+            # ACE-Step catches the error itself and hands back its text.
+            return SimpleNamespace(success=False, audios=[], error=str(OutOfMemoryError()))
+        assert emptied  # the card was cleared before trying again
+        return made(config)
+
+    worker, written = composing(monkeypatch, generate_music)
+    result = worker.compose({**FOUR, "pass_seconds": 480}, REPORTER)
+    assert passes == [[5, 6, 7, 8], [5, 6], [7, 8]]  # the smaller size is kept for the rest
+    assert [t["seed"] for t in result["takes"]] == [5, 6, 7, 8]
+    assert written == ["a", "b", "c", "d"]
+
+
+def test_one_take_that_does_not_fit_fails_with_a_clear_message(monkeypatch):
+    emptied, passes = [], []
+    fake_torch(monkeypatch, [], emptied)
+
+    def generate_music(dit, llm, gen, config, save_dir=None, progress=None):
+        passes.append(config.batch_size)
+        raise OutOfMemoryError
+
+    worker, written = composing(monkeypatch, generate_music)
+    with pytest.raises(RuntimeError, match="ran out of memory making one take"):
+        worker.compose({**FOUR, "outs": ["a", "b"], "pass_seconds": 480}, REPORTER)
+    assert passes == [2, 1] and not written and emptied
+
+
+def test_another_error_is_not_retried(monkeypatch):
+    fake_torch(monkeypatch, [], [])
+    passes = []
+
+    def generate_music(dit, llm, gen, config, save_dir=None, progress=None):
+        passes.append(config.batch_size)
+        return SimpleNamespace(success=False, audios=[], error="The planner failed.")
+
+    worker, _ = composing(monkeypatch, generate_music)
+    with pytest.raises(RuntimeError, match="The planner failed"):
+        worker.compose(FOUR, REPORTER)
+    assert passes == [4]
+
+
+def test_every_pass_is_seeded_from_its_first_take(monkeypatch):
+    import random
+
+    import numpy as np
+
+    seeded, drawn, gens = [], [], []
+    fake_torch(monkeypatch, seeded, [])
+
+    def generate_music(dit, llm, gen, config, save_dir=None, progress=None):
+        gens.append((gen.seed, list(config.seeds)))
+        drawn.append((list(seeded), random.random(), float(np.random.random())))
+        seeded.clear()
+        return made(config)
+
+    worker, _ = composing(monkeypatch, generate_music)
+    # 3 takes of 4 minutes, two to a pass: one pass from seed 5, one from seed 7.
+    job = {"caption": "c", "duration": 240, "outs": ["a", "b", "c"], "seed": 5, "pass_seconds": 480}
+    worker.compose(job, REPORTER)
+    assert gens == [(5, [5, 6]), (7, [7])]
+    for (torch_seeds, r, n), seed in zip(drawn, (5, 7), strict=True):
+        assert torch_seeds == [("cpu", seed), ("cuda", seed)]
+        random.seed(seed)
+        np.random.seed(seed)
+        assert (r, n) == (random.random(), float(np.random.random()))
+    first = drawn[0]
+    drawn.clear()
+    worker.compose(job, REPORTER)  # the same job again draws the same numbers
+    assert drawn[0] == first
+
+
+def test_a_job_without_a_seed_does_not_follow_from_the_last_seeded_one(monkeypatch):
+    fake_torch(monkeypatch, [], [])
+    worker, _ = composing(monkeypatch, lambda dit, llm, gen, config, **kw: made(config))
+    picked = []
+    for _ in range(2):
+        worker.compose({**FOUR, "outs": ["a"]}, REPORTER)  # leaves `random` seeded with 5
+        picked.append(worker.compose({"caption": "c", "duration": 60, "outs": ["a"]}, REPORTER))
+    assert picked[0]["takes"][0]["seed"] != picked[1]["takes"][0]["seed"]
+
+
 def fake_inference(monkeypatch, gens: list, batches: list):
     def generate_music(dit, llm, gen, config, save_dir=None, progress=None):
         gens.append(gen)
