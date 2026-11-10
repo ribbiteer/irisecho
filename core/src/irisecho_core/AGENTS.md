@@ -186,8 +186,13 @@ Give them a few descriptive tags; `--bpm` becomes part of the description. They
 take `format`, `trim_end`, `steps`, `takes`, `loop` and lyrics as ACE-Step does,
 but cannot start from a recording. YuE2 and MiniMax end a piece when it feels
 finished: asked for 240 s, an instrumental came back at about 2 minutes from YuE2
-and about 2.5 from MiniMax. Stable Audio makes exactly the length asked, so use it
-for long beds. `--loop` (with
+and about 2.5 from MiniMax. Stable Audio makes exactly the length asked, up to
+360 s (6 minutes; the other two stop at 300), so use it for long beds. On a 12 GB
+card, once loaded, a new prompt takes it about 2 s for 60 s of music, 18 s for
+240 s and 26 s for 360 s. While the image engine stays loaded, a `sa3-medium` job
+with the same params and the same explicit `seed` as the one before returns the
+audio it already made at once (well under a second, as a new job and file); a new
+seed, or no seed (a random one is picked), always renders. `--loop` (with
 `--bpm`) cuts whole bars from the first downbeat it hears and blends the seam.
 Songs often end a few seconds early, padded with near-silence; the `trim_end`
 control cuts that tail. Video sound and picture: `video_quality` (`high`, `max`)
@@ -273,7 +278,7 @@ Job `params` by kind of model:
 | video | `ltx25`, `wan22-t2v`, `wan22-i2v`, `wan22-i2v-1022`, `hunyuan15-i2v`, `wan22-camera` | `prompt`, `aspect`, `seconds` (2 to 5), `size` (`standard`, `large`, or `720p` on a 12 GB card; `hunyuan15-i2v` has no `large`), `smooth`, and a `start` and/or `end` frame: required for the `i2v` models (`hunyuan15-i2v` takes `start` only), optional for `ltx25`; `wan22-camera` needs `start` and takes `camera` (`static`, `pan_up`, `pan_down`, `pan_left`, `pan_right`, `zoom_in`, `zoom_out`, `clockwise`, `anticlockwise`) |
 | voice | `kokoro` | `text`, `voice`, `speed`, `clean` |
 | clone | `chatterbox-turbo`, `chatterbox` | `text`, `ref`, `consent` (must be `true`), `takes` (1 to 4), `seed`, `clean` (false keeps the model's own output); `exaggeration` and `cfg` on `chatterbox` |
-| music | `ace-step`, `ace-step-xl`, `ace-step-xl-sft`, `yue2`, `minimax-music3`, `sa3-medium` | `prompt` (style tags), `duration` (seconds: 10 to 600 on the ACE-Step models, 10 to 300 on the others), `bpm`, `lyrics`, `takes` (1 to 4), `loop` (needs `bpm`), `thinking` (default `true`), `seed`; from a recording (ACE-Step models only): `source` (an upload id of a WAV, MP3, FLAC or OGG) and `task` `cover`, `repaint` (with `region` `[start_s, end_s]`) or `extend` (with `extend_by` seconds) |
+| music | `ace-step`, `ace-step-xl`, `ace-step-xl-sft`, `yue2`, `minimax-music3`, `sa3-medium` | `prompt` (style tags), `duration` (seconds: 10 to 600 on the ACE-Step models, 10 to 360 on `sa3-medium`, 10 to 300 on `yue2` and `minimax-music3`), `bpm`, `lyrics`, `takes` (1 to 4), `loop` (needs `bpm`), `thinking` (default `true`), `seed`; from a recording (ACE-Step models only): `source` (an upload id of a WAV, MP3, FLAC or OGG) and `task` `cover`, `repaint` (with `region` `[start_s, end_s]`) or `extend` (with `extend_by` seconds) |
 | sfx | `sa3-sfx` | `prompt`, `duration` (0.5 to 30), `takes` (1 to 4, default 3), `trim` (default true; false is the command line's `--raw`), `seed`; `init_audio` (an upload id) for a variation of a sound, plus `region` `[start_s, end_s]` to make only that part again |
 | video-upscale | `seedvr2-video` | `video` (an upload id of an MP4 clip), `short_side` (720 to 1080, default 1080), `seed` |
 | model3d | `trellis2`, `pixal3d`, `pixal3d-single` | `front` (and `back` for `pixal3d`; `pixal3d-single` builds from `front` alone), `detail` (`standard` or `high`), `faces` (500000, 100000 or 20000), `textures` (default true), `openings` (`close` or `keep`), `seed` |
@@ -419,7 +424,7 @@ Every model, what it is for, its limits and the names of its advanced controls
 - `ace-step-xl-sft` (music): The most detailed ACE-Step, refining each song in 50 steps with prompt guidance. Several times slower; for finished pieces. Limits: takes 1 to 4 (default 1), duration 10 to 600 (default 30). Controls: `key`, `time_signature`, `vocal_language`, `raw`, `format`, `trim_end`, `steps`, `shift`, `cfg`, `lm_temperature`, `lm_top_p`, `cover_strength`, `cover_noise`.
 - `yue2` (music): Full songs with clean, lively mixes; plans a melody and chords first. English and Mandarin. Limits: takes 1 to 4 (default 1), duration 10 to 300 (default 30). Controls: `format`, `trim_end`, `steps`.
 - `minimax-music3` (music): Songs and instrumentals up to 5 minutes with wide dynamics, from a detailed description. Limits: takes 1 to 4 (default 1), duration 10 to 300 (default 30). Controls: `format`, `trim_end`, `steps`.
-- `sa3-medium` (music): Instrumentals up to 6 minutes in seconds; strong on jazz, orchestral and lo-fi beds. No vocals. Limits: takes 1 to 4 (default 1), duration 10 to 300 (default 30). Controls: `format`, `trim_end`, `steps`.
+- `sa3-medium` (music): Instrumentals up to 6 minutes in seconds; strong on jazz, orchestral and lo-fi beds. No vocals. Limits: takes 1 to 4 (default 1), duration 10 to 360 (default 30). Controls: `format`, `trim_end`, `steps`.
 - `sa3-sfx` (sfx): One-shot sound effects in seconds. Foley, UI sounds, impacts, ambience. Limits: takes 1 to 4 (default 3), duration 0.5 to 30 (default 3). Controls: `format`, `steps`, `cfg`, `negative`, `init_strength`, `track_type`.
 - `chatterbox-turbo` (clone): A voice from a short sample, with performed reactions like [laugh] and [sigh]. English. Limits: takes 1 to 4 (default 1). Controls: `temperature`, `repetition_penalty`, `format`, `top_p`, `top_k`.
 - `chatterbox` (clone): A voice from a short sample, with dials for intensity and pacing. English. Limits: takes 1 to 4 (default 1). Controls: `temperature`, `repetition_penalty`, `format`, `min_p`, `top_p`.

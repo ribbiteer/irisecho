@@ -2813,7 +2813,18 @@ def minimax_music3(*, prompt, seed, names, settings, prefix, params, **_):
 
 
 def sa3_music(*, prompt, seed, names, settings, prefix, params, **_):
-    """Stable Audio 3 Medium: instrumentals from a description, 8 steps."""
+    """Stable Audio 3 Medium: instrumentals from a description, 8 steps.
+
+    The sampler is the one ComfyUI's own template for this checkpoint uses (KSampler,
+    `lcm` / `simple`, 8 steps, cfg 1.0). Stability's PingPong sampler is not in the
+    pinned ComfyUI 0.38.0 (checked 2026-11-10: no such sampler name or node), so there
+    was nothing to render against it; try it when a ComfyUI that has it is pinned.
+
+    The text encoder stays on the GPU. Measured on a 12 GB card with five different
+    prompts in a row (2026-11-10): about 2.3 s a prompt at 60 s and 18 s at 240 s
+    whether the encoder is on the GPU or the CPU, and the CPU encoder changes the
+    sound slightly (correlation 0.993 to 0.9998 for the same seed). From 240 s up
+    most of the time is the decode, which runs out of memory and is retried tiled."""
     if (params.get("lyrics") or "").strip():
         raise ValueError("Stable Audio 3 Medium makes instrumentals only; turn the lyrics off.")
     seconds, _, tempo = _music_common(params, settings)
@@ -2946,7 +2957,8 @@ PROMPT_OPTIONAL = {
 # workflows were measured with it; the views helper shares it so that going from
 # views to a build does not restart ComfyUI (Nunchaku's Qwen loader is fine with it).
 DYNAMIC_VRAM = {
-    # Music was measured with it too (the bench ran ComfyUI with its default dynamic VRAM).
+    # Music was measured with it too (the bench ran ComfyUI with its default dynamic VRAM;
+    # sa3-music again on 2026-11-10 with a new prompt every job: no reload between them).
     "yue2",
     "minimax-music3",
     "sa3-music",

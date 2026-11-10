@@ -862,6 +862,10 @@ x-limits:
   comfy-music: &limits-comfy-music
     takes: {min: 1, max: 4, default: 1}
     duration: {min: 10, max: 300, default: 30}
+  # The model is conditioned on lengths up to 384 s; 360 s was rendered on a 12 GB card.
+  sa3-medium: &limits-sa3-medium
+    takes: {min: 1, max: 4, default: 1}
+    duration: {min: 10, max: 360, default: 30}
   sfx: &limits-sfx
     takes: {min: 1, max: 4, default: 3}
     duration: {min: 0.5, max: 30, default: 3}
@@ -1446,8 +1450,7 @@ models:
     summary: Instrumentals up to 6 minutes in seconds; strong on jazz, orchestral and lo-fi beds. No vocals.
     settings:
       music: {lyrics: false, planner: false, source: false, loop: true}
-      # 300 s is what the graph has always cut to; the summary says 6 minutes (to settle on a GPU run)
-      limits: *limits-comfy-music
+      limits: *limits-sa3-medium
     variants:
       - when: {backend: cuda}
         files: [sa3-medium, sa3-t5gemma]

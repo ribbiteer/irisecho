@@ -147,6 +147,35 @@ def test_stable_audio_makes_instrumentals_of_the_asked_length():
         build("sa3-medium", lyrics="[verse]\nhello")
 
 
+def test_stable_audio_is_set_up_as_its_comfyui_template():
+    # ComfyUI's template for this checkpoint: KSampler lcm / simple, 8 steps, cfg 1.0, with
+    # the text encoder on the default device. Moving it to the CPU was measured: no faster,
+    # and the sound changes slightly. Dynamic VRAM stays on (no reload between prompts).
+    g, _ = build("sa3-medium")
+    assert (
+        g["sample"]["inputs"].items()
+        >= {"steps": 8, "cfg": 1.0, "sampler_name": "lcm", "scheduler": "simple"}.items()
+    )
+    assert g["clip"]["inputs"]["type"] == "stable_audio"
+    assert g["clip"]["inputs"]["device"] == "default"
+    assert "sa3-music" in graphs.DYNAMIC_VRAM
+
+
+def test_stable_audio_goes_to_six_minutes_and_says_so():
+    m = model("sa3-medium")
+    limit = m.settings["limits"]["duration"]
+    assert limit["max"] == 360
+    assert controls.check(m, {"duration": 360})[0]["duration"] == 360
+    with pytest.raises(controls.ControlError, match="10 to 360 for this model"):
+        controls.check(m, {"duration": 361})
+    assert f"up to {limit['max'] // 60} minutes" in m.summary
+    # The other two ComfyUI music models keep their own, shorter limit.
+    for mid in ("yue2", "minimax-music3"):
+        assert model(mid).settings["limits"]["duration"]["max"] == 300
+        with pytest.raises(controls.ControlError, match="10 to 300"):
+            controls.check(model(mid), {"duration": 360})
+
+
 def test_length_defaults_to_what_the_registry_declares_and_is_not_clamped_here():
     # Range checks happen at submit time (controls.check); the builder uses what it is given.
     assert build("sa3-medium", duration=0)[0]["latent"]["inputs"]["seconds"] == 30.0

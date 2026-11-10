@@ -193,7 +193,7 @@ def check(model_id, **params):
         ("ace-step-xl-sft", {"duration": 601}, "10 to 600 for this model (got 601)"),
         ("yue2", {"duration": 301}, "duration in seconds must be 10 to 300 for this model"),
         ("minimax-music3", {"duration": 9.5}, "10 to 300 for this model (got 9.5)"),
-        ("sa3-medium", {"duration": 999}, "10 to 300 for this model (got 999)"),
+        ("sa3-medium", {"duration": 999}, "10 to 360 for this model (got 999)"),
         ("sa3-medium", {"takes": 5}, "takes must be 1 to 4"),
         ("sa3-sfx", {"duration": 31}, "duration in seconds must be 0.5 to 30 for this model"),
         ("sa3-sfx", {"duration": 0.1}, "0.5 to 30 for this model (got 0.1)"),
@@ -250,7 +250,7 @@ def test_defaults_are_declared_in_the_registry_not_in_engines():
     assert controls.declared(model("ace-step").settings, "takes") == 1
     assert controls.declared(model("sa3-sfx").settings, "duration") == 3
     assert controls.declared(model("wan22-t2v").settings, "seconds") == 3
-    assert model("sa3-medium").settings["limits"]["duration"]["max"] == 300
+    assert model("sa3-medium").settings["limits"]["duration"]["max"] == 360
 
 
 def test_every_music_sfx_clone_and_video_model_declares_its_limits():
