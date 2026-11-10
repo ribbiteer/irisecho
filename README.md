@@ -34,8 +34,8 @@ guidance, your own LoRAs, presets and side-by-side comparisons.
 | **Video** | 2-5 s clips from text, a first frame, a last frame, or both; camera moves on presets; continue a clip from its last frame; LTX-2.5 makes the sound too | LTX-2.5\*, Wan 2.2 (and Fun Camera), HunyuanVideo 1.5\* |
 | **3D** | A picture or a description becomes a model to view, print or export (GLB, STL, 3MF, OBJ, PLY) | Pixal3D\* (one picture or front and back), TRELLIS.2\* |
 | **Voice** | Narration in 28 preset voices or a blend of them, a whole script at once | Kokoro |
-| **Clone** | A voice you have the right to use, from a 5-15 s sample, with performed laughs and sighs | Chatterbox, Chatterbox Turbo |
-| **Music** | Beds, jingles and full songs from a few tags; seamless loops on the bar; cover, repaint or extend a recording | ACE-Step 1.5 (also XL and XL SFT), YuE2\*, MiniMax Music 3\*, Stable Audio 3 Medium\* |
+| **Clone** | A voice you have the right to use, from a 10-15 s sample, with performed laughs and sighs | Chatterbox, Chatterbox Turbo |
+| **Music** | Beds, jingles and full songs from a few tags; seamless loops on the bar; with ACE-Step, cover, repaint or extend a recording | ACE-Step 1.5 (also XL and XL SFT), YuE2\*, MiniMax Music 3\*, Stable Audio 3 Medium\* |
 | **Sound** | One-shot effects: foley, UI sounds, impacts, ambience; variations of a sound you have | Stable Audio 3 SFX\* |
 
 <sub>\* Opt-in: non-commercial (FLUX.1 dev family; YuE2; Qwen-Image 2.1, research and evaluation only), free for commercial use only under $1M a year (Krea 2, Stable Audio 3), $10M a year (LTX-2.5) or $20M a year (MiniMax Music 3, which also asks commercial products to name it), not licensed in the EU, UK or South Korea (HunyuanVideo 1.5), gated (Stable Audio 3 SFX and LTX-2.5: accept the publisher's terms on Hugging Face and add a read token), under Meta's DINOv3 License, accepted in the app (Pixal3D, not offered in the EU, and TRELLIS.2), or with a pose reader built on Stable Diffusion 2 and its use restrictions, accepted in the app (Z-Image with a guide picture). IrisEcho shows each license and walks you through it.</sub>
@@ -185,7 +185,7 @@ irisecho music "chiptune, upbeat, bright lead" --bpm 140 --seconds 20 --loop --j
   the commands run the engines themselves.
 - **Made to be read by a program.** `--json` prints one object per job with the
   finished files; exit codes say whether it worked.
-- **The whole app, not a subset.** Edits, upscaling, video and sound effects
+- **The whole app, not a subset.** Edits, upscaling and video
   are reached through `irisecho api`, which finds the running app and signs the
   request.
 - **You stay in charge of licenses.** An agent never accepts a model license or

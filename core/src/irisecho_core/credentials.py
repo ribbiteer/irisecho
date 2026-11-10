@@ -29,6 +29,13 @@ def get(name: str = HF) -> str | None:
         return None
 
 
+def source(name: str = HF) -> str | None:
+    """Where the token in use comes from: "environment" (HF_TOKEN), "saved" (keychain) or None."""
+    if name == HF and os.environ.get("HF_TOKEN"):
+        return "environment"
+    return "saved" if get(name) else None
+
+
 def store(name: str, value: str) -> None:
     _keyring().set_password(SERVICE, name, value)
 

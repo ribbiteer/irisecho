@@ -85,7 +85,7 @@ class PromptWriterEngine(WorkerEngine):
         style = STYLES[style_for(target, model.settings)]
         image_paths = []
         for name in images[:10]:
-            path = paths.sub("uploads") / Path(str(name)).name
+            path = paths.upload(name, "picture")
             if not path.is_file():
                 raise ValueError("That picture is no longer available; add it again.")
             image_paths.append(str(path))

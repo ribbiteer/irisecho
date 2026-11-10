@@ -9,7 +9,6 @@ IrisEcho keeps it.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from irisecho_core import controls, paths
@@ -49,9 +48,7 @@ TAGS = [
 
 
 def upload_path(name: str) -> Path:
-    if not re.fullmatch(r"[0-9a-f]{32}\.[a-z0-9]{2,5}", name or ""):
-        raise ValueError("Add a voice sample first.")
-    path = paths.sub("uploads") / name
+    path = paths.upload(name, "voice sample")
     if not path.is_file():
         raise ValueError("That voice sample is no longer available; add it again.")
     return path

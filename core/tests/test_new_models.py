@@ -305,8 +305,11 @@ def test_cli_offers_pixal3d_single():
     with pytest.raises(SystemExit) as stop:
         cli.main(["3d", "x.png", "--model", "nonsense"])
     assert stop.value.code == 2
-    # a valid choice gets past argument parsing (the picture is missing, which is reported)
-    assert cli.main(["3d", "no-such-file.png", "--model", "pixal3d-single"]) != 2
+    # a valid choice gets past argument parsing
+    parsed = cli.build_parser().parse_args(["3d", "x.png", "--model", "pixal3d-single"])
+    assert parsed.model == "pixal3d-single"
+    # a picture that is not there is a value the caller can fix: exit code 2, not 1
+    assert cli.main(["3d", "no-such-file.png", "--model", "pixal3d-single"]) == 2
 
 
 # --- Wan 2.2 camera control -----------------------------------------------------------------

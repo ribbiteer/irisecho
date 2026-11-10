@@ -296,6 +296,8 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
             "guide": public_guide(request),
             "credentials": {
                 "huggingface": bool(credentials.get()),
+                # where that token comes from: "environment", "saved" or null
+                "huggingface_source": credentials.source(),
                 "keychain": credentials.available(),
             },
         }
@@ -552,20 +554,23 @@ def create_app(app: App | None = None, token: str | None = None) -> FastAPI:
         (paths.sub("uploads") / name).write_bytes(data)
         return {"id": name, "type": file.content_type, "size": len(data)}
 
-    @api.get("/api/uploads/{name}")
-    def get_upload(name: str):
-        path = paths.sub("uploads") / Path(name).name
+    def upload_file(name: str) -> Path:
+        try:
+            path = paths.upload(name)
+        except ValueError:
+            raise HTTPException(404, "no such upload") from None
         if not path.is_file():
             raise HTTPException(404, "no such upload")
-        return FileResponse(path)
+        return path
+
+    @api.get("/api/uploads/{name}")
+    def get_upload(name: str):
+        return FileResponse(upload_file(name))
 
     @api.get("/api/uploads/{name}/settings")
     def upload_settings(name: str):
         """The settings written into an uploaded picture (IrisEcho's own or A1111's)."""
-        path = paths.sub("uploads") / Path(name).name
-        if not path.is_file():
-            raise HTTPException(404, "no such upload")
-        found = metadata.read(path)
+        found = metadata.read(upload_file(name))
         if not found:
             raise HTTPException(404, "This picture has no settings in it.")
         if found.get("model") and found["model"] not in core.registry.models:

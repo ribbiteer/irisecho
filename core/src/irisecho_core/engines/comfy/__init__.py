@@ -890,7 +890,7 @@ class ComfyEngine(Engine):
             name = ctx.params.get(key)
             if not name:
                 continue
-            src = paths.sub("uploads") / Path(str(name)).name
+            src = paths.upload(name, "picture")
             if not src.is_file():
                 raise ValueError("A picture you added is no longer available; add it again.")
             dest = self.io / "input" / f"irisecho_{ctx.job_id}_{key}{src.suffix.lower()}"

@@ -16,6 +16,7 @@ Set IRISECHO_HOME to put it somewhere else (tests use this).
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -41,6 +42,23 @@ def sub(name: str) -> Path:
     path = data_dir() / name
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+# An upload's name: what POST /api/uploads returns, or a copy an agent put in the
+# uploads folder itself (AGENTS.md). Nothing else is read from there.
+UPLOAD_NAME = re.compile(r"[0-9a-f]{8,64}\.[a-z0-9]{2,5}")
+
+
+def upload(name, what: str = "file") -> Path:
+    """The path of the upload called `name`; ValueError, stating the rule, if it is no upload name.
+
+    It does not check that the file exists. The rule keeps the name inside the uploads folder."""
+    if not isinstance(name, str) or not UPLOAD_NAME.fullmatch(name):
+        raise ValueError(
+            f"Add a {what} first. An upload's name is lowercase hex digits (8 to 64) "
+            "and its extension, like 3fa2b1c4.png."
+        )
+    return sub("uploads") / name
 
 
 def move_aside(path: Path, why: str) -> Path | None:

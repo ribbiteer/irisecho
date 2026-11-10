@@ -7,23 +7,18 @@ Both are optional; a job without them is the plain text-to-audio job it always w
 from __future__ import annotations
 
 import math
-import re
 from pathlib import Path
 
 from irisecho_core import paths
 
-# An upload's name, or a copy an agent put in the uploads folder itself (AGENTS.md).
-NAME = re.compile(r"[0-9a-f]{8,64}\.[a-z0-9]{2,5}")
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg"}
 
 
 def upload_path(name, what: str = "recording") -> Path:
     """The uploaded audio file called `name`, or a message saying what to do."""
-    if not isinstance(name, str) or not NAME.fullmatch(name):
-        raise ValueError(f"Add a {what} first.")
-    if Path(name).suffix not in AUDIO_EXTENSIONS:
+    path = paths.upload(name, what)
+    if path.suffix not in AUDIO_EXTENSIONS:
         raise ValueError(f"The {what} must be a WAV, MP3, FLAC or OGG file.")
-    path = paths.sub("uploads") / name
     if not path.is_file():
         raise ValueError(f"That {what} is no longer available; add it again.")
     return path
