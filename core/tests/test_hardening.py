@@ -156,6 +156,12 @@ def test_old_unused_uploads_are_removed_and_the_rest_kept(client, tmp_path, monk
     assert core.prune_uploads(every=0) == 1
     monkeypatch.undo()
     assert not stale.exists()
+    # A month, not a week: an agent stages files well before the jobs that use them.
+    assert app_module.UPLOAD_KEEP == 30 * 24 * 3600
+    # Each file removed is in the core log by name, size and age; the kept ones are not.
+    logged = (tmp_path / "logs" / "core.log").read_text(encoding="utf-8")
+    assert f"Removed the upload {stale.name} ({len(PNG)} bytes, 30 days old)" in logged
+    assert used.name not in logged and fresh.name not in logged
     # Used by a finished job, used by a queued one, new, and not an upload name at all.
     assert used.exists() and queued.exists() and fresh.exists() and other.exists()
 

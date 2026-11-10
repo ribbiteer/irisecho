@@ -25,8 +25,9 @@ from irisecho_core.registry import ModelSpec
 from irisecho_core.store import Store
 
 # Uploads no job mentions are removed after this long. The wait is long because a person
-# can come back to a form they left open, and an agent may put a file in the folder first.
-UPLOAD_KEEP = 7 * 24 * 3600
+# can come back to a form they left open, and an agent stages files in the folder before
+# the jobs that use them. Each one removed is written to logs/core.log.
+UPLOAD_KEEP = 30 * 24 * 3600
 UPLOAD_PRUNE_EVERY = 6 * 3600
 
 
@@ -151,22 +152,31 @@ class App:
         self._pruned = now
         folder = paths.sub("uploads")
         cutoff = time.time() - keep
-        old: dict[str, Path] = {}
+        old: dict[str, tuple[Path, int, float]] = {}
         for path in folder.iterdir():
             try:
                 info = path.stat()
                 if path.is_file() and paths.UPLOAD_NAME.fullmatch(path.name):
-                    if max(info.st_mtime, info.st_ctime) < cutoff:
-                        old[path.name] = path
+                    newest = max(info.st_mtime, info.st_ctime)
+                    if newest < cutoff:
+                        old[path.name] = (path, info.st_size, newest)
             except OSError:
                 continue
         removed = 0
-        for name in set(old) - self.db.mentioning(old):
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        for name in sorted(set(old) - self.db.mentioning(old)):
+            path, size, newest = old[name]
+            days = (time.time() - newest) / 86400
             try:
-                old[name].unlink()
+                path.unlink()
                 removed += 1
+                paths.note(
+                    "core",
+                    f"{stamp} Removed the upload {name} ({size} bytes, {days:.0f} days old): "
+                    "no job uses it.",
+                )
             except OSError as e:
-                paths.note("jobs", f"Could not remove the old upload {name}: {type(e).__name__}")
+                paths.note("core", f"{stamp} Could not remove the old upload {name}: {e!r}")
         return removed
 
     # --- models ------------------------------------------------------------

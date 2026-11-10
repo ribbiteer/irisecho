@@ -185,8 +185,11 @@ dynamics; a caption already written as `Global Metadata:` / `Vocal Details:` /
 Give them a few descriptive tags; `--bpm` becomes part of the description. They
 take `format`, `trim_end`, `steps`, `takes`, `loop` and lyrics as ACE-Step does,
 but cannot start from a recording. YuE2 and MiniMax end a piece when it feels
-finished: asked for 240 s, an instrumental came back at about 2 minutes from YuE2
-and about 2.5 from MiniMax. Stable Audio makes exactly the length asked, up to
+finished, and an instrumental often ends well before the length asked for:
+asked for 300 s, YuE2 returned 67.6 s and MiniMax 182 s (measured; asked for
+240 s, about 2 minutes and 2.5 minutes). The job still ends as done, so check
+the duration of the file you get back and do not plan on the length you asked
+for. Stable Audio makes exactly the length asked, up to
 360 s (6 minutes; the other two stop at 300), so use it for long beds. On a 12 GB
 card, once loaded, a new prompt takes it about 2 s for 60 s of music, 18 s for
 240 s and 26 s for 360 s. While the image engine stays loaded, a `sa3-medium` job
@@ -258,7 +261,7 @@ between shells, so a body file and `-` is the dependable way.
 | `POST /api/jobs/{id}/cancel` | stop a queued or running job; 404 for an unknown id, 409 with the job's `status` if it has already ended |
 | `DELETE /api/jobs/{id}` | remove a finished job and its files; 404 for an unknown id, 409 while it is queued or running or if a file is open in another program (nothing is lost; close it and retry) |
 | `POST /api/jobs/{id}/favorite` with `{"favorite": true}` | mark or unmark a job; 404 for an unknown id |
-| `POST /api/uploads` (multipart `file`) | add a picture or sound for a job to use; returns its `id`. Up to 64 MB (413); the kind is read from the file's first bytes: PNG, JPEG, WebP, MP4, WAV, MP3, FLAC or OGG, else 415. Uploads no job mentions are deleted after a week |
+| `POST /api/uploads` (multipart `file`) | add a picture or sound for a job to use; returns its `id`. Up to 64 MB (413); the kind is read from the file's first bytes: PNG, JPEG, WebP, MP4, WAV, MP3, FLAC or OGG, else 415. Uploads not referenced by any job are removed after 30 days; keep your own copies |
 | `GET /api/system` | GPU (`hardware.problem` says why the card could not be read, `hardware.note` that the card chosen in Settings is not in use), memory in use right now (`vram`: `used_mb` and `free_mb` per card, the whole card), what is loaded, queue length |
 | `POST /api/system/unload` | free the GPU for another program; 409 while a job is running |
 | `GET /api/jobs/{id}/outputs/{n}/export?format=stl&height_mm=80` | a 3D model in `glb`, `stl`, `3mf` (millimetres, upright on the plate), `obj` (zip) or `ply` |
@@ -293,6 +296,11 @@ The one rule for a name, for every kind of upload: 8 to 64 lowercase hex digits
 digits (`3fa2b1c4.png`, `5d0e7a91c3b84f26.wav`). Any other name is refused, with a
 message that says so; no folder part is accepted. (`irisecho` commands stage
 their pictures and recordings this way for you.)
+The `uploads` folder is working space, not storage: uploads not referenced by any
+job are removed after 30 days (counted from when the file was put there), and
+each removal is written to `logs/core.log` with the file's name, size and age.
+A file a job used, whatever the job's status, is kept for as long as the job is.
+Keep your own copies of anything you stage there.
 
 `seedvr2-video` is experimental and never part of a default workflow. On
 generated clips it made faces look plastic, and on a close-up of objects it added
