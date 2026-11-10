@@ -42,6 +42,31 @@ def test_settings_go_in_as_a1111_text_and_come_back_exactly(tmp_path):
     assert "image1" not in found["params"]  # files on this computer stay out
 
 
+def test_an_addon_goes_in_by_its_name_in_the_loras_folder_never_by_a_path(tmp_path):
+    """What is written is the name the job gave, which is relative to the loras folder
+    (a subfolder of it at most); a rooted or drive name never gets as far as a job."""
+    import pytest
+
+    from irisecho_core import loras
+
+    root = tmp_path / "somewhere" / "private" / "loras"
+    (root / "styles").mkdir(parents=True)
+    p = picture(tmp_path / "a.png")
+    model = registry.default().models["flux-dev"]
+    name = "styles/watercolor.safetensors"
+    params = {"prompt": "a boat", "loras": [{"file": name, "strength": 0.8}]}
+    metadata.embed(p, model, params, 1, (32, 16))
+    with Image.open(p) as im:
+        im.load()
+        written = im.text["parameters"] + im.text["irisecho"]
+    assert 'Lora weights: "watercolor: 0.8"' in written  # the A1111 line: the bare name
+    assert metadata.read(p)["params"]["loras"] == [{"file": name, "strength": 0.8}]
+    assert "somewhere" not in written and "private" not in written and str(tmp_path) not in written
+    for rooted in (str(root / name), "C:watercolor.safetensors", "/watercolor.safetensors", "../x"):
+        with pytest.raises(loras.LoraError):
+            loras.resolve([root], rooted, "flux")
+
+
 def test_unicode_prompts_use_itxt(tmp_path):
     p = picture(tmp_path / "u.png")
     metadata.embed(

@@ -302,6 +302,61 @@ def test_the_lock_goes_with_the_process_that_held_it(tmp_path):
         holder.wait()
 
 
+RUNNING_APP = textwrap.dedent(
+    """
+    import asyncio, sys, time
+    from irisecho_core.app import App
+
+    async def main():
+        app = App()
+        app.store.needs_scan = lambda: False
+        await app.start()
+        app.db.insert({
+            "id": "abc123abc123", "model": "kokoro", "kind": "voice", "params": {},
+            "status": "running", "progress": None, "message": None, "error": None,
+            "created": time.time(), "started": time.time(), "finished": None, "outputs": [],
+        })
+        print("running", flush=True)
+        await asyncio.sleep(60)
+
+    asyncio.run(main())
+    """
+)
+
+
+def test_a_second_process_on_the_same_home_leaves_the_first_ones_jobs_alone(
+    cli, home, capsys, monkeypatch
+):
+    """Two real processes on one data folder: the first is an App with a job running.
+    The second, as an App or as a command, is refused and changes nothing."""
+    from irisecho_core.instance import InstanceRunning
+
+    monkeypatch.setattr(cli, "ANSWER_WAIT", 0.6)
+    first = subprocess.Popen(
+        [sys.executable, "-c", RUNNING_APP],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        env={**os.environ, "IRISECHO_HOME": str(home)},
+    )
+    try:
+        assert first.stdout.readline().decode().strip() == "running"
+
+        async def second_app():
+            app = new_app()
+            with pytest.raises(InstanceRunning, match="already running on this data folder"):
+                await app.start()
+
+        asyncio.run(asyncio.wait_for(second_app(), 30))
+        # A command neither starts engines of its own nor gets through: nothing answers here.
+        assert cli.main(["models"]) == 1
+        assert "already running on this data folder" in capsys.readouterr().err
+        assert not cli.started_own
+        assert new_app().db.get("abc123abc123")["status"] == "running"
+    finally:
+        first.kill()
+        first.wait()
+
+
 # --- the command line finds the running app ------------------------------------------------------
 
 

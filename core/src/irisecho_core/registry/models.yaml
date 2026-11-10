@@ -858,7 +858,9 @@ x-controls:
 x-limits:
   ace: &limits-ace
     takes: {min: 1, max: 4, default: 1}
-    duration: {min: 10, max: 600, default: 30}
+    # 480 s is ACE-Step's own most with its planner on a 12 GB card (gpu_config.py). Asked for
+    # 600 s there, ace-step ran out of memory and ace-step-xl made 482 s (rendered 2026-11-10).
+    duration: {min: 10, max: 480, default: 30}
   comfy-music: &limits-comfy-music
     takes: {min: 1, max: 4, default: 1}
     duration: {min: 10, max: 300, default: 30}

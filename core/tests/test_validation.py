@@ -189,8 +189,9 @@ def check(model_id, **params):
     [
         ("ace-step", {"takes": 10}, "takes must be 1 to 4 for this model (got 10)."),
         ("ace-step", {"takes": 0}, "takes must be 1 to 4 for this model (got 0)."),
-        ("ace-step-xl", {"duration": 5}, "duration in seconds must be 10 to 600 for this model"),
-        ("ace-step-xl-sft", {"duration": 601}, "10 to 600 for this model (got 601)"),
+        ("ace-step-xl", {"duration": 5}, "duration in seconds must be 10 to 480 for this model"),
+        ("ace-step-xl-sft", {"duration": 481}, "10 to 480 for this model (got 481)"),
+        ("ace-step", {"duration": 600}, "10 to 480 for this model (got 600)"),
         ("yue2", {"duration": 301}, "duration in seconds must be 10 to 300 for this model"),
         ("minimax-music3", {"duration": 9.5}, "10 to 300 for this model (got 9.5)"),
         ("sa3-medium", {"duration": 999}, "10 to 360 for this model (got 999)"),
@@ -219,9 +220,9 @@ def test_out_of_range_values_are_refused_with_the_range(model_id, params, messag
 
 
 def test_in_range_values_are_unchanged():
-    assert check("ace-step", takes=4, duration=600, bpm=90, loop=True) == {
+    assert check("ace-step", takes=4, duration=480, bpm=90, loop=True) == {
         "takes": 4,
-        "duration": 600,
+        "duration": 480,
         "bpm": 90,
         "loop": True,
     }
