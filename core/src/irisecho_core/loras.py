@@ -16,7 +16,12 @@ from collections import Counter
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 # Families a model can declare in its `loras` control.
-FAMILIES = ("flux", "zimage", "wan14b", "qwen-image", "qwen-image-21", "ltx", "sd")
+FAMILIES = ("flux", "zimage", "wan14b", "qwen-image", "qwen-image-21", "moss-image", "ltx", "sd")
+# MOSS-Image's single-stream blocks keep every projection under `proj`
+# (layers.N.proj.q, .proj.qkv, .proj.ffn_up_gate); no other family names them so.
+MOSS_KEYS = re.compile(
+    r"(^|[._])layers[._]\d+[._]proj[._](q|k|v|o|qkv|ffn_up_gate|ffn_down)[._]", re.MULTILINE
+)
 MAX_HEADER = 64 * 1024 * 1024
 
 _cache: dict[tuple[str, int, int], dict] = {}
@@ -58,6 +63,8 @@ def family_of(header: dict) -> str:
     )
     keys = [k for k in header if k != "__metadata__"]
     text = "\n".join(keys)
+    if MOSS_KEYS.search(text) or "moss" in arch:
+        return "moss-image"
     if "img_mlp" in text or "txt_mlp" in text or "qwen" in arch:
         # Qwen-Image 2.1 is a different, single-stream model: 4096 wide (the first
         # Qwen-Image is 3072), a fused gate_up feed-forward and no text-side layers.

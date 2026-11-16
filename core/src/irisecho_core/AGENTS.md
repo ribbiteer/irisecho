@@ -125,7 +125,7 @@ is never printed or returned.
 
 | Command | Makes | Main options |
 |---|---|---|
-| `image PROMPT` | pictures | `--model` (default `z-image-turbo`), `--aspect 1:1\|4:3\|3:4\|16:9\|9:16\|3:2\|2:3`, `--count`, `--seed`; `--from picture.png` (start from a picture) with `--denoise` (0.05 to 1, default 0.2) for the FLUX models and `qwen-image-21` only, and `--size 1920x1088` for the FLUX models only; `--guide picture.png` and `--guide-type canny\|depth\|pose\|as_is` with `z-image-control` |
+| `image PROMPT` | pictures | `--model` (default `z-image-turbo`), `--aspect 1:1\|4:3\|3:4\|16:9\|9:16\|3:2\|2:3`, `--count`, `--seed`; `--from picture.png` (start from a picture) with `--denoise` (0.05 to 1, default 0.2) for the FLUX models, `qwen-image-21` and `moss-image` only, and `--size 1920x1088` for the FLUX models only; `--guide picture.png` and `--guide-type canny\|depth\|pose\|as_is` with `z-image-control` |
 | `say TEXT` | narration | `--voice` (default `af_heart`), `--speed`, `--raw`, `--file cues.txt` |
 | `clone TEXT --ref clip.wav` | speech in a sampled voice | `--model chatterbox-turbo\|chatterbox`, `--takes`, `--seed`, `--exaggeration` and `--cfg` (`chatterbox` only, 0.5 each by default), `--raw`, `--file cues.txt`; the clip is 10 to 15 s of one voice (WAV, MP3, FLAC or OGG; Turbo needs more than 5 s) |
 | `music TAGS` | music | `--model ace-step\|ace-step-xl\|ace-step-xl-sft\|yue2\|minimax-music3\|sa3-medium`, `--seconds`, `--bpm`, `--loop`, `--lyrics` or `--lyrics-file`, `--takes`, `--seed`, `--no-thinking`, `--file cues.txt` |
@@ -275,8 +275,8 @@ Job `params` by kind of model:
 
 | Kind | Models | Params |
 |---|---|---|
-| image | `qwen-image-21`, `qwen-image`, `qwen-image-fast`, `z-image-turbo`, `z-image-control`, `krea-2`, `flux-dev`, `flux-schnell`, `flux-krea` | `prompt`, `aspect`, `seed`; `image1` and `denoise` (0.05 to 1, default 0.2) to start from a picture, for `flux-schnell`, `flux-dev`, `flux-krea` and `qwen-image-21` only (the others do not read `image1`); `z-image-control` needs a `guide` picture and takes `guide_type` (`canny`, `depth`, `pose`, or `as_is` for a ready-made map) |
-| edit | `qwen-image-21-edit`, `qwen-edit`, `qwen-edit-fast`, `flux-kontext` | `prompt`, `image1` (and `image2`, `image3` for `qwen-edit` and `qwen-edit-fast`; up to `image10` for `qwen-image-21-edit`), `seed`; `box` or `mask` to change only an area (Qwen models) |
+| image | `qwen-image-21`, `qwen-image`, `qwen-image-fast`, `moss-image`, `z-image-turbo`, `z-image-control`, `krea-2`, `flux-dev`, `flux-schnell`, `flux-krea` | `prompt`, `aspect`, `seed`; `image1` and `denoise` (0.05 to 1, default 0.2) to start from a picture, for `flux-schnell`, `flux-dev`, `flux-krea`, `qwen-image-21` and `moss-image` only (the others do not read `image1`); `z-image-control` needs a `guide` picture and takes `guide_type` (`canny`, `depth`, `pose`, or `as_is` for a ready-made map) |
+| edit | `qwen-image-21-edit`, `qwen-edit`, `qwen-edit-fast`, `moss-image-edit`, `flux-kontext` | `prompt`, `image1` (and `image2`, `image3` for `qwen-edit` and `qwen-edit-fast`; up to `image10` for `qwen-image-21-edit`), `seed`; `box` or `mask` to change only an area (Qwen models and `moss-image-edit`) |
 | upscale | `seedvr2`, `seedvr2-7b` | `image1`, `scale` (2, 3 or 4), `retain` (true keeps the original size), `seed` |
 | video | `ltx25`, `wan22-t2v`, `wan22-i2v`, `wan22-i2v-1022`, `hunyuan15-i2v`, `wan22-camera` | `prompt`, `aspect`, `seconds` (2 to 5), `size` (`standard`, `large`, or `720p` on a 12 GB card; `hunyuan15-i2v` has no `large`), `smooth`, and a `start` and/or `end` frame: required for the `i2v` models (`hunyuan15-i2v` takes `start` only), optional for `ltx25`; `wan22-camera` needs `start` and takes `camera` (`static`, `pan_up`, `pan_down`, `pan_left`, `pan_right`, `zoom_in`, `zoom_out`, `clockwise`, `anticlockwise`) |
 | voice | `kokoro` | `text`, `voice`, `speed`, `clean` |
@@ -325,8 +325,8 @@ snap to the end frame, so trim about 8. For a still camera on a face, prefer
 `wan22-i2v` at `large`: at `720p` both models invented expressions and skin
 texture on still faces.
 
-The FLUX image models (`flux-schnell`, `flux-dev`, `flux-krea`) and
-`qwen-image-21` take an optional `image1` to redraw, with `denoise` (0.05 to 1,
+The FLUX image models (`flux-schnell`, `flux-dev`, `flux-krea`),
+`qwen-image-21` and `moss-image` take an optional `image1` to redraw, with `denoise` (0.05 to 1,
 default 0.2) for how much changes. The FLUX models also take `width` and
 `height` (multiples of 16, at most 1920 x 1088 in area; without them the
 picture keeps its own aspect at about one megapixel).
@@ -385,8 +385,10 @@ nothing.
   trigger words. Up to 3 per job, strength -2 to 2. Wan takes pairs:
   `{"high": FILE, "low": FILE, "strength": 1}`. A file made for another family
   is refused. Qwen-Image and Qwen Edit take no add-ons; Qwen-Image 2.1 takes
-  add-ons made for 2.1 (family `qwen-image-21`).
-- Changing only an area (`qwen-edit`, `qwen-edit-fast`, `qwen-image-21-edit`): `box`
+  add-ons made for 2.1 (family `qwen-image-21`); MOSS-Image and its edit model take
+  add-ons made for MOSS-Image (family `moss-image`).
+- Changing only an area (`qwen-edit`, `qwen-edit-fast`, `qwen-image-21-edit`,
+  `moss-image-edit`): `box`
   `[left, top, right, bottom]` as fractions of Picture 1, or `mask` (an upload id
   of a picture, white where it may change). Outside the area the result is
   Picture 1's own pixels. `qwen-image-21-edit` takes up to three boxes as a list
@@ -413,6 +415,7 @@ Every model, what it is for, its limits and the names of its advanced controls
 - `qwen-image-21-edit` (edit): Qwen-Image 2.1 editing a picture, up to 4 MP. Combine up to ten pictures, or change up to three marked areas. The pictures are yours to use. Controls: `steps`, `megapixels`, `feather`, `ref_megapixels`, `transparent`, `loras`, `cache`, `sampler`, `scheduler`.
 - `qwen-edit` (edit): The careful version. Eight steps for finished work; combine up to three pictures. Controls: `steps`, `megapixels`, `keep_size`, `feather`, `shift`, `sampler`, `scheduler`.
 - `qwen-edit-fast` (edit): Change a picture by describing the change. Four steps, about fifteen seconds. Controls: `steps`, `megapixels`, `keep_size`, `feather`, `shift`, `sampler`, `scheduler`.
+- `moss-image-edit` (edit): MOSS-Image with an edit add-on. Recolor, restyle, relight or redress a picture, or change only a marked area. About 40 seconds. Controls: `steps`, `guidance`, `megapixels`, `feather`, `negative`, `loras`, `sampler`, `scheduler`.
 - `flux-kontext` (edit): Restyle or retouch while keeping what matters. Say only what should change. Non-commercial. Controls: `guidance`, `steps`, `loras`, `sampler`, `scheduler`.
 - `seedvr2` (upscale): Restores detail and enlarges 2, 3 or 4 times. No prompt needed. Controls: `color`, `tile`.
 - `seedvr2-7b` (upscale): The larger SeedVR2. Slower, with finer restored detail than the standard one, and it needs an 8 GB download. Controls: `color`, `tile`.
@@ -441,6 +444,7 @@ Every model, what it is for, its limits and the names of its advanced controls
 - `qwen-image-21` (image): Qwen's newer model. Long, exact lettering and fine detail up to 4 MP in eight steps. The pictures are yours to use. Controls: `steps`, `megapixels`, `trained_sizes`, `transparent`, `loras`, `sampler`, `scheduler`.
 - `qwen-image` (image): The one to use for words in pictures. Logos, signs, posters, labels. Eight steps. Controls: `steps`, `megapixels`, `trained_sizes`, `shift`, `sampler`, `scheduler`.
 - `qwen-image-fast` (image): Qwen-Image's text and layout in four steps. Use it for drafts, then switch to Qwen-Image. Controls: `steps`, `megapixels`, `trained_sizes`, `shift`, `sampler`, `scheduler`.
+- `moss-image` (image): OpenMOSS's 5B model for lettering and layout. Posters, infographics and signs in English or Chinese, from long prompts. About 25 seconds a picture. Controls: `steps`, `guidance`, `megapixels`, `layer_skip`, `negative`, `loras`, `shift`, `sampler`, `scheduler`.
 - `z-image-turbo` (image): Quick, sharp pictures in 9 steps. Strong at photographs. Controls: `megapixels`, `steps`, `loras`, `shift`, `sampler`, `scheduler`.
 - `z-image-control` (image): Draws a new picture that follows the outline, depth or pose of a picture you give it. Same quick Z-Image Turbo, plus a 3 GB guide model and two small readers (depth and pose, 2 GB). Controls: `guide_strength`, `megapixels`, `steps`, `loras`, `shift`, `sampler`, `scheduler`.
 - `krea-2` (image): Photographs with natural skin, hands and fur, even from a short prompt. Eight steps, about ten seconds. Controls: `megapixels`, `steps`, `sampler`, `scheduler`.

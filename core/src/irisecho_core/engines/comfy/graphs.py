@@ -1108,6 +1108,196 @@ def _qwen21(
     return g, save
 
 
+# The negative tags MOSS-Image's makers recommend (their user guide); ComfyUI's templates
+# use them too. MOSS runs with real classifier-free guidance, so a negative prompt counts.
+MOSS_NEGATIVE = "nsfw, worst quality, bad anatomy, watermark, jpeg artifact"
+# Up to four pictures in one edit (the edit add-on's own limit). The registry offers one:
+# with two, the add-on drew Picture 1's subject where Picture 2's should go, at 0.5 and at
+# 1 MP alike (2026-11-16), and its author marks multi-picture quality as unevaluated.
+MOSS_SLOTS = tuple(f"image{i}" for i in range(1, 5))
+# Megapixels Pictures 2 onward share by default (see moss_edit).
+MOSS_REF_BUDGET_MP = 1.0
+
+
+def _moss_loaders(g: dict, names: dict) -> None:
+    g["unet"] = {
+        "class_type": "UNETLoader",
+        "inputs": {"unet_name": names["moss-sft-int8"], "weight_dtype": "default"},
+    }
+    g["clip"] = {
+        "class_type": "CLIPLoader",
+        "inputs": {"clip_name": names["qwen35-9b-w4a8"], "type": "moss_image", "device": "default"},
+    }
+    g["vae"] = {"class_type": "VAELoader", "inputs": {"vae_name": names["flux2-vae-small"]}}
+
+
+def _moss_skip(g: dict, model: list, end: float) -> list:
+    """The makers' skip-layer guidance: layer 22 left out of the negative pass."""
+    g["slg"] = {
+        "class_type": "SkipLayerGuidanceDiTSimple",
+        "inputs": {
+            "model": model,
+            "double_layers": "",
+            "single_layers": "22",
+            "start_percent": 0.0,
+            "end_percent": end,
+        },
+    }
+    return ["slg", 0]
+
+
+def moss_image(*, prompt, seed, aspect, names, settings, hw, prefix, params=None, images=None, **_):
+    """MOSS-Image SFT as ComfyUI's own template runs it: 25 steps, cfg 2.5, er_sde and
+    simple at the model's shift of 5, the makers' negative tags. Its prompt enhancer
+    (TextGenerate on the same Qwen3.5) is left out: IrisEcho has its own writer."""
+    params = params or {}
+    budget = _budget(params, 1024)
+    w, h = size_for(aspect, budget)
+    g: dict = {}
+    _moss_loaders(g, names)
+    model = _add_loras(g, ["unet", 0], params.get("loras"), "LoraLoaderModelOnly", "strength_model")
+    if params.get("shift") is not None:
+        g["shift"] = {
+            "class_type": "ModelSamplingAuraFlow",
+            "inputs": {"model": model, "shift": float(params["shift"])},
+        }
+        model = ["shift", 0]
+    if params.get("layer_skip"):
+        # The makers' recipe skips it for the whole run; ComfyUI's template, when on, to half.
+        model = _moss_skip(g, model, 1.0)
+    g["text"] = {"class_type": "CLIPTextEncode", "inputs": {"clip": ["clip", 0], "text": prompt}}
+    g["negative"] = {
+        "class_type": "CLIPTextEncode",
+        "inputs": {"clip": ["clip", 0], "text": params.get("negative") or MOSS_NEGATIVE},
+    }
+    g["latent"] = {
+        "class_type": "EmptyFlux2LatentImage",
+        "inputs": {"width": w, "height": h, "batch_size": 1},
+    }
+    init = (images or {}).get("image1")
+    latent = _init_latent(g, init, budget, ["vae", 0]) if init else ["latent", 0]
+    g["sample"] = {
+        "class_type": "KSampler",
+        "inputs": {
+            "model": model,
+            "positive": ["text", 0],
+            "negative": ["negative", 0],
+            "latent_image": latent,
+            "seed": seed,
+            "steps": int(_v(params, "steps", settings.get("steps", 25))),
+            "cfg": float(_v(params, "guidance", settings.get("cfg", 2.5))),
+            "sampler_name": _v(params, "sampler", "er_sde"),
+            "scheduler": _v(params, "scheduler", "simple"),
+            "denoise": _denoise(params) if init else 1.0,
+        },
+    }
+    return g, _finish(g, ["vae", 0], prefix)
+
+
+def moss_edit(*, prompt, seed, names, settings, hw, prefix, images, params=None, **_):
+    """MOSS-Image SFT with the MOSS Image Edit add-on, as ComfyUI's template and the
+    add-on's author run it: every picture scaled to the working size on a 16-pixel grid
+    and read as a reference latent at that size (the add-on's own layout, without the
+    text encoder seeing the pictures), the negative prompt reading the same pictures,
+    skip-layer guidance on layer 22 throughout, 30 steps of euler at cfg 4. The result
+    has Picture 1's scaled size, so an area edit pastes back exactly.
+    """
+    params = params or {}
+    images = images or {}
+    slots = [s for s in MOSS_SLOTS if images.get(s)]
+    if "image1" not in slots:
+        raise ValueError("Add the picture to edit.")
+    region = images.get("mask")
+    mp = float(_v(params, "megapixels", 1.0))
+    g: dict = {}
+    _moss_loaders(g, names)
+    g["edit_lora"] = {
+        "class_type": "LoraLoaderModelOnly",
+        "inputs": {
+            "model": ["unet", 0],
+            "lora_name": names["moss-edit-lora"],
+            "strength_model": 1.0,
+        },
+    }
+    model = _add_loras(
+        g, ["edit_lora", 0], params.get("loras"), "LoraLoaderModelOnly", "strength_model"
+    )
+    model = _moss_skip(g, model, 1.0)
+    # The add-on keeps every picture's keys and values for all 42 layers through the run,
+    # for the prompt and the negative each: about 4 GB per megapixel, which ComfyUI's
+    # memory estimate does not count. Without dynamic VRAM (see DYNAMIC_VRAM) two
+    # pictures at 1 MP stepped at 26 s instead of 1 s on a 12 GB card; with it, 1.5 s
+    # (2026-11-16). Picture 1 is the canvas and gets the working size; the others share
+    # MOSS_REF_BUDGET_MP.
+    others = len(slots) - 1
+    shared = max(0.1, round(MOSS_REF_BUDGET_MP / others, 2)) if others else mp
+    ref_mp = float(_v(params, "ref_megapixels", min(mp, shared)))
+    refs: dict = {}
+    for i, slot in enumerate(slots):
+        g[f"load{i + 1}"] = {"class_type": "LoadImage", "inputs": {"image": images[slot]}}
+        g[f"scale{i + 1}"] = {
+            "class_type": "ImageScaleToTotalPixels",
+            "inputs": {
+                "image": [f"load{i + 1}", 0],
+                "upscale_method": "lanczos",
+                "megapixels": mp if i == 0 else ref_mp,
+                "resolution_steps": 16,
+            },
+        }
+        # The node takes its pictures as image_0, image_1, ... in that order.
+        refs[f"images.image_{i}"] = [f"scale{i + 1}", 0]
+    common = {
+        "clip": ["clip", 0],
+        "vae": ["vae", 0],
+        "edit_format": "Moss-Image-Edit",
+        "image_strength": 1.0,
+        **refs,
+    }
+    g["text"] = {"class_type": "TextEncodeMOSSImageEdit", "inputs": {**common, "prompt": prompt}}
+    g["negative"] = {
+        "class_type": "TextEncodeMOSSImageEdit",
+        "inputs": {**common, "prompt": params.get("negative") or MOSS_NEGATIVE},
+    }
+    g["size"] = {"class_type": "GetImageSize", "inputs": {"image": ["scale1", 0]}}
+    g["latent"] = {
+        "class_type": "EmptyFlux2LatentImage",
+        "inputs": {"width": ["size", 0], "height": ["size", 1], "batch_size": 1},
+    }
+    g["sample"] = {
+        "class_type": "KSampler",
+        "inputs": {
+            "model": model,
+            "positive": ["text", 0],
+            "negative": ["negative", 0],
+            "latent_image": ["latent", 0],
+            "seed": seed,
+            "steps": int(_v(params, "steps", settings.get("steps", 30))),
+            "cfg": float(_v(params, "guidance", settings.get("cfg", 4.0))),
+            "sampler_name": _v(params, "sampler", "euler"),
+            "scheduler": _v(params, "scheduler", "normal"),
+            "denoise": 1.0,
+        },
+    }
+    save = _finish(g, ["vae", 0], prefix)
+    if region:
+        # As Qwen Edit: the whole picture is edited and only the area is kept, pasted
+        # with a soft edge over Picture 1 on the same grid.
+        soft = _region_mask(g, region, ["scale1", 0], int(_v(params, "feather", 12)))
+        g["paste"] = {
+            "class_type": "ImageCompositeMasked",
+            "inputs": {
+                "destination": ["scale1", 0],
+                "source": ["decode", 0],
+                "x": 0,
+                "y": 0,
+                "resize_source": False,
+                "mask": soft,
+            },
+        }
+        g["save"]["inputs"]["images"] = ["paste", 0]
+    return g, save
+
+
 def kontext(*, prompt, seed, names, settings, hw, prefix, images, params=None, **_):
     params = params or {}
     if not images.get("image1"):
@@ -2910,6 +3100,8 @@ BUILDERS = {
     "qwen-edit": qwen_edit,
     "qwen21-image": qwen21_image,
     "qwen21-edit": qwen21_edit,
+    "moss-image": moss_image,
+    "moss-edit": moss_edit,
     "kontext": kontext,
     "seedvr2": seedvr2,
     "seedvr2-video": seedvr2_video,
@@ -2933,6 +3125,8 @@ IMAGE_INPUTS = {
     "qwen-edit": ("image1", "image2", "image3", "mask"),
     "qwen21-image": ("image1",),
     "qwen21-edit": (*QWEN21_SLOTS, "mask", "mark"),
+    "moss-image": ("image1",),
+    "moss-edit": (*MOSS_SLOTS, "mask"),
     "kontext": ("image1",),
     "seedvr2": ("image1",),
     "seedvr2-video": ("video",),
@@ -2962,6 +3156,11 @@ DYNAMIC_VRAM = {
     "yue2",
     "minimax-music3",
     "sa3-music",
+    # MOSS-Image: its edit add-on's reference cache does not fit beside the fully loaded
+    # model otherwise; pictures ran as fast or faster with it (1 MP 24 s, 2 MP 48 s,
+    # 4 MP 118 s), and sharing the mode spares a restart between the two (2026-11-16).
+    "moss-image",
+    "moss-edit",
     "wan22",
     "wan22-camera",
     "hunyuan15",

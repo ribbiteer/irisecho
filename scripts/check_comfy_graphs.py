@@ -63,6 +63,14 @@ EXTRA = {
         ("one picture", (*(f"image{i}" for i in range(2, 11)), "mask", "mark"), {}),
         ("area, circled in the graph", ("mark",), {}),
     ],
+    "moss-image": [
+        ("text only", ("image1",), {}),
+        ("start picture", (), {"denoise": 0.4}),
+    ],
+    "moss-edit": [
+        ("whole picture", ("mask",), {}),
+        ("one picture", ("image2", "image3", "image4", "mask"), {}),
+    ],
 }
 
 
@@ -121,7 +129,11 @@ def check(graph: dict, info: dict) -> list[str]:
             if decl[0] == "COMFY_AUTOGROW_V3":
                 # A growing list of inputs, passed as name.slot (images.image_1, ...).
                 grown = [k for k in node["inputs"] if k.startswith(f"{name}.")]
-                allowed = decl[1]["template"]["names"]
+                template = decl[1]["template"]
+                if "names" in template:
+                    allowed = template["names"]
+                else:  # a prefix template: prefix0, prefix1, ... up to max
+                    allowed = [f"{template['prefix']}{i}" for i in range(template["max"])]
                 problems += [
                     f"{nid} {cls}: no input slot {k}"
                     for k in grown

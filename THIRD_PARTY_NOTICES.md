@@ -11,6 +11,7 @@ versions shown when a model that needs them is first set up.
 |---|---|---|---|
 | ComfyUI | v0.38.0 (`6b747c04`) | GPL-3.0 | https://github.com/Comfy-Org/ComfyUI |
 | ComfyUI pull request 16805 (solid remesh), applied at install from `core/src/irisecho_core/engines/comfy/patches/` until it is released | head `22e5e90f` | GPL-3.0 | https://github.com/Comfy-Org/ComfyUI/pull/16805 |
+| ComfyUI MOSS-Image support (pull requests 17095, 17099, 17172, 17206, 17296, 17320, 17338), picked onto v0.38 and applied at install from `core/src/irisecho_core/engines/comfy/patches/` | `e087d8f6`..`067f8533` | GPL-3.0 | https://github.com/Comfy-Org/ComfyUI/pull/17095 |
 | ComfyUI-nunchaku | `c71cc259`, one file patched at install for ComfyUI v0.38 | Apache-2.0 | https://github.com/nunchaku-ai/ComfyUI-nunchaku |
 | nunchaku | 1.2.1 | Apache-2.0 | https://github.com/nunchux-ai/nunchaku |
 | ComfyUI-GGUF | `6ea2651e` | Apache-2.0 | https://github.com/city96/ComfyUI-GGUF |

@@ -1460,7 +1460,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--from",
         dest="source",
-        help="redraw this picture (the FLUX models and qwen-image-21; others refuse it)",
+        help="redraw this picture (FLUX models, qwen-image-21, moss-image; others refuse it)",
     )
     p.add_argument("--denoise", type=float, default=0.2, help="how much --from changes, 0.05-1")
     p.add_argument("--size", help="WIDTHxHEIGHT, for example 1920x1088 (FLUX models)")

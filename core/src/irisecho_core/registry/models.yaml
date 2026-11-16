@@ -52,6 +52,7 @@ repos:
   Comfy-Org/SDPose: acb43fbe8142b54d9ebd52b720b81dd4e14c8d81
   Comfy-Org/MoGe: 1484985258ba7ef45c314144fcf0e90924ffbf44
   Comfy-Org/Qwen-Image-2.1: a8342359c61979b06a8dafb1a47991fe1f30e994
+  Comfy-Org/MOSS-Image: 2929efe3cdd506c0a430bcfca70a9a8d805cc095
 
 licenses:
   apache-2.0:
@@ -202,6 +203,20 @@ licenses:
       and to credit DINOv3 in research you publish. The camera angle is
       estimated with Microsoft's MoGe-2 (MIT License; its DINOv2 parts are
       Apache 2.0).
+  # MOSS-Image, Qwen3.5-9B and the FLUX.2 decoder are Apache 2.0. The edit add-on's model
+  # card states no license; its project (github.com/Chenkin-x/Moss-Image-Edit) is GPLv3, and
+  # Comfy-Org repackages it in an Apache-2.0 repository.
+  moss-image-edit:
+    name: Apache License 2.0 and GNU GPL v3
+    url: https://github.com/Chenkin-x/Moss-Image-Edit/blob/main/LICENSE
+    commercial: true
+    accept: true
+    summary: >-
+      MOSS-Image (OpenMOSS), its Qwen3.5 text encoder and its FLUX.2 decoder
+      are under the Apache License 2.0. The edit add-on, MOSS Image Edit by
+      chinoll, comes from a project under the GNU GPL v3; its weights carry no
+      license of their own. Neither license limits the pictures you make;
+      passing the add-on on to others falls under the GPL.
   zimage-control:
     name: Apache License 2.0, MIT License and Stable Diffusion 2 heritage
     url: https://huggingface.co/Comfy-Org/SDPose
@@ -475,6 +490,24 @@ files:
     repo: Comfy-Org/Qwen-Image-2.1
     path: vae/qwen_image_2.1_vae_bf16.safetensors
     category: vae
+  # MOSS-Image SFT: one set of files for pictures and edits (ComfyUI's own int8 and w4a8
+  # kernels, CUDA 13); edits add the MOSS Image Edit add-on
+  moss-sft-int8:
+    repo: Comfy-Org/MOSS-Image
+    path: diffusion_models/moss_image_sft_int8_convrot.safetensors
+    category: diffusion_models
+  qwen35-9b-w4a8:
+    repo: Comfy-Org/MOSS-Image
+    path: text_encoders/qwen3.5_9b_w4a8_gptq.safetensors
+    category: text_encoders
+  flux2-vae-small:
+    repo: Comfy-Org/MOSS-Image
+    path: vae/flux2-vae_small.safetensors
+    category: vae
+  moss-edit-lora:
+    repo: Comfy-Org/MOSS-Image
+    path: loras/moss_image_edit_lora_rank_64_bf16.safetensors
+    category: loras
   qwen-image-8step-int4:
     repo: nunchaku-ai/nunchaku-qwen-image
     path: svdq-int4_r32-qwen-image-lightningv1.1-8steps.safetensors
@@ -858,6 +891,30 @@ x-controls:
       - {value: sgm_uniform, label: sgm_uniform}
     label: Scheduler
     help: How the steps are spread from noise to finish. This model ships with a schedule of its own; the others were not tested by its makers.
+  moss-loras: &moss-loras
+    name: loras
+    type: loras
+    family: moss-image
+    default: []
+    label: Add-ons (LoRA)
+    help: Styles, characters or concepts trained for MOSS-Image.
+  moss-negative: &moss-negative
+    name: negative
+    type: text
+    tier: expert
+    default: ""
+    label: Leave out
+    help: "Things the picture should not have. Empty uses the makers' own list: nsfw, worst quality, bad anatomy, watermark, jpeg artifact."
+  moss-shift: &moss-shift
+    name: shift
+    type: float
+    tier: expert
+    min: 1
+    max: 8
+    step: 0.1
+    default: 5.0
+    label: Shift
+    help: Higher spends more of the steps on overall shapes, lower on fine detail. 5 is what this model was trained with.
 
 # How many takes and how long (seconds) a job may ask for, per model. A value outside
 # the range is refused when the job is submitted; `default` is what a job that leaves
@@ -951,6 +1008,30 @@ models:
       - {name: shift, type: float, tier: expert, min: 2, max: 5, step: 0.1, default: 3.0, label: Shift, help: "Higher favours overall shapes, lower favours fine detail."}
       - *qwen-sampler
       - *scheduler
+
+  # MOSS-Image SFT with the MOSS Image Edit add-on, at its author's recipe (ComfyUI's
+  # template): 30 steps, cfg 4, euler/normal, skip-layer guidance on layer 22 throughout.
+  # One picture: the add-on takes four, but did not use a second one (see graphs.MOSS_SLOTS).
+  moss-image-edit:
+    name: MOSS-Image
+    kind: edit
+    engine: comfy
+    license: moss-image-edit
+    summary: MOSS-Image with an edit add-on. Recolor, restyle, relight or redress a picture, or change only a marked area. About 40 seconds.
+    settings: {prompt_style: moss-image-edit, steps: 30, cfg: 4.0, edit: {pictures: 1, areas: 1}}
+    variants:
+      - when: {backend: cuda, cuda_tag: cu130}
+        workflow: moss-edit
+        files: [moss-sft-int8, qwen35-9b-w4a8, flux2-vae-small, moss-edit-lora]
+    controls:
+      - {name: steps, type: int, min: 16, max: 50, default: 30, label: Steps, help: "More is slower and sometimes finer. The add-on's author uses 30."}
+      - {name: guidance, type: float, min: 2, max: 7, step: 0.1, default: 4.0, label: Follow the prompt, help: "Higher follows the instruction more strictly. Below 4, things the instruction did not ask for can appear."}
+      - {name: megapixels, type: float, min: 0.5, max: 2.0, step: 0.1, default: 1.0, unit: MP, label: Working size, help: "The size the picture is edited at. The result comes out at this size, in the picture's own shape. 2 MP takes about a minute and a half on a 12 GB card; below about 0.5 MP the model starts to reframe the picture."}
+      - {name: feather, type: int, min: 0, max: 31, default: 12, unit: px, needs: box, label: Soft edge, help: "How gradually the changed area blends into the rest when you change only an area. 0 is a hard edge."}
+      - *moss-negative
+      - *moss-loras
+      - {name: sampler, type: choice, tier: expert, default: euler, options: [euler, er_sde, res_multistep, dpmpp_2m], label: Sampler, help: "The method that removes noise at each step. euler is what the add-on's author uses."}
+      - {name: scheduler, type: choice, tier: expert, default: normal, options: [normal, simple, beta, sgm_uniform], label: Scheduler, help: "How the steps are spread from noise to finish. normal is what the add-on's author uses."}
 
   flux-kontext:
     name: FLUX.1 Kontext
@@ -1618,6 +1699,29 @@ models:
       - {name: trained_sizes, type: bool, default: false, label: Use the trained sizes, help: "Qwen-Image's own size for each shape (1664 x 928 for 16:9 and so on), instead of the Size above."}
       - {name: shift, type: float, tier: expert, min: 2, max: 5, step: 0.1, default: 3.0, label: Shift, help: "Higher if pictures come out blurry or dark, lower for more fine detail."}
       - *qwen-sampler
+      - *scheduler
+
+  # MOSS-Image SFT as ComfyUI's own template runs it: 25 steps, cfg 2.5, er_sde/simple.
+  moss-image:
+    name: MOSS-Image
+    kind: image
+    engine: comfy
+    license: apache-2.0
+    summary: OpenMOSS's 5B model for lettering and layout. Posters, infographics and signs in English or Chinese, from long prompts. About 25 seconds a picture.
+    settings: {prompt_style: moss-image, steps: 25, cfg: 2.5}
+    variants:
+      - when: {backend: cuda, cuda_tag: cu130}
+        workflow: moss-image
+        files: [moss-sft-int8, qwen35-9b-w4a8, flux2-vae-small]
+    controls:
+      - {name: steps, type: int, min: 12, max: 60, default: 25, label: Steps, help: "More is slower and sometimes finer. 25 is ComfyUI's recipe; the makers use 50 for their best results."}
+      - {name: guidance, type: float, min: 1.5, max: 7, step: 0.1, default: 2.5, label: Follow the prompt, help: "Higher sticks closer to your words. The makers suggest 3 for long prompts and more for short ones."}
+      - {name: megapixels, type: float, min: 0.5, max: 4.0, step: 0.1, default: 1.0, unit: MP, label: Size, help: "How many pixels. The makers recommend 1 to 2 MP; the model reaches 4 MP. On a 12 GB card 2 MP takes about 50 seconds and 4 MP two minutes."}
+      - {name: layer_skip, type: bool, tier: expert, default: false, label: Skip-layer guidance, help: "The makers' way to firm up fine detail (layer 22 left out of the negative pass). Off looks more natural; on can hold small details and lettering together."}
+      - *moss-negative
+      - *moss-loras
+      - *moss-shift
+      - {name: sampler, type: choice, tier: expert, default: er_sde, options: [er_sde, euler, res_multistep, dpmpp_2m], label: Sampler, help: "The method that removes noise at each step. er_sde is ComfyUI's recipe; euler is the makers'."}
       - *scheduler
 
   z-image-turbo:

@@ -112,6 +112,17 @@ QWEN21_EDIT_TEXT = (
     "of the text already in the picture. Say where the text sits and give it the "
     "lettering style, color and size the picture already uses."
 )
+# MOSS Image Edit was trained on single instructions of one form (ComfyUI's template quotes
+# it): 'Change only the X to Y. Keep the character, face, hair, pose, background and
+# composition unchanged.'
+MOSS_EDIT_ONE = (
+    "Write two sentences, 20 to 60 words in all. The first starts with 'Change only the', "
+    "names the one thing to change by what it is and where it sits, and says what it "
+    "becomes, with its color, material and shape as facts: 'Change only the [thing] to "
+    "[what it becomes].' The second names what stays, using only things the draft or the "
+    "picture shows: 'Keep the [person or subject], [face], [pose], [background] and "
+    "composition unchanged.'"
+)
 # A draft that names a second or third picture is a multi-picture edit.
 MULTI = re.compile(r"\b(picture|image|pic|photo)\s*([2-9]|10)\b", re.IGNORECASE)
 
@@ -301,6 +312,53 @@ STYLES: dict[str, Style] = {
                 f"one; the result has Picture 1's size. {QWEN21_EDIT_MANY}"
             ),
             text_guide=QWEN21_EDIT_TEXT,
+        ),
+        Style(
+            "moss-image",
+            "MOSS-Image",
+            edit=False,
+            video=False,
+            max_tokens=560,
+            guide=(
+                "Target: MOSS-Image, which reads long captions (its makers' own run 200 "
+                "words and more) and draws lettering and layouts well. Write one paragraph "
+                "of flowing English sentences, 150 to 260 words, ordered as the eye moves "
+                "through the picture. Open with the medium and the subject, never a verb: "
+                "'[Studio photograph, Flat vector poster, Watercolor illustration, 3D "
+                "render] of [subject]'. Then the subject: its appearance, each garment or "
+                "surface with its color and material, and what the hands do and where the "
+                "eyes look. Then the space: what sits in the foreground, middle and "
+                "background and where. Then the framing: shot size, camera height and "
+                f"angle. {LIGHT} Close with the palette, contrast and medium. Where the "
+                "draft leaves things open, decide them and state them as facts. Every "
+                "sentence adds something new that can be seen."
+            ),
+            text_guide=(
+                "MOSS-Image renders lettering in English and Chinese, long passages too. For "
+                "each block of text give the exact words in double quotes, in the draft's "
+                "own language, once, then what carries it (sign, poster, label, screen), "
+                "where it sits, how large it is, and its typeface and color. Copy the "
+                "draft's words character for character. If the scene needs text the draft "
+                "does not give, write short, specific wording for it."
+            ),
+        ),
+        Style(
+            "moss-image-edit",
+            "MOSS-Image",
+            edit=True,
+            video=False,
+            guide=(
+                "Target: MOSS-Image with its edit add-on, which changes a supplied picture "
+                f"by one instruction. {MOSS_EDIT_ONE} If the request is vague, decide the "
+                "specifics and state them. Describe things in the picture only as the draft "
+                "does: an invented color or pattern overrides what the picture shows."
+            ),
+            guide_with_image=(
+                "Target: MOSS-Image with its edit add-on, which changes the attached "
+                "picture by one instruction. Look at the picture first and name things by "
+                f"how they look and where they are in it. {MOSS_EDIT_ONE} Mention colors "
+                "and patterns only for what changes."
+            ),
         ),
         Style(
             "kontext",

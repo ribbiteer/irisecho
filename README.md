@@ -28,8 +28,8 @@ guidance, your own LoRAs, presets and side-by-side comparisons.
 
 | Studio | What you do | Models |
 |---|---|---|
-| **Image** | Describe a picture; get photos, illustration, lettering that reads; or follow the outlines, depth or pose of a guide picture | Qwen-Image 2.1\* (up to 4 MP), Qwen-Image (careful and fast), Z-Image Turbo (also with a guide picture\*), Krea 2\*, FLUX.1 dev\*, schnell and Krea\* |
-| **Edit** | Say what should change in a picture, or only in the areas you mark; combine up to ten pictures | Qwen-Image 2.1\* (up to 4 MP), Qwen Edit (careful and fast), FLUX.1 Kontext\* |
+| **Image** | Describe a picture; get photos, illustration, lettering that reads; or follow the outlines, depth or pose of a guide picture | Qwen-Image 2.1\* (up to 4 MP), Qwen-Image (careful and fast), MOSS-Image, Z-Image Turbo (also with a guide picture\*), Krea 2\*, FLUX.1 dev\*, schnell and Krea\* |
+| **Edit** | Say what should change in a picture, or only in the areas you mark; combine up to ten pictures | Qwen-Image 2.1\* (up to 4 MP), Qwen Edit (careful and fast), MOSS-Image\*, FLUX.1 Kontext\* |
 | **Upscale** | Enlarge 2-4× and restore detail, no prompt needed | SeedVR2 3B and 7B |
 | **Video** | 2-5 s clips from text, a first frame, a last frame, or both; camera moves on presets; continue a clip from its last frame; LTX-2.5 makes the sound too | LTX-2.5\*, Wan 2.2 (and Fun Camera), HunyuanVideo 1.5\* |
 | **3D** | A picture or a description becomes a model to view, print or export (GLB, STL, 3MF, OBJ, PLY) | Pixal3D\* (one picture or front and back), TRELLIS.2\* |
@@ -38,7 +38,7 @@ guidance, your own LoRAs, presets and side-by-side comparisons.
 | **Music** | Beds, jingles and full songs from a few tags; seamless loops on the bar; with ACE-Step, cover, repaint or extend a recording | ACE-Step 1.5 (also XL and XL SFT), YuE2\*, MiniMax Music 3\*, Stable Audio 3 Medium\* |
 | **Sound** | One-shot effects: foley, UI sounds, impacts, ambience; variations of a sound you have | Stable Audio 3 SFX\* |
 
-<sub>\* Opt-in: non-commercial (FLUX.1 dev family; YuE2), under a research license for the model files while the pictures are yours to use (Qwen-Image 2.1), free for commercial use only under $1M a year (Krea 2, Stable Audio 3), $10M a year (LTX-2.5) or $20M a year (MiniMax Music 3, which also asks commercial products to name it), not licensed in the EU, UK or South Korea (HunyuanVideo 1.5), gated (Stable Audio 3 SFX and LTX-2.5: accept the publisher's terms on Hugging Face and add a read token), under Meta's DINOv3 License, accepted in the app (Pixal3D, not offered in the EU, and TRELLIS.2), or with a pose reader built on Stable Diffusion 2 and its use restrictions, accepted in the app (Z-Image with a guide picture). IrisEcho shows each license and walks you through it.</sub>
+<sub>\* Opt-in: non-commercial (FLUX.1 dev family; YuE2), under a research license for the model files while the pictures are yours to use (Qwen-Image 2.1), free for commercial use only under $1M a year (Krea 2, Stable Audio 3), $10M a year (LTX-2.5) or $20M a year (MiniMax Music 3, which also asks commercial products to name it), not licensed in the EU, UK or South Korea (HunyuanVideo 1.5), gated (Stable Audio 3 SFX and LTX-2.5: accept the publisher's terms on Hugging Face and add a read token), under Meta's DINOv3 License, accepted in the app (Pixal3D, not offered in the EU, and TRELLIS.2), with a pose reader built on Stable Diffusion 2 and its use restrictions, accepted in the app (Z-Image with a guide picture), or with an edit add-on from a GPLv3 project whose weights state no license, accepted in the app (MOSS-Image editing). IrisEcho shows each license and walks you through it.</sub>
 
 **Improve** sits under every picture and video prompt: a small local model
 (Qwen3-VL) rewrites a rough idea the way the chosen model likes it, or describes
@@ -87,7 +87,7 @@ sampler is. Turn on **Settings › Show advanced controls** and each studio gain
 
 - **Steps, guidance, size, sampler and shift** where they make a difference. A
   distilled model gets no guidance or negative prompt, because it would ignore them.
-- **Your own LoRAs** for FLUX.1, Z-Image, Qwen-Image 2.1 and Wan 2.2: put `.safetensors` files in the
+- **Your own LoRAs** for FLUX.1, Z-Image, Qwen-Image 2.1, MOSS-Image and Wan 2.2: put `.safetensors` files in the
   `loras` folder (or a ComfyUI folder you linked) and pick them with a strength.
   IrisEcho reads each file to tell which model it fits and shows its trigger words.
 - **Model-specific controls**, for example:

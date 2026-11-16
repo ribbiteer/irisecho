@@ -5,6 +5,7 @@ Strict on purpose: each file must be exactly the version the diff was made
 against (its git blob hash, from the diff's `index` line), every hunk must
 match without fuzz, and the result must hash to the diff's new version.
 Anything else is an error, so a ComfyUI bump cannot half-apply a patch.
+A file the diff adds (`new file`, an all-zero old id) must not exist yet.
 """
 
 from __future__ import annotations
@@ -27,6 +28,10 @@ class FilePatch:
     old_blob: str
     new_blob: str
     hunks: list[tuple[int, list[str]]] = field(default_factory=list)
+
+    @property
+    def new_file(self) -> bool:
+        return set(self.old_blob) == {"0"}
 
 
 def blob_sha1(data: bytes) -> str:
@@ -70,6 +75,10 @@ def parse(diff: str) -> list[FilePatch]:
 
 
 def apply_one(text: str, patch: FilePatch) -> str:
+    if patch.new_file:
+        if len(patch.hunks) != 1 or any(line[0] != "+" for line in patch.hunks[0][1]):
+            raise PatchError(f"{patch.path}: malformed new file")
+        return "".join(line[1:] + "\n" for line in patch.hunks[0][1])
     lines = text.split("\n")
     out: list[str] = []
     pos = 0  # index into lines
@@ -96,12 +105,19 @@ def apply_one(text: str, patch: FilePatch) -> str:
 def state(root: Path, diff: str) -> str:
     """'applied', 'pristine' (every file is the diff's base) or 'unknown'."""
     patches = parse(diff)
-    blobs = [blob_sha1((root / p.path).read_bytes()) for p in patches]
-    if all(b.startswith(p.new_blob) for b, p in zip(blobs, patches, strict=True)):
+    blobs = [_blob(root / p.path) for p in patches]
+    if all(b is not None and b.startswith(p.new_blob) for b, p in zip(blobs, patches, strict=True)):
         return "applied"
-    if all(b.startswith(p.old_blob) for b, p in zip(blobs, patches, strict=True)):
+    if all(
+        b is None if p.new_file else b is not None and b.startswith(p.old_blob)
+        for b, p in zip(blobs, patches, strict=True)
+    ):
         return "pristine"
     return "unknown"
+
+
+def _blob(path: Path) -> str | None:
+    return blob_sha1(path.read_bytes()) if path.is_file() else None
 
 
 def apply(root: Path, diff: str) -> bool:
@@ -116,10 +132,12 @@ def apply(root: Path, diff: str) -> bool:
         )
     results = {}
     for p in patches:
-        new = apply_one((root / p.path).read_bytes().decode("utf-8"), p).encode("utf-8")
+        old = "" if p.new_file else (root / p.path).read_bytes().decode("utf-8")
+        new = apply_one(old, p).encode("utf-8")
         if not blob_sha1(new).startswith(p.new_blob):
             raise PatchError(f"{p.path}: the patched file is not the expected version")
         results[p.path] = new
     for rel, data in results.items():  # all checked first: nothing is half-written
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_bytes(data)
     return True

@@ -1,0 +1,800 @@
+diff --git a/comfy/ldm/moss_image/model.py b/comfy/ldm/moss_image/model.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..fe1695a0446bf15f2a29fbb3d9b7a96b3af67c5d
+--- /dev/null
++++ b/comfy/ldm/moss_image/model.py
+@@ -0,0 +1,275 @@
++import torch
++from torch import nn
++
++import comfy.ldm.flux.math
++import comfy.model_management
++import comfy.model_prefetch
++import comfy.ops
++import comfy.patcher_extension
++import comfy.quant_ops
++import comfy.utils
++from comfy.ldm.flux.layers import timestep_embedding
++from comfy.ldm.modules.attention import AttentionTensorContainer, ComfyAttention, optimized_attention
++
++
++def situ(hidden, gate):
++    # soft-capped gated activation
++    return (4.0 * torch.tanh(gate / 4.0) * torch.sigmoid(gate)) * (25.0 * torch.tanh(hidden / 25.0))
++
++
++def modulated_rms_norm(x, norm, scale, shift):
++    if comfy.model_management.in_training:
++        return norm(x) * (1 + scale) + shift
++    # the norm weight is folded into the scale of the fused rmsnorm(x) * (1 + scale) + shift
++    weight, _, stream = comfy.ops.cast_bias_weight(norm, x, offloadable=True)
++    out = comfy.quant_ops.ck.rms_adaln(x, weight * (1 + scale) - 1, shift, norm.eps)
++    comfy.ops.uncast_bias_weight(norm, weight, None, stream)
++    return out
++
++
++def gated_residual(x, y, gate):
++    # in place inside the memory compiler region; out of place keeps x for backward when training
++    if comfy.model_management.in_training:
++        return torch.addcmul(x, y, gate)
++    return x.addcmul_(y, gate)
++
++
++def modulate(x, norm, mod, i, ref):
++    # mod[i] is the shift and mod[i + 1] the scale; reference tokens from ref[0] on take the t=0 modulation ref[1]
++    if ref is None:
++        return modulated_rms_norm(x, norm, mod[i + 1], mod[i])
++    s, ref_mod = ref[0], ref[1]
++    return torch.cat((modulated_rms_norm(x[:, :s], norm, mod[i + 1], mod[i]), modulated_rms_norm(x[:, s:], norm, ref_mod[i + 1], ref_mod[i])), dim=1)
++
++
++def residual(x, y, mod, i, ref):
++    if ref is None:
++        return gated_residual(x, y, mod[i])
++    s, ref_mod = ref[0], ref[1]
++    if comfy.model_management.in_training:
++        return torch.cat((gated_residual(x[:, :s], y[:, :s], mod[i]), gated_residual(x[:, s:], y[:, s:], ref_mod[i])), dim=1)
++    gated_residual(x[:, :s], y[:, :s], mod[i])
++    gated_residual(x[:, s:], y[:, s:], ref_mod[i])
++    return x
++
++
++def rope_split_half(x, pe):
++    # differentiable split-half RoPE for training, the kitchen ops have no autograd
++    x_ = x.to(pe.dtype).unflatten(-1, (2, -1)).movedim(-2, -1).unsqueeze(-2)
++    return (pe[..., 0] * x_[..., 0] + pe[..., 1] * x_[..., 1]).movedim(-1, -2).flatten(-2).type_as(x)
++
++
++def attention(q, k, v, q_norm, k_norm, pe, heads, comfy_attention, transformer_options, ref_kv=None, kv_out=None, mask=None):
++    B, N, _ = q.shape
++    q = q.view(B, N, heads, -1)
++    k = k.view(B, N, heads, -1)
++    if comfy.model_management.in_training:
++        q, k = rope_split_half(q_norm(q), pe), rope_split_half(k_norm(k), pe)
++    else:
++        q_scale, _, q_stream = comfy.ops.cast_bias_weight(q_norm, q, offloadable=True)
++        k_scale, _, k_stream = comfy.ops.cast_bias_weight(k_norm, k, offloadable=True)
++        q, k = comfy.quant_ops.ck.rms_rope_split_half(q, k, pe, q_scale, k_scale, q_norm.eps)
++        comfy.ops.uncast_bias_weight(q_norm, q_scale, None, q_stream)
++        comfy.ops.uncast_bias_weight(k_norm, k_scale, None, k_stream)
++    q, k = q.flatten(2), k.flatten(2)
++    if kv_out is not None:
++        kv_out[:, 0].copy_(k)
++        kv_out[:, 1].copy_(v)
++    if ref_kv is not None:
++        # the references' keys and values, computed once
++        k, v = torch.cat((k, ref_kv[:, 0]), dim=1), torch.cat((v, ref_kv[:, 1]), dim=1)
++    q, k, v = AttentionTensorContainer(q), AttentionTensorContainer(k), AttentionTensorContainer(v)
++    return optimized_attention(q, k, v, heads, mask=mask, transformer_options=transformer_options, preferred_attention=comfy_attention)
++
++
++class TextBlock(nn.Module):
++    def __init__(self, dim, ffn_dim, num_heads, dtype=None, device=None, operations=None):
++        super().__init__()
++        self.comfy_attention = ComfyAttention()
++        self.num_heads = num_heads
++        self.norm1 = operations.RMSNorm(dim, eps=1e-6, dtype=dtype, device=device)
++        self.norm2 = operations.RMSNorm(dim, eps=1e-6, dtype=dtype, device=device)
++        self.q_norm = operations.RMSNorm(dim // num_heads, eps=1e-6, dtype=dtype, device=device)
++        self.k_norm = operations.RMSNorm(dim // num_heads, eps=1e-6, dtype=dtype, device=device)
++        self.qkv = operations.Linear(dim, 3 * dim, dtype=dtype, device=device)
++        self.proj = operations.Linear(dim, dim, dtype=dtype, device=device)
++        self.ffn_gate = operations.Linear(dim, ffn_dim, dtype=dtype, device=device)
++        self.ffn_up = operations.Linear(dim, ffn_dim, dtype=dtype, device=device)
++        self.ffn_down = operations.Linear(ffn_dim, dim, dtype=dtype, device=device)
++
++    def forward(self, x, pe, transformer_options={}, mask=None):
++        q, k, v = self.qkv(self.norm1(x)).chunk(3, dim=-1)
++        x = x + self.proj(attention(q, k, v, self.q_norm, self.k_norm, pe, self.num_heads, self.comfy_attention, transformer_options, mask=mask))
++        del q, k, v
++        y = self.norm2(x)
++        return x + self.ffn_down(situ(self.ffn_up(y), self.ffn_gate(y)))
++
++
++class TextEmbedder(nn.Module):
++    def __init__(self, text_dim, dim, ffn_dim, num_heads, dtype=None, device=None, operations=None):
++        super().__init__()
++        self.proj = operations.Linear(text_dim, dim, dtype=dtype, device=device)
++        self.blocks = nn.ModuleList([TextBlock(dim, ffn_dim, num_heads, dtype=dtype, device=device, operations=operations) for _ in range(2)])
++
++    def forward(self, x, pe, transformer_options={}, mask=None):
++        x = self.proj(x)
++        prefetch_queue = comfy.model_prefetch.make_prefetch_queue(list(self.blocks), x.device, transformer_options)
++        for block in self.blocks:
++            comfy.model_prefetch.prefetch_queue_pop(prefetch_queue, x.device, block, x.dtype)
++            x = block(x, pe, transformer_options, mask)
++        comfy.model_prefetch.prefetch_queue_pop(prefetch_queue, x.device, None)
++        return x
++
++
++class Block(nn.Module):
++    def __init__(self, dim, ffn_dim, num_heads, fused_qkv=False, dtype=None, device=None, operations=None):
++        super().__init__()
++        self.comfy_attention = ComfyAttention()
++        self.num_heads = num_heads
++        self.fused_qkv = fused_qkv
++        self.norm1 = operations.RMSNorm(dim, eps=1e-6, dtype=dtype, device=device)
++        self.norm2 = operations.RMSNorm(dim, eps=1e-6, dtype=dtype, device=device)
++        self.q_norm = operations.RMSNorm(dim // num_heads, eps=1e-6, dtype=dtype, device=device)
++        self.k_norm = operations.RMSNorm(dim // num_heads, eps=1e-6, dtype=dtype, device=device)
++        # repacked files fuse q/k/v: one GEMM and one activation quantization instead of three
++        names = ("qkv", "o") if fused_qkv else ("q", "k", "v", "o")
++        self.proj = nn.ModuleDict({name: operations.Linear(dim, 3 * dim if name == "qkv" else dim, bias=False, dtype=dtype, device=device) for name in names})
++        self.proj["ffn_up_gate"] = operations.Linear(dim, 2 * ffn_dim, bias=False, dtype=dtype, device=device)
++        self.proj["ffn_down"] = operations.Linear(ffn_dim, dim, bias=False, dtype=dtype, device=device)
++
++    def forward(self, x, mod, pe, transformer_options={}, ref=None, ref_kv=None, kv_out=None, mask=None):
++        # ref: (first reference token, their t=0 modulation) when the references are in the sequence
++        y = modulate(x, self.norm1, mod, 0, ref)
++        if self.fused_qkv:
++            q, k, v = self.proj["qkv"](y).chunk(3, dim=-1)
++        else:
++            q, k, v = self.proj["q"](y), self.proj["k"](y), self.proj["v"](y)
++        del y
++        out = attention(q, k, v, self.q_norm, self.k_norm, pe, self.num_heads, self.comfy_attention, transformer_options, ref_kv, kv_out, mask)
++        del q, k, v
++        x = residual(x, self.proj["o"](out), mod, 2, ref)
++        del out
++        y = modulate(x, self.norm2, mod, 3, ref)
++        y = self.proj["ffn_up_gate"](y)
++        # situ on the [hidden | gate] halves, applied before the down projection: the comfy-kitchen
++        # that ComfyUI v0.38 pins (0.2.36) cannot fold it into its int8 kernels (IrisEcho backport)
++        return residual(x, self.proj["ffn_down"](comfy.ops._situ_eager(y)), mod, 5, ref)
++
++
++class MOSSImage(nn.Module):
++    def __init__(self, dim=3072, ffn_dim=8192, num_heads=24, num_layers=42, text_dim=4096, latent_channels=128, fused_qkv=False, image_model=None, dtype=None, device=None, operations=None):
++        super().__init__()
++        self.dtype = dtype
++        self.latent_channels = latent_channels
++        head_dim = dim // num_heads
++        self.rope_axes_dim = [head_dim // 4] * 4
++        self.video_embedder = operations.Linear(latent_channels, dim, dtype=dtype, device=device)
++        self.text_embedder = TextEmbedder(text_dim, dim, ffn_dim, num_heads, dtype=dtype, device=device, operations=operations)
++        self.time_embedding = nn.Sequential(operations.Linear(256, dim, dtype=dtype, device=device), nn.SiLU(), operations.Linear(dim, dim, dtype=dtype, device=device))
++        self.shared_block_modulation = operations.Linear(dim, 6 * dim, dtype=dtype, device=device)
++        self.layers = nn.ModuleList([Block(dim, ffn_dim, num_heads, fused_qkv=fused_qkv, dtype=dtype, device=device, operations=operations) for _ in range(num_layers)])
++        self.final_norm_video = operations.RMSNorm(dim, eps=1e-6, dtype=dtype, device=device)
++        self.final_linear_video = operations.Linear(dim, latent_channels, bias=False, dtype=dtype, device=device)
++        self.video_head_modulation = operations.Linear(dim, 2 * dim, dtype=dtype, device=device)
++
++    def rope(self, h, w, text_len, device, transformer_options={}, ref_shapes=(), f_offset=0):
++        # (r, f, h, w): the image sits after the text on f, its rows and columns centered; reference i on r = i + 1, f = 0
++        rope_options = transformer_options.get("rope_options", {})
++        # NTK-aware axis scales, zero collapses the axis
++        scales = (1.0, 1.0, rope_options.get("scale_y", 1.0), rope_options.get("scale_x", 1.0))
++        n = h * w + text_len
++        ids = torch.zeros(1, n + sum(rh * rw for rh, rw in ref_shapes), 4, device=device, dtype=torch.float32)
++        ids[0, :h * w, 1] = text_len + f_offset + rope_options.get("shift_t", 0.0)
++        ids[0, :h * w, 2] = ((torch.arange(h, device=device, dtype=torch.float32) - (h - 1) / 2) * float(scales[2] != 0) + rope_options.get("shift_y", 0.0)).repeat_interleave(w)
++        ids[0, :h * w, 3] = ((torch.arange(w, device=device, dtype=torch.float32) - (w - 1) / 2) * float(scales[3] != 0) + rope_options.get("shift_x", 0.0)).repeat(h)
++        ids[0, h * w:n, 1] = torch.arange(text_len, device=device, dtype=torch.float32) + f_offset
++        start = n
++        for i, (rh, rw) in enumerate(ref_shapes):
++            ref = ids[0, n:n + rh * rw]
++            ref[:, 0] = i + 1
++            ref[:, 2] = (torch.arange(rh, device=device, dtype=torch.float32) - (rh - 1) / 2).repeat_interleave(rw)
++            ref[:, 3] = (torch.arange(rw, device=device, dtype=torch.float32) - (rw - 1) / 2).repeat(rh)
++            n += rh * rw
++        pe = torch.cat([comfy.ldm.flux.math.rope(ids[..., i], d, 10000 * (s or 1.0) ** (-d / (d - 2))) for i, (d, s) in enumerate(zip(self.rope_axes_dim, scales))], dim=-3)
++        if len(ref_shapes) > 0:
++            # the references keep the trained frequencies, Scale ROPE stretches only the generated image
++            pe[:, start:] = torch.cat([comfy.ldm.flux.math.rope(ids[:, start:, i], d, 10000) for i, d in enumerate(self.rope_axes_dim)], dim=-3)
++        return pe.unsqueeze(1).transpose(1, 2).contiguous()
++
++    def preprocess_refs(self, refs, transformer_options={}):
++        # references that attend only to each other at t = 0 depend on themselves alone: every block's keys and values for them
++        batch = max(ref.shape[0] for ref in refs)
++        x = torch.cat([self.video_embedder(comfy.utils.repeat_to_batch_size(ref, batch).flatten(2).transpose(1, 2)) for ref in refs], dim=1)
++        pe = self.rope(0, 0, 0, x.device, transformer_options, [ref.shape[-2:] for ref in refs])
++        vec = self.time_embedding(timestep_embedding(torch.zeros(1, device=x.device), 256).to(x.dtype))
++        mod = self.shared_block_modulation(vec).unflatten(-1, (6, -1)).unsqueeze(2).unbind(1)
++        kv = x.new_empty((x.shape[0], len(self.layers), 2) + x.shape[1:])
++        prefetch_queue = comfy.model_prefetch.make_prefetch_queue(list(self.layers), x.device, transformer_options)
++        for i, block in enumerate(self.layers):
++            comfy.model_prefetch.prefetch_queue_pop(prefetch_queue, x.device, block, x.dtype)
++            x = block(x, mod, pe, transformer_options, kv_out=kv[:, i])
++        comfy.model_prefetch.prefetch_queue_pop(prefetch_queue, x.device, None)
++        return kv
++
++    def forward(self, x, timestep, context, transformer_options={}, **kwargs):
++        return comfy.patcher_extension.WrapperExecutor.new_class_executor(
++            self._forward,
++            self,
++            comfy.patcher_extension.get_all_wrappers(comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL, transformer_options)
++        ).execute(x, timestep, context, transformer_options, **kwargs)
++
++    def _forward(self, x, timestep, context, transformer_options={}, ref_latents=[], ref_latents_method=None, ref_kv=None, context_attention_bias=None, **kwargs):
++        B, _, H, W = x.shape
++        dtype, device = x.dtype, x.device
++        transformer_options = transformer_options.copy()
++        text_len = context.shape[1]
++        if len(ref_latents) > 0 and ref_latents_method not in ("index", "index_timestep_zero"):
++            # every step when extra_conds could not precompute them (training, hooks)
++            ref_kv, ref_latents = self.preprocess_refs(ref_latents, transformer_options), []
++        if ref_kv is not None:
++            # one set of references serves the whole batch
++            ref_kv = ref_kv.expand(B, -1, -1, -1, -1) if ref_kv.shape[0] == 1 else comfy.utils.repeat_to_batch_size(ref_kv, B)
++        refs = [comfy.utils.repeat_to_batch_size(ref, B) for ref in ref_latents]
++        # ai-toolkit puts the references on the image's f, Moss-Image-Edit at the text start; shifting the rest keeps them at f = 0, where their keys were computed
++        f_offset = -text_len if (len(refs) > 0 or ref_kv is not None) and ref_latents_method != "index_timestep_zero_text_start" else 0
++        pe = self.rope(H, W, text_len, device, transformer_options, [ref.shape[-2:] for ref in refs], f_offset)
++
++        vec = self.time_embedding(timestep_embedding(timestep, 256).to(dtype))
++        mod = self.shared_block_modulation(vec).unflatten(-1, (6, -1)).unsqueeze(2).unbind(1)
++        head_shift, head_scale = self.video_head_modulation(vec).unflatten(-1, (2, -1)).unsqueeze(2).unbind(1)
++        ref = None
++        if len(refs) > 0 and ref_latents_method != "index":
++            # ai-toolkit without kv_cache: the references ride along at t = 0 and attend to everything ("index": at the image's timestep)
++            ref_vec = self.time_embedding(timestep_embedding(torch.zeros_like(timestep), 256).to(dtype))
++            ref = (H * W + text_len, self.shared_block_modulation(ref_vec).unflatten(-1, (6, -1)).unsqueeze(2).unbind(1))
++
++        mask = text_mask = None
++        if context_attention_bias is not None:
++            # additive attention logit bias on the text tokens (prompt or image weights), image and reference keys stay unbiased
++            text_mask = context_attention_bias[:, None, None]
++            mask = torch.nn.functional.pad(context_attention_bias, (H * W, sum(r.shape[-2] * r.shape[-1] for r in refs) + (0 if ref_kv is None else ref_kv.shape[3])))[:, None, None]
++
++        txt = self.text_embedder(context, pe[:, H * W:H * W + text_len], transformer_options, text_mask)
++        # allocated outside the memory compiler region, the blocks update it in place
++        x = torch.cat([self.video_embedder(x.flatten(2).transpose(1, 2)), txt] + [self.video_embedder(r.flatten(2).transpose(1, 2)) for r in refs], dim=1)
++        del txt, refs
++
++        blocks_replace = transformer_options.get("patches_replace", {}).get("dit", {})
++        transformer_options["total_blocks"] = len(self.layers)
++        transformer_options["block_type"] = "single"
++        prefetch_queue = comfy.model_prefetch.make_prefetch_queue(list(self.layers), device, transformer_options)
++        comfy.model_prefetch.malloc_graph_begin(device)
++        for i, block in enumerate(self.layers):
++            comfy.model_prefetch.prefetch_queue_pop(prefetch_queue, device, block, dtype, malloc_scope="block")
++            transformer_options["block_index"] = i
++            if ("single_block", i) in blocks_replace:
++                def block_wrap(args):
++                    return {"img": block(args["img"], args["mod"], args["pe"], args["transformer_options"], ref, None if ref_kv is None else ref_kv[:, i], mask=mask)}
++                x = blocks_replace[("single_block", i)]({"img": x, "vec": vec, "mod": mod, "pe": pe, "transformer_options": transformer_options}, {"original_block": block_wrap})["img"]
++            else:
++                x = block(x, mod, pe, transformer_options, ref, None if ref_kv is None else ref_kv[:, i], mask=mask)
++        comfy.model_prefetch.prefetch_queue_pop(prefetch_queue, device, None, malloc_scope="block")
++        comfy.model_prefetch.malloc_graph_end()
++
++        out = self.final_linear_video(modulated_rms_norm(x[:, :H * W], self.final_norm_video, head_scale, head_shift))
++        return out.transpose(1, 2).reshape(B, self.latent_channels, H, W)
+diff --git a/comfy/lora.py b/comfy/lora.py
+index 117f50ce80a9b5e670a9aa789523e90bbfd2b96b..0889ce79bb3eeecbfcc5536b32bb203048fbc031 100644
+--- a/comfy/lora.py
++++ b/comfy/lora.py
+@@ -338,6 +338,18 @@ def model_lora_keys_unet(model, key_map={}):
+                     key_map["transformer.{}".format(key_lora)] = to
+                     key_map["lycoris_{}".format(key_lora.replace(".", "_"))] = to #SimpleTuner lycoris format
+ 
++    if isinstance(model, comfy.model_base.MOSSImage):
++        for k in sdk:
++            if k.startswith("diffusion_model.") and k.endswith(".weight"):
++                key_map[k[len("diffusion_model."):-len(".weight")]] = k  # bare module paths
++            if k.endswith(".proj.qkv.weight"):  # fused q/k/v files; LoRAs address the separate projections
++                third = sd[k].shape[0] // 3
++                for i, proj in enumerate(("q", "k", "v")):
++                    key_lora = "{}.{}".format(k[:-len(".qkv.weight")], proj)
++                    key_map[key_lora] = (k, (0, i * third, third))
++                    key_map[key_lora[len("diffusion_model."):]] = (k, (0, i * third, third))
++                    key_map["lora_unet_{}".format(key_lora[len("diffusion_model."):].replace(".", "_"))] = (k, (0, i * third, third))
++
+     if isinstance(model, comfy.model_base.Krea2):
+         diffusers_keys = comfy.utils.krea2_to_diffusers(model.model_config.unet_config, output_prefix="diffusion_model.")
+         for k in diffusers_keys:
+@@ -450,6 +462,8 @@ def calculate_shape(patches, weight, key, original_weights=None):
+             patch_type, patch_data = v[0], v[1]
+             if patch_type == "diff" and len(patch_data) > 1 and patch_data[1]['pad_weight']:
+                 current_shape = patch_data[0].shape
++            elif patch_type == "set":
++                current_shape = patch_data[0].shape
+ 
+     return current_shape
+ 
+@@ -504,7 +518,10 @@ def calculate_weight(patches, weight, key, intermediate_dtype=torch.float32, ori
+                 else:
+                     weight += function(strength * comfy.model_management.cast_to_device(diff, weight.device, weight.dtype))
+         elif patch_type == "set":
+-            weight.copy_(v[0])
++            if v[0].shape != weight.shape:
++                weight = comfy.model_management.cast_to_device(v[0], weight.device, weight.dtype, copy=True)
++            else:
++                weight.copy_(v[0])
+         elif patch_type == "model_as_lora":
+             target_weight: torch.Tensor = v[0]
+             diff_weight = comfy.model_management.cast_to_device(target_weight, weight.device, intermediate_dtype) - \
+diff --git a/comfy/lora_convert.py b/comfy/lora_convert.py
+index 749e81df3a24c0a26327ed93b7b3c4823e350482..ec8cca8a01f815650116f4ffce2afd7823c56882 100644
+--- a/comfy/lora_convert.py
++++ b/comfy/lora_convert.py
+@@ -33,9 +33,23 @@ def convert_uso_lora(sd):
+     return sd_out
+ 
+ 
++def convert_moss_control_lora(sd): #MOSS-Image control adapters: the widened video_embedder replaces the model's
++    sd_out = {}
++    for k in sd:
++        k_to = "diffusion_model.{}".format(k)
++        if k == "video_embedder.weight":
++            k_to = "diffusion_model.video_embedder.set_weight"
++        elif k == "video_embedder.bias":
++            k_to = "diffusion_model.video_embedder.bias.set_weight"
++        sd_out[k_to] = sd[k]
++    return sd_out
++
++
+ def convert_lora(sd):
+     if "img_in.lora_A.weight" in sd and "single_blocks.0.norm.key_norm.scale" in sd:
+         return convert_lora_bfl_control(sd)
++    if "video_embedder.weight" in sd and "layers.0.proj.q.lora_A.weight" in sd:
++        return convert_moss_control_lora(sd)
+     if "lora_unet__blocks_0_cross_attn_k.lora_down.weight" in sd:
+         return convert_lora_wan_fun(sd)
+     if "single_blocks.37.processor.qkv_lora.up.weight" in sd and "double_blocks.18.processor.qkv_lora2.up.weight" in sd:
+diff --git a/comfy/model_base.py b/comfy/model_base.py
+index 4f731e7cd37b2b5e483a1253556401530306c18a..a3e812f231e6860b6cc46b73c44b5c7bfaa5bcb3 100644
+--- a/comfy/model_base.py
++++ b/comfy/model_base.py
+@@ -82,6 +82,7 @@ import comfy.ldm.sensenova.conditioning
+ import comfy.ldm.sensenova.model
+ from comfy.ldm.sensenova.sampling import SenseNovaModelSampling, time_snr_shift
+ import comfy.ldm.depth_anything_3.model
++import comfy.ldm.moss_image.model
+ 
+ import comfy.model_management
+ import comfy.patcher_extension
+@@ -2761,6 +2762,55 @@ class Krea2(BaseModel):
+             out['ref_latents'] = list([1, 16, sum(map(lambda a: math.prod(a.size()), ref_latents)) // 16])
+         return out
+ 
++class MOSSImage(BaseModel):
++    def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
++        super().__init__(model_config, model_type, device=device, unet_model=comfy.ldm.moss_image.model.MOSSImage)
++        self.memory_usage_factor_conds = ("ref_latents",)
++
++    def extra_conds(self, **kwargs):
++        out = super().extra_conds(**kwargs)
++        cross_attn = kwargs.get("cross_attn", None)
++        # rope positions follow the true text length, so no repeat padding: cond and uncond of different lengths run separately
++        if cross_attn is not None:
++            out['c_crossattn'] = comfy.conds.CONDRegular(cross_attn)
++        context_attention_bias = kwargs.get("context_attention_bias", None)
++        if context_attention_bias is not None:
++            out['context_attention_bias'] = comfy.conds.CONDRegular(context_attention_bias)
++        ref_latents = kwargs.get("reference_latents", None)
++        if ref_latents:
++            # control adapters widen video_embedder, the references carry no control
++            channels = self.diffusion_model.video_embedder.weight.shape[1]
++            ref_latents = [torch.nn.functional.pad(self.process_latent_in(lat), (0, 0, 0, 0, 0, channels - lat.shape[1])) for lat in ref_latents]
++            ref_latents_method = kwargs.get("reference_latents_method", None)
++            if ref_latents_method is not None:
++                out['ref_latents_method'] = comfy.conds.CONDConstant(ref_latents_method)
++            if ref_latents_method not in ("index", "index_timestep_zero") and torch.is_inference_mode_enabled() and kwargs.get("hooks") is None:
++                # references that attend only to each other at t = 0: their keys and values are computed once, not every step; equal ones batch without copies
++                device, dtype = kwargs["device"], self.get_dtype_inference()
++                out['ref_kv'] = comfy.conds.CONDConstant(self.diffusion_model.preprocess_refs([lat.to(device=device, dtype=dtype) for lat in ref_latents]))
++            else:
++                out['ref_latents'] = comfy.conds.CONDList(ref_latents)
++        return out
++
++    def extra_conds_shapes(self, **kwargs):
++        out = {}
++        ref_latents = kwargs.get("reference_latents", None)
++        if ref_latents is not None:
++            out['ref_latents'] = list([1, 128, sum(map(lambda a: math.prod(a.size()), ref_latents)) // 128])
++        return out
++
++    def concat_cond(self, **kwargs):
++        # control adapters widen video_embedder, zeros are no control
++        noise = kwargs["noise"]
++        channels = self.diffusion_model.video_embedder.weight.shape[1] - noise.shape[1]
++        if channels <= 0:
++            return None
++        image = kwargs.get("concat_latent_image", None)
++        if image is None:
++            return noise.new_zeros((noise.shape[0], channels) + noise.shape[2:])
++        image = utils.common_upscale(image.to(kwargs["device"]), noise.shape[-1], noise.shape[-2], "bilinear", "center")
++        return utils.resize_to_batch_size(self.process_latent_in(image), noise.shape[0])
++
+ class HunyuanImage21(BaseModel):
+     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
+         super().__init__(model_config, model_type, device=device, unet_model=comfy.ldm.hunyuan_video.model.HunyuanVideo)
+diff --git a/comfy/model_detection.py b/comfy/model_detection.py
+index 29618dea2f151575b073acda5f199dc73d068a8b..0dcfee6b4766cb060f5c518ce0ee7526c0db025a 100644
+--- a/comfy/model_detection.py
++++ b/comfy/model_detection.py
+@@ -1007,6 +1007,16 @@ def detect_unet_config(state_dict, key_prefix, metadata=None):
+         dit_config["num_layers"] = count_blocks(state_dict_keys, '{}layers.'.format(key_prefix) + '{}.')
+         return dit_config
+ 
++    if '{}shared_block_modulation.weight'.format(key_prefix) in state_dict_keys and '{}layers.0.proj.ffn_up_gate.weight'.format(key_prefix) in state_dict_keys:  # MOSS-Image
++        dit_config = {}
++        dit_config["image_model"] = "moss_image"
++        dit_config["dim"] = state_dict['{}shared_block_modulation.weight'.format(key_prefix)].shape[0] // 6
++        dit_config["ffn_dim"] = state_dict['{}layers.0.proj.ffn_up_gate.weight'.format(key_prefix)].shape[0] // 2
++        dit_config["num_heads"] = dit_config["dim"] // 128
++        dit_config["num_layers"] = count_blocks(state_dict_keys, '{}layers.'.format(key_prefix) + '{}.')
++        dit_config["fused_qkv"] = '{}layers.0.proj.qkv.weight'.format(key_prefix) in state_dict_keys
++        return dit_config
++
+     if '{}txtfusion.projector.weight'.format(key_prefix) in state_dict_keys:  # Krea 2 (K2)
+         dit_config = {}
+         dit_config["image_model"] = "krea2"
+diff --git a/comfy/ops.py b/comfy/ops.py
+index 4ca876fe7eb6af1abed091fb22d9210c9f959341..dd272f8a47a279ab5c737fba60d6c7552a58f612 100644
+--- a/comfy/ops.py
++++ b/comfy/ops.py
+@@ -952,9 +952,16 @@ def _swiglu_eager(x):
+     return torch.nn.functional.silu(gate).mul_(up)
+ 
+ 
++def _situ_eager(x):
++    # out of place: the training path runs through here
++    hidden, gate = x.chunk(2, dim=-1)
++    return (4.0 * torch.tanh(gate / 4.0) * torch.sigmoid(gate)) * (25.0 * torch.tanh(hidden / 25.0))
++
++
+ INPUT_ACT_EAGER = {
+     "gelu_tanh": lambda x: torch.nn.functional.gelu(x, approximate="tanh"),
+     "swiglu": _swiglu_eager,
++    "situ": _situ_eager,
+ }
+ 
+ 
+diff --git a/comfy/sd.py b/comfy/sd.py
+index 73a35aaa444b6b099d5c106b404bc16783350963..2141294e5739f388c7bf25fc910dc91eb871f1f4 100644
+--- a/comfy/sd.py
++++ b/comfy/sd.py
+@@ -92,6 +92,7 @@ import comfy.text_encoders.cogvideo
+ import comfy.text_encoders.sa3
+ import comfy.text_encoders.gpt_oss
+ import comfy.text_encoders.joyimage
++import comfy.text_encoders.moss_image
+ 
+ import comfy.model_patcher
+ import comfy.lora
+@@ -1601,6 +1602,7 @@ class CLIPType(Enum):
+     MAGE = 34
+     MINIMAX = 35
+     YUE2 = 36
++    MOSS_IMAGE = 38
+ 
+ 
+ 
+@@ -1954,9 +1956,13 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
+             clip_target.tokenizer = comfy.text_encoders.jina_clip_2.JinaClip2TokenizerWrapper
+         elif te_model in (TEModel.QWEN35_08B, TEModel.QWEN35_2B, TEModel.QWEN35_4B, TEModel.QWEN35_9B, TEModel.QWEN35_27B):
+             clip_data[0] = comfy.utils.state_dict_prefix_replace(clip_data[0], {"model.language_model.": "model.", "model.visual.": "visual.", "lm_head.": "model.lm_head."})
+-            qwen35_type = {TEModel.QWEN35_08B: "qwen35_08b", TEModel.QWEN35_2B: "qwen35_2b", TEModel.QWEN35_4B: "qwen35_4b", TEModel.QWEN35_9B: "qwen35_9b", TEModel.QWEN35_27B: "qwen35_27b"}[te_model]
+-            clip_target.clip = comfy.text_encoders.qwen35.te(**llama_detect(clip_data), model_type=qwen35_type, mtp="mtp.fc.weight" in clip_data[0])
+-            clip_target.tokenizer = comfy.text_encoders.qwen35.tokenizer(model_type=qwen35_type)
++            if clip_type == CLIPType.MOSS_IMAGE and te_model == TEModel.QWEN35_9B:  # MOSS-Image: stock Qwen3.5-9B, last hidden state, open think block.
++                clip_target.clip = comfy.text_encoders.moss_image.te(**llama_detect(clip_data))
++                clip_target.tokenizer = comfy.text_encoders.moss_image.MOSSImageTokenizer
++            else:
++                qwen35_type = {TEModel.QWEN35_08B: "qwen35_08b", TEModel.QWEN35_2B: "qwen35_2b", TEModel.QWEN35_4B: "qwen35_4b", TEModel.QWEN35_9B: "qwen35_9b", TEModel.QWEN35_27B: "qwen35_27b"}[te_model]
++                clip_target.clip = comfy.text_encoders.qwen35.te(**llama_detect(clip_data), model_type=qwen35_type, mtp="mtp.fc.weight" in clip_data[0])
++                clip_target.tokenizer = comfy.text_encoders.qwen35.tokenizer(model_type=qwen35_type)
+         elif te_model in (TEModel.QWEN3VL_4B, TEModel.QWEN3VL_8B):
+             if clip_type == CLIPType.IDEOGRAM4 and te_model == TEModel.QWEN3VL_8B:  # Ideogram4 reuses the full Qwen3-VL-8B (13-layer tap for conditioning + multimodal generate).
+                 clip_data[0] = comfy.utils.state_dict_prefix_replace(clip_data[0], {"model.language_model.": "model.", "model.visual.": "visual.", "lm_head.": "model.lm_head."})
+diff --git a/comfy/supported_models.py b/comfy/supported_models.py
+index 1be399a092543d3785d36b5927dcef1a2d6469ec..4fb6981a54f5e6d570e5c37669cf08b59360490d 100644
+--- a/comfy/supported_models.py
++++ b/comfy/supported_models.py
+@@ -42,6 +42,7 @@ import comfy.text_encoders.cogvideo
+ import comfy.text_encoders.hidream_o1
+ import comfy.text_encoders.sensenova
+ import comfy.text_encoders.pixeldit
++import comfy.text_encoders.moss_image
+ 
+ from . import supported_models_base
+ from . import latent_formats
+@@ -2013,6 +2014,39 @@ class Krea2(supported_models_base.BASE):
+         hunyuan_detect = comfy.text_encoders.hunyuan_video.llama_detect(state_dict, "{}qwen3vl_4b.transformer.".format(pref))
+         return supported_models_base.ClipTarget(comfy.text_encoders.krea2.Krea2Tokenizer, comfy.text_encoders.krea2.te(**hunyuan_detect))
+ 
++class MOSSImage(supported_models_base.BASE):
++    unet_config = {
++        "image_model": "moss_image",
++    }
++
++    sampling_settings = {
++        "multiplier": 1.0,
++        "shift": 5.0,
++    }
++
++    memory_usage_factor = 14.6
++
++    unet_extra_config = {}
++    latent_format = latent_formats.Flux2
++
++    supported_inference_dtypes = [torch.bfloat16, torch.float32]
++
++    vae_key_prefix = ["vae."]
++    text_encoder_key_prefix = ["text_encoders."]
++
++    def process_unet_state_dict(self, state_dict):
++        state_dict.pop("rope.bands", None)
++        return state_dict
++
++    def get_model(self, state_dict, prefix="", device=None):
++        out = model_base.MOSSImage(self, device=device)
++        return out
++
++    def clip_target(self, state_dict={}):
++        pref = self.text_encoder_key_prefix[0]
++        hunyuan_detect = comfy.text_encoders.hunyuan_video.llama_detect(state_dict, "{}qwen35_9b.transformer.".format(pref))
++        return supported_models_base.ClipTarget(comfy.text_encoders.moss_image.MOSSImageTokenizer, comfy.text_encoders.moss_image.te(**hunyuan_detect))
++
+ class MageFlow(supported_models_base.BASE):
+     unet_config = {
+         "image_model": "mage_flow",
+@@ -2664,6 +2698,7 @@ models = [
+     JoyImage,
+     Ideogram4,
+     Krea2,
++    MOSSImage,
+     Flux2,
+     Lens,
+     Kandinsky5Image,
+diff --git a/comfy/text_encoders/moss_image.py b/comfy/text_encoders/moss_image.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..bd26280ba8f0430c16b7415aa3ccdf30dc491ef6
+--- /dev/null
++++ b/comfy/text_encoders/moss_image.py
+@@ -0,0 +1,31 @@
++import comfy.text_encoders.qwen35
++from comfy import sd1_clip
++
++
++class MOSSImageTokenizer(comfy.text_encoders.qwen35.Qwen35ImageTokenizer):
++    def __init__(self, embedding_directory=None, tokenizer_data={}):
++        super().__init__(embedding_directory=embedding_directory, tokenizer_data=tokenizer_data, model_type="qwen35_9b")
++
++    def tokenize_with_weights(self, text, return_word_ids=False, llama_template=None, thinking=None, **kwargs):
++        if llama_template is None and thinking is None and not text.startswith('<|im_start|>'):
++            # conditioning: the chat template with enable_thinking=True trims the user turn and leaves an open think block
++            text, llama_template, thinking = text.strip(), "<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n<think>\n", True
++        return super().tokenize_with_weights(text, return_word_ids=return_word_ids, llama_template=llama_template, thinking=bool(thinking), **kwargs)
++
++
++class MOSSImageTEModel(sd1_clip.SD1ClipModel):
++    def __init__(self, device="cpu", dtype=None, model_options={}):
++        clip_model = lambda **kw: comfy.text_encoders.qwen35.Qwen35ClipModel(**kw, layer="last", layer_idx=None, model_type="qwen35_9b")
++        super().__init__(device=device, dtype=dtype, name="qwen35_9b", clip_model=clip_model, model_options=model_options)
++
++
++def te(dtype_llama=None, llama_quantization_metadata=None):
++    class MOSSImageTEModel_(MOSSImageTEModel):
++        def __init__(self, device="cpu", dtype=None, model_options={}):
++            if dtype_llama is not None:
++                dtype = dtype_llama
++            if llama_quantization_metadata is not None:
++                model_options = model_options.copy()
++                model_options["quantization_metadata"] = llama_quantization_metadata
++            super().__init__(device=device, dtype=dtype, model_options=model_options)
++    return MOSSImageTEModel_
+diff --git a/comfy_extras/nodes_flux.py b/comfy_extras/nodes_flux.py
+index e9986c9e7227c4217029961addaed447b0a66b2c..787917f46210f835c8bf95828ddfed732b5b5e76 100644
+--- a/comfy_extras/nodes_flux.py
++++ b/comfy_extras/nodes_flux.py
+@@ -161,7 +161,7 @@ class FluxKontextMultiReferenceLatentMethod(io.ComfyNode):
+                 io.Conditioning.Input("conditioning"),
+                 io.Combo.Input(
+                     "reference_latents_method",
+-                    options=["offset", "index", "uxo/uno", "index_timestep_zero"],
++                    options=["offset", "index", "uxo/uno", "index_timestep_zero", "index_timestep_zero_isolated", "index_timestep_zero_text_start"],
+                     advanced=True,
+                 ),
+             ],
+diff --git a/comfy_extras/nodes_moss_image.py b/comfy_extras/nodes_moss_image.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..2e5b152e16e99c7d34a9d5225e4f8cd7346a34dd
+--- /dev/null
++++ b/comfy_extras/nodes_moss_image.py
+@@ -0,0 +1,163 @@
++import json
++import math
++import re
++
++import torch
++from typing_extensions import override
++
++import comfy.text_encoders.qwen_vl
++import comfy.utils
++import node_helpers
++from comfy_api.latest import ComfyExtension, io
++
++
++class MOSSImageLayoutPrompt(io.ComfyNode):
++    @classmethod
++    def define_schema(cls):
++        return io.Schema(
++            node_id="MOSSImageLayoutPrompt",
++            display_name="MOSS-Image Layout Prompt",
++            category="model/conditioning/moss_image",
++            description="Builds a MOSS-Image layout prompt from the prompt and the boxes from Create Bounding Boxes.",
++            inputs=[
++                io.String.Input("prompt", multiline=True, dynamic_prompts=True, tooltip="Description of the whole image."),
++                io.Array.Input("element", tooltip="Prompt elements from the node Create Bounding Boxes. The description is the box's caption, text boxes also render their text."),
++                io.Int.Input("width", default=1024, min=16, max=16384, step=16, tooltip="Width of the generated image; the boxes are placed in its pixels."),
++                io.Int.Input("height", default=1024, min=16, max=16384, step=16, tooltip="Height of the generated image; the boxes are placed in its pixels."),
++                io.String.Input("character_boxes", default="", tooltip="Numbers of the object boxes to label as characters instead of objects, as tagged in the Create Bounding Boxes preview, e.g. \"1, 3\"."),
++            ],
++            outputs=[io.String.Output(display_name="prompt")],
++            is_experimental=True,
++        )
++
++    @classmethod
++    def execute(cls, prompt, element, width, height, character_boxes="") -> io.NodeOutput:
++        characters = {int(i) for i in re.findall(r"\d+", character_boxes)}
++        items = []
++        for i, el in enumerate(element if isinstance(element, list) else []):
++            label = "text" if el.get("type") == "text" else ("character" if i + 1 in characters else "object")
++            item = {"label": label, "caption": el.get("desc", "")}
++            if item["label"] == "text":
++                item["text"] = el.get("text", "")
++            if el.get("color_palette"):
++                item["palette"] = el["color_palette"]
++            # 0-1000 [y0, x0, y1, x1] -> pixel edges enclosing the box, origin at the canvas centre
++            y0, x0, y1, x1 = el["bbox"]
++            item["bbox"] = [math.floor(round(y0 * height / 1000, 9)) - height // 2, math.floor(round(x0 * width / 1000, 9)) - width // 2,
++                            math.ceil(round(y1 * height / 1000, 9)) - height // 2, math.ceil(round(x1 * width / 1000, 9)) - width // 2]
++            items.append(item)
++        if not items:
++            return io.NodeOutput(prompt)
++        layout = {"summary": {"caption": prompt.strip()}, "items": items, "bbox_coord_space": "abs_centralized", "bbox_format": "yxyx"}
++        return io.NodeOutput(json.dumps(layout, ensure_ascii=False, separators=(",", ":")))
++
++
++class MOSSImageControl(io.ComfyNode):
++    @classmethod
++    def define_schema(cls):
++        return io.Schema(
++            node_id="MOSSImageControl",
++            display_name="MOSS-Image Color/Depth Control",
++            category="model/conditioning/moss_image",
++            description="Adds the color region and depth maps for a MOSS-Image color/depth control adapter loaded with a LoRA loader.",
++            inputs=[
++                io.Conditioning.Input("positive"),
++                io.Conditioning.Input("negative"),
++                io.Vae.Input("vae"),
++                io.Image.Input("color_map", optional=True, tooltip="One flat color per region, at the output size. The colors are only region IDs."),
++                io.Image.Input("depth_map", optional=True, tooltip="Depth map at the output size, near is white."),
++                io.Float.Input("strength", default=1.0, min=0.0, max=10.0, step=0.01, tooltip="Scales the maps' contribution to the image tokens. 0.0 is the same as no maps, 1.0 is the trained strength."),
++                io.Float.Input("start_percent", default=0.0, min=0.0, max=1.0, step=0.001, tooltip="Sampling percent at which the control starts."),
++                io.Float.Input("end_percent", default=1.0, min=0.0, max=1.0, step=0.001, tooltip="Sampling percent at which the control ends. Ending early keeps the layout and depth while the rest of the steps loosen the shapes."),
++            ],
++            outputs=[io.Conditioning.Output(display_name="positive"), io.Conditioning.Output(display_name="negative")],
++            is_experimental=True,
++        )
++
++    @classmethod
++    def execute(cls, positive, negative, vae, color_map=None, depth_map=None, strength=1.0, start_percent=0.0, end_percent=1.0) -> io.NodeOutput:
++        latents = [vae.encode(m[:, :, :, :3]) if m is not None else None for m in (color_map, depth_map)]
++        ref = next((latent for latent in latents if latent is not None), None)
++        if ref is None:
++            return io.NodeOutput(positive, negative)
++        batch = max(latent.shape[0] for latent in latents if latent is not None)
++        # [color | depth]; a missing map is a zero latent
++        latents = [torch.zeros_like(ref) if latent is None else latent if latent.shape[-2:] == ref.shape[-2:]
++                   else comfy.utils.common_upscale(latent, ref.shape[-1], ref.shape[-2], "bilinear", "center") for latent in latents]
++        # the embedder is linear and zeros are no control, so scaling the latent scales the control's contribution
++        control = torch.cat([comfy.utils.resize_to_batch_size(latent, batch) for latent in latents], dim=1) * strength
++        values = {"concat_latent_image": control}
++        return io.NodeOutput(node_helpers.conditioning_set_values_with_timestep_range(positive, values, start_percent, end_percent),
++                             node_helpers.conditioning_set_values_with_timestep_range(negative, values, start_percent, end_percent))
++
++
++# edit LoRA layouts: the reference method and whether the text encoder also sees the references
++EDIT_FORMATS = {
++    "ai-toolkit": ("index_timestep_zero_isolated", True),
++    "ai-toolkit (kv_cache off)": ("index_timestep_zero", True),
++    "Moss-Image-Edit": ("index_timestep_zero_text_start", False),
++}
++
++
++class TextEncodeMOSSImageEdit(io.ComfyNode):
++    @classmethod
++    def define_schema(cls):
++        return io.Schema(
++            node_id="TextEncodeMOSSImageEdit",
++            display_name="Text Encode MOSS-Image Edit",
++            category="model/conditioning/moss_image",
++            description="Encodes an edit instruction with reference images for a MOSS-Image edit LoRA, use it for the negative prompt too. The references are used at the size they come in, scale them first. Without a VAE, the images only go to the text encoder.",
++            inputs=[
++                io.Clip.Input("clip"),
++                io.String.Input("prompt", multiline=True, dynamic_prompts=True),
++                io.Vae.Input("vae", optional=True, tooltip="Encodes the images as reference latents for the edit LoRA."),
++                io.Combo.Input("edit_format", options=list(EDIT_FORMATS), tooltip="The layout the edit LoRA was trained with: ai-toolkit's MOSS-Image Edit Training (its kv_cache option on or off) or Moss-Image-Edit. With kv_cache off the references also attend to the image being generated, so they are recomputed every step."),
++                io.Autogrow.Input("images", template=io.Autogrow.TemplatePrefix(input=io.Image.Input("image"), prefix="image_", min=1)),
++                io.Float.Input("image_strength", default=1.0, min=0.0, max=100.0, step=0.05, advanced=True, tooltip="Scales how much the model attends to the images the text encoder sees (ai-toolkit formats, or no VAE): 0 ignores them, 1 is unchanged, above 1 emphasizes them."),
++            ],
++            outputs=[io.Conditioning.Output()],
++            is_experimental=True,
++        )
++
++    @classmethod
++    def execute(cls, clip, prompt, edit_format, images, vae=None, image_strength=1.0) -> io.NodeOutput:
++        method, vision = EDIT_FORMATS[edit_format]
++        images = [images[name] for name in sorted(images) if images[name] is not None]
++        vl = []
++        if (vision or vae is None) and image_strength > 0:
++            # the text encoder sees each reference downscaled to at most 384x384 pixels, after a "Picture N:" marker
++            for image in images:
++                scale = min(1.0, math.sqrt(384 * 384 / (image.shape[1] * image.shape[2])))
++                vl.append(comfy.utils.common_upscale(image.movedim(-1, 1), round(image.shape[2] * scale), round(image.shape[1] * scale), "area", "disabled").movedim(1, -1))
++            prompt = "".join("Picture {}: <|vision_start|><|image_pad|><|vision_end|>".format(i + 1) for i in range(len(vl))) + prompt
++        tokens = clip.tokenize(prompt, images=vl)
++        conditioning = clip.encode_from_tokens_scheduled(tokens)
++        if len(vl) > 0 and image_strength != 1.0:
++            # log(strength) on each image's vision tokens scales their share of attention, Qwen3.5 merges 2x2 patches of 16 px into one token
++            weight = math.log(image_strength)
++            bias = []
++            for t in next(iter(tokens.values()))[0]:
++                if isinstance(t[0], dict):
++                    _, grid = comfy.text_encoders.qwen_vl.process_qwen2vl_images(t[0]["data"], patch_size=16)
++                    bias += [weight] * (int(grid[0, 1] * grid[0, 2]) // 4)
++                else:
++                    bias.append(0.0)
++            conditioning = node_helpers.conditioning_set_values(conditioning, {"context_attention_bias": torch.tensor([bias])})
++        if vae is None:
++            return io.NodeOutput(conditioning)
++        refs = [vae.encode(image[:, :, :, :3]) for image in images]
++        return io.NodeOutput(node_helpers.conditioning_set_values(conditioning, {"reference_latents": refs, "reference_latents_method": method}))
++
++
++class MOSSImageExtension(ComfyExtension):
++    @override
++    async def get_node_list(self) -> list[type[io.ComfyNode]]:
++        return [
++            MOSSImageLayoutPrompt,
++            MOSSImageControl,
++            TextEncodeMOSSImageEdit,
++        ]
++
++
++async def comfy_entrypoint() -> MOSSImageExtension:
++    return MOSSImageExtension()
+diff --git a/nodes.py b/nodes.py
+index 12f152c7713d29741e29dfa5cc2c34dca97ff281..038307544dd44178a594ef2868f47ecb195d484c 100644
+--- a/nodes.py
++++ b/nodes.py
+@@ -1017,7 +1017,7 @@ class CLIPLoader:
+     @classmethod
+     def INPUT_TYPES(s):
+         return {"required": { "clip_name": (folder_paths.get_filename_list("text_encoders"), ),
+-                              "type": (["stable_diffusion", "stable_cascade", "sd3", "stable_audio", "mochi", "ltxv", "pixart", "cosmos", "lumina2", "wan", "hidream", "chroma", "ace", "omnigen2", "qwen_image", "hunyuan_image", "flux2", "ovis", "longcat_image", "cogvideox", "lens", "pixeldit", "ideogram4", "boogu", "krea2", "joyimage", "mage", "minimax", "yue2"], ),
++                              "type": (["stable_diffusion", "stable_cascade", "sd3", "stable_audio", "mochi", "ltxv", "pixart", "cosmos", "lumina2", "wan", "hidream", "chroma", "ace", "omnigen2", "qwen_image", "hunyuan_image", "flux2", "ovis", "longcat_image", "cogvideox", "lens", "pixeldit", "ideogram4", "boogu", "krea2", "joyimage", "mage", "minimax", "yue2", "moss_image"], ),
+                               },
+                 "optional": {
+                               "device": (["default", "cpu"], {"advanced": True}),
+@@ -2499,6 +2499,7 @@ async def init_builtin_extra_nodes():
+         "nodes_mage.py",
+         "nodes_joyimage.py",
+         "nodes_boogu.py",
++        "nodes_moss_image.py",
+         "nodes_chroma_radiance.py",
+         "nodes_pid.py",
+         "nodes_model_patch.py",

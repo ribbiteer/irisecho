@@ -29,6 +29,8 @@ ADDED_LATER = {
     "wan22-camera",
     "qwen-image-21",
     "qwen-image-21-edit",
+    "moss-image",
+    "moss-image-edit",
 }
 
 

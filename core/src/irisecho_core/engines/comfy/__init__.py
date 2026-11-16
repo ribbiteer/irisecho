@@ -110,7 +110,14 @@ NUNCHAKU_PATCHES = [
 # PR 16805 (Comfy-Org/ComfyUI, head 22e5e90f): a "solid" remesh that leaves one
 # closed shell instead of an outer surface plus an inverted inner copy, so 3D
 # models print as solids. Its faster kernels (comfy-kitchen) are optional.
-COMFY_PATCHES = ("comfyui-pr16805-remesh.diff",)
+#
+# MOSS-Image (first released in ComfyUI v0.42): Comfy-Org/ComfyUI PRs 17095, 17099, 17172,
+# 17206, 17296, 17320 and 17338, picked onto v0.38 (commits e087d8f6..067f8533). The node file
+# is exactly v0.45.4's. The model file is too, but for one line: its feed-forward activation
+# runs before the int8 down projection instead of inside it, which needs comfy-kitchen 0.2.39
+# while v0.38 pins 0.2.36 (and every other int8 model here was tested on 0.2.36). The text
+# encoder lacks only PR 17121's MTP head, used for text generation, not by IrisEcho.
+COMFY_PATCHES = ("comfyui-pr16805-remesh.diff", "comfyui-moss-image.diff")
 PATCH_DIR = Path(__file__).parent / "patches"
 
 # IrisEcho's own nodes, copied into ComfyUI's custom_nodes on every start.
