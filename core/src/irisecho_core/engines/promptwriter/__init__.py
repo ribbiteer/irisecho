@@ -17,6 +17,7 @@ from irisecho_core.engines.promptwriter.styles import (
     MODES,
     STYLES,
     clean,
+    is_layout,
     system_prompt,
     user_prompt,
 )
@@ -80,6 +81,9 @@ class PromptWriterEngine(WorkerEngine):
         if model is None:
             raise ValueError(f"unknown target model {target}")
         style = STYLES[style_for(target, model.settings)]
+        if mode != "describe" and is_layout(text):
+            # A JSON layout goes to the model as written; rewriting it would lose the boxes.
+            return [{"type": "text", "text": text, "mode": mode, "style": style.id, "kept": True}]
         image_paths = []
         for name in images[:10]:
             path = paths.upload(name, "picture")

@@ -97,7 +97,26 @@
     }
   }
 
-  const improve = () => run(lookAt.length && value.trim() ? "improve_image" : "improve", lookAt);
+  // A prompt written as JSON (a MOSS-Image layout) goes to the model as written: the writer
+  // would turn it into prose and lose the boxes. The engine keeps it as is too.
+  function isLayout(text: string): boolean {
+    const t = text.trim();
+    if (!t.startsWith("{")) return false;
+    try {
+      const parsed = JSON.parse(t);
+      return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed);
+    } catch {
+      return false;
+    }
+  }
+
+  function improve() {
+    if (isLayout(value)) {
+      toast("This prompt is a layout (JSON), so it goes to the model as written.", "info", 6000);
+      return;
+    }
+    run(lookAt.length && value.trim() ? "improve_image" : "improve", lookAt);
+  }
 
   async function fromPicture() {
     if (!picture) return;

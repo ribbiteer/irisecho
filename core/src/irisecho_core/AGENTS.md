@@ -130,7 +130,7 @@ is never printed or returned.
 | `clone TEXT --ref clip.wav` | speech in a sampled voice | `--model chatterbox-turbo\|chatterbox`, `--takes`, `--seed`, `--exaggeration` and `--cfg` (`chatterbox` only, 0.5 each by default), `--raw`, `--file cues.txt`; the clip is 10 to 15 s of one voice (WAV, MP3, FLAC or OGG; Turbo needs more than 5 s) |
 | `music TAGS` | music | `--model ace-step\|ace-step-xl\|ace-step-xl-sft\|yue2\|minimax-music3\|sa3-medium`, `--seconds`, `--bpm`, `--loop`, `--lyrics` or `--lyrics-file`, `--takes`, `--seed`, `--no-thinking`, `--file cues.txt` |
 | `sfx PROMPT` | sound effects | `--seconds` (0.5 to 30), `--takes` (default 3), `--seed`, `--raw`, `--file cues.txt` |
-| `write DRAFT` | a better prompt, printed on stdout | `--for MODEL`, `--image picture.png` |
+| `write DRAFT` | a better prompt, printed on stdout (a JSON layout prompt comes back as written) | `--for MODEL`, `--image picture.png` |
 | `3d PICTURE` | a 3D model | `--back picture.png`, `--model auto\|pixal3d\|pixal3d-single\|trellis2`, `--detail standard\|high`, `--faces 500000\|100000\|20000`, `--no-textures`, `--keep-openings`, `--format glb\|stl\|3mf\|obj\|ply`, `--height MM`, `--seed`; `--back` goes with `auto` or `pixal3d` (the other two build from one picture and refuse it) |
 | `models` | a list of models | `--json`; `--controls [MODEL]` prints a model's controls and limits (every model's without `MODEL`; add `--json` for data) |
 | `setup MODEL` | nothing: installs and downloads | `--accept-license` |

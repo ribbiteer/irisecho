@@ -14,6 +14,7 @@ worse, plant X in the picture.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 
@@ -482,6 +483,19 @@ STYLES: dict[str, Style] = {
 }
 
 MODES = ("improve", "describe", "improve_image")
+
+
+def is_layout(text: str) -> bool:
+    """A prompt written as a JSON object, such as a MOSS-Image layout ({"summary": ...,
+    "items": [...]}). The writer would turn it into prose and lose the boxes, so it is
+    left as written."""
+    text = text.strip()
+    if not text.startswith("{"):
+        return False
+    try:
+        return isinstance(json.loads(text), dict)
+    except ValueError:
+        return False
 
 
 def system_prompt(style: Style, mode: str, pictures: int, draft: str = "") -> str:

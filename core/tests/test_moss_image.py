@@ -3,6 +3,7 @@
 release, the graphs as ComfyUI's own templates run them, and nothing added to the models
 beside it (those are held by test_graph_parity)."""
 
+import asyncio
 import json
 import struct
 from pathlib import Path
@@ -13,7 +14,8 @@ import pytest
 from irisecho_core import controls, loras, registry
 from irisecho_core.engines import comfy
 from irisecho_core.engines.comfy import graphs, sourcepatch
-from irisecho_core.engines.promptwriter.styles import STYLES, system_prompt
+from irisecho_core.engines.promptwriter import PromptWriterEngine
+from irisecho_core.engines.promptwriter.styles import STYLES, is_layout, system_prompt
 
 HW = SimpleNamespace(gpus=[SimpleNamespace(compute_cap=8.9)], vram_mb=12282, backend="cuda")
 
@@ -284,3 +286,43 @@ def test_fast_adds_the_8_step_lora_at_cfg_1():
 def test_the_full_model_has_no_speed_up():
     g, _ = build("moss-image")
     assert "turbo" not in g and g["sample"]["inputs"]["sampler_name"] == "er_sde"
+
+
+# --- layouts and the prompt writer ------------------------------------------------------
+
+LAYOUT = (
+    '{"summary": {"caption": "A poster"}, "items": [{"type": "text", "text": "SALE", '
+    '"bbox": [-200, -300, -100, 300], "bbox_format": "yxyx"}]}'
+)
+
+
+@pytest.mark.parametrize(
+    "text, layout",
+    [
+        (LAYOUT, True),
+        ("  " + LAYOUT + "\n", True),
+        ('{"summary": "x"}', True),
+        ("a poster that reads {SALE}", False),
+        ("{not json at all", False),
+        ('["a", "list"]', False),
+        ("", False),
+    ],
+)
+def test_layout_prompts_are_recognised(text, layout):
+    assert is_layout(text) is layout
+
+
+def test_the_writer_returns_a_layout_as_written_without_loading():
+    class NoWriter:
+        async def call(self, *_a, **_k):
+            raise AssertionError("the writer model must not run for a layout")
+
+        def device(self):
+            return "cpu"
+
+    for mode in ("improve", "improve_image"):
+        ctx = SimpleNamespace(
+            params={"mode": mode, "target": "moss-image", "text": LAYOUT, "images": ["a.png"]}
+        )
+        out = asyncio.run(PromptWriterEngine.run(NoWriter(), ctx))
+        assert out[0]["text"] == LAYOUT and out[0]["kept"] is True
