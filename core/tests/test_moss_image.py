@@ -72,6 +72,7 @@ def test_list_order_keeps_the_owners_models_first():
     images = [i for i in ids if model(i).kind == "image"]
     edits = [i for i in ids if model(i).kind == "edit"]
     assert images.index("moss-image") == images.index("qwen-image-fast") + 1
+    assert images.index("moss-image-fast") == images.index("moss-image") + 1
     assert edits.index("moss-image-edit") == edits.index("qwen-edit-fast") + 1
     assert images[0] == "qwen-image-21" and edits[0] == "qwen-image-21-edit"
 
@@ -257,3 +258,29 @@ def test_new_files_apply_strictly(tmp_path):
     (tmp_path / "pkg" / "new.py").write_text("something else\n")
     with pytest.raises(sourcepatch.PatchError):
         sourcepatch.apply(tmp_path, diff)
+
+
+# --- MOSS-Image Fast --------------------------------------------------------------------
+
+
+def test_fast_adds_the_8_step_lora_at_cfg_1():
+    m = model("moss-image-fast")
+    files = registry.default().expand(m.variants[0].files)
+    turbo = [f for f in files if f.id == "moss-turbo-lora"][0]
+    assert turbo.repo == "lodestones/MOSS-Image-SFT-8-steps-dmd" and turbo.pinned
+    # Stored under its own name: the repository calls it lora.safetensors.
+    assert turbo.filename == "moss_image_sft_8step_dmd_lora.safetensors"
+    assert m.license == "apache-2.0" and m.control("loras").family == "moss-image"
+    assert m.control("guidance") is None and m.control("negative") is None
+    g, _ = build("moss-image-fast", loras=[{"file": "style.safetensors", "strength": 0.5}])
+    assert g["turbo"]["inputs"]["lora_name"] == turbo.filename
+    assert g["turbo"]["inputs"]["strength_model"] == 1.0
+    assert g["lora1"]["inputs"]["model"] == ["turbo", 0]
+    s = g["sample"]["inputs"]
+    assert (s["steps"], s["cfg"], s["sampler_name"], s["scheduler"]) == (8, 1.0, "euler", "simple")
+    assert s["model"] == ["lora1", 0]
+
+
+def test_the_full_model_has_no_speed_up():
+    g, _ = build("moss-image")
+    assert "turbo" not in g and g["sample"]["inputs"]["sampler_name"] == "er_sde"

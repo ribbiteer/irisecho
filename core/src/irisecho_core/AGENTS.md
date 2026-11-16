@@ -125,7 +125,7 @@ is never printed or returned.
 
 | Command | Makes | Main options |
 |---|---|---|
-| `image PROMPT` | pictures | `--model` (default `z-image-turbo`), `--aspect 1:1\|4:3\|3:4\|16:9\|9:16\|3:2\|2:3`, `--count`, `--seed`; `--from picture.png` (start from a picture) with `--denoise` (0.05 to 1, default 0.2) for the FLUX models, `qwen-image-21` and `moss-image` only, and `--size 1920x1088` for the FLUX models only; `--guide picture.png` and `--guide-type canny\|depth\|pose\|as_is` with `z-image-control` |
+| `image PROMPT` | pictures | `--model` (default `z-image-turbo`), `--aspect 1:1\|4:3\|3:4\|16:9\|9:16\|3:2\|2:3`, `--count`, `--seed`; `--from picture.png` (start from a picture) with `--denoise` (0.05 to 1, default 0.2) for the FLUX models, `qwen-image-21` and the MOSS-Image models only, and `--size 1920x1088` for the FLUX models only; `--guide picture.png` and `--guide-type canny\|depth\|pose\|as_is` with `z-image-control` |
 | `say TEXT` | narration | `--voice` (default `af_heart`), `--speed`, `--raw`, `--file cues.txt` |
 | `clone TEXT --ref clip.wav` | speech in a sampled voice | `--model chatterbox-turbo\|chatterbox`, `--takes`, `--seed`, `--exaggeration` and `--cfg` (`chatterbox` only, 0.5 each by default), `--raw`, `--file cues.txt`; the clip is 10 to 15 s of one voice (WAV, MP3, FLAC or OGG; Turbo needs more than 5 s) |
 | `music TAGS` | music | `--model ace-step\|ace-step-xl\|ace-step-xl-sft\|yue2\|minimax-music3\|sa3-medium`, `--seconds`, `--bpm`, `--loop`, `--lyrics` or `--lyrics-file`, `--takes`, `--seed`, `--no-thinking`, `--file cues.txt` |
@@ -275,7 +275,7 @@ Job `params` by kind of model:
 
 | Kind | Models | Params |
 |---|---|---|
-| image | `qwen-image-21`, `qwen-image`, `qwen-image-fast`, `moss-image`, `z-image-turbo`, `z-image-control`, `krea-2`, `flux-dev`, `flux-schnell`, `flux-krea` | `prompt`, `aspect`, `seed`; `image1` and `denoise` (0.05 to 1, default 0.2) to start from a picture, for `flux-schnell`, `flux-dev`, `flux-krea`, `qwen-image-21` and `moss-image` only (the others do not read `image1`); `z-image-control` needs a `guide` picture and takes `guide_type` (`canny`, `depth`, `pose`, or `as_is` for a ready-made map) |
+| image | `qwen-image-21`, `qwen-image`, `qwen-image-fast`, `moss-image`, `moss-image-fast`, `z-image-turbo`, `z-image-control`, `krea-2`, `flux-dev`, `flux-schnell`, `flux-krea` | `prompt`, `aspect`, `seed`; `image1` and `denoise` (0.05 to 1, default 0.2) to start from a picture, for `flux-schnell`, `flux-dev`, `flux-krea`, `qwen-image-21`, `moss-image` and `moss-image-fast` only (the others do not read `image1`); `z-image-control` needs a `guide` picture and takes `guide_type` (`canny`, `depth`, `pose`, or `as_is` for a ready-made map) |
 | edit | `qwen-image-21-edit`, `qwen-edit`, `qwen-edit-fast`, `moss-image-edit`, `flux-kontext` | `prompt`, `image1` (and `image2`, `image3` for `qwen-edit` and `qwen-edit-fast`; up to `image10` for `qwen-image-21-edit`), `seed`; `box` or `mask` to change only an area (Qwen models and `moss-image-edit`) |
 | upscale | `seedvr2`, `seedvr2-7b` | `image1`, `scale` (2, 3 or 4), `retain` (true keeps the original size), `seed` |
 | video | `ltx25`, `wan22-t2v`, `wan22-i2v`, `wan22-i2v-1022`, `hunyuan15-i2v`, `wan22-camera` | `prompt`, `aspect`, `seconds` (2 to 5), `size` (`standard`, `large`, or `720p` on a 12 GB card; `hunyuan15-i2v` has no `large`), `smooth`, and a `start` and/or `end` frame: required for the `i2v` models (`hunyuan15-i2v` takes `start` only), optional for `ltx25`; `wan22-camera` needs `start` and takes `camera` (`static`, `pan_up`, `pan_down`, `pan_left`, `pan_right`, `zoom_in`, `zoom_out`, `clockwise`, `anticlockwise`) |
@@ -326,7 +326,7 @@ snap to the end frame, so trim about 8. For a still camera on a face, prefer
 texture on still faces.
 
 The FLUX image models (`flux-schnell`, `flux-dev`, `flux-krea`),
-`qwen-image-21` and `moss-image` take an optional `image1` to redraw, with `denoise` (0.05 to 1,
+`qwen-image-21`, `moss-image` and `moss-image-fast` take an optional `image1` to redraw, with `denoise` (0.05 to 1,
 default 0.2) for how much changes. The FLUX models also take `width` and
 `height` (multiples of 16, at most 1920 x 1088 in area; without them the
 picture keeps its own aspect at about one megapixel).
@@ -445,6 +445,7 @@ Every model, what it is for, its limits and the names of its advanced controls
 - `qwen-image` (image): The one to use for words in pictures. Logos, signs, posters, labels. Eight steps. Controls: `steps`, `megapixels`, `trained_sizes`, `shift`, `sampler`, `scheduler`.
 - `qwen-image-fast` (image): Qwen-Image's text and layout in four steps. Use it for drafts, then switch to Qwen-Image. Controls: `steps`, `megapixels`, `trained_sizes`, `shift`, `sampler`, `scheduler`.
 - `moss-image` (image): OpenMOSS's 5B model for lettering and layout. Posters, infographics and signs in English or Chinese, from long prompts. About 25 seconds a picture. Controls: `steps`, `guidance`, `megapixels`, `layer_skip`, `negative`, `loras`, `shift`, `sampler`, `scheduler`.
+- `moss-image-fast` (image): MOSS-Image in eight steps, about five seconds, with a community speed-up. Small print slips more often; switch to MOSS-Image for finished posters. Controls: `steps`, `megapixels`, `loras`, `shift`, `sampler`, `scheduler`.
 - `z-image-turbo` (image): Quick, sharp pictures in 9 steps. Strong at photographs. Controls: `megapixels`, `steps`, `loras`, `shift`, `sampler`, `scheduler`.
 - `z-image-control` (image): Draws a new picture that follows the outline, depth or pose of a picture you give it. Same quick Z-Image Turbo, plus a 3 GB guide model and two small readers (depth and pose, 2 GB). Controls: `guide_strength`, `megapixels`, `steps`, `loras`, `shift`, `sampler`, `scheduler`.
 - `krea-2` (image): Photographs with natural skin, hands and fur, even from a short prompt. Eight steps, about ten seconds. Controls: `megapixels`, `steps`, `sampler`, `scheduler`.

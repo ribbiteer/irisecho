@@ -679,6 +679,10 @@
   "size": 15003000250,
   "sha256": "90444bc6fb98d693b8afc18a13a7a5c35f751c2b71252d73438ed0649633057b"
  },
+ "lodestones/MOSS-Image-SFT-8-steps-dmd@f95df83b5e90ae91ea412434b3f9b7f1c8c6314f:lora.safetensors": {
+  "size": 1189176800,
+  "sha256": "4abb14e39c1a59018907581e609f43616ec6810126144ec2b1d2e6f8969628fe"
+ },
  "nunchaku-ai/nunchaku-flux.1-dev@1a3d3f78b545e33a0897da2101150292ebbd158a:svdq-fp4_r32-flux.1-dev.safetensors": {
   "size": 7038706888,
   "sha256": "47188bd6b236c72203ac43219d5ee285baf699d06877fc4ecec217631a57cb2f"

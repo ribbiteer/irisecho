@@ -1149,13 +1149,27 @@ def _moss_skip(g: dict, model: list, end: float) -> list:
 def moss_image(*, prompt, seed, aspect, names, settings, hw, prefix, params=None, images=None, **_):
     """MOSS-Image SFT as ComfyUI's own template runs it: 25 steps, cfg 2.5, er_sde and
     simple at the model's shift of 5, the makers' negative tags. Its prompt enhancer
-    (TextGenerate on the same Qwen3.5) is left out: IrisEcho has its own writer."""
+    (TextGenerate on the same Qwen3.5) is left out: IrisEcho has its own writer.
+
+    MOSS-Image Fast adds lodestones' 8-step DMD LoRA at strength 1 and runs at cfg 1,
+    where ComfyUI skips the negative pass, with euler (its settings)."""
     params = params or {}
     budget = _budget(params, 1024)
     w, h = size_for(aspect, budget)
     g: dict = {}
     _moss_loaders(g, names)
-    model = _add_loras(g, ["unet", 0], params.get("loras"), "LoraLoaderModelOnly", "strength_model")
+    model = ["unet", 0]
+    if "moss-turbo-lora" in names:
+        g["turbo"] = {
+            "class_type": "LoraLoaderModelOnly",
+            "inputs": {
+                "model": model,
+                "lora_name": names["moss-turbo-lora"],
+                "strength_model": 1.0,
+            },
+        }
+        model = ["turbo", 0]
+    model = _add_loras(g, model, params.get("loras"), "LoraLoaderModelOnly", "strength_model")
     if params.get("shift") is not None:
         g["shift"] = {
             "class_type": "ModelSamplingAuraFlow",
@@ -1186,7 +1200,7 @@ def moss_image(*, prompt, seed, aspect, names, settings, hw, prefix, params=None
             "seed": seed,
             "steps": int(_v(params, "steps", settings.get("steps", 25))),
             "cfg": float(_v(params, "guidance", settings.get("cfg", 2.5))),
-            "sampler_name": _v(params, "sampler", "er_sde"),
+            "sampler_name": _v(params, "sampler", settings.get("sampler", "er_sde")),
             "scheduler": _v(params, "scheduler", "simple"),
             "denoise": _denoise(params) if init else 1.0,
         },

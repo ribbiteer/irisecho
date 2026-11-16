@@ -30,6 +30,7 @@ ADDED_LATER = {
     "qwen-image-21",
     "qwen-image-21-edit",
     "moss-image",
+    "moss-image-fast",
     "moss-image-edit",
 }
 

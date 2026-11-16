@@ -53,6 +53,7 @@ repos:
   Comfy-Org/MoGe: 1484985258ba7ef45c314144fcf0e90924ffbf44
   Comfy-Org/Qwen-Image-2.1: a8342359c61979b06a8dafb1a47991fe1f30e994
   Comfy-Org/MOSS-Image: 2929efe3cdd506c0a430bcfca70a9a8d805cc095
+  lodestones/MOSS-Image-SFT-8-steps-dmd: f95df83b5e90ae91ea412434b3f9b7f1c8c6314f
 
 licenses:
   apache-2.0:
@@ -507,6 +508,13 @@ files:
   moss-edit-lora:
     repo: Comfy-Org/MOSS-Image
     path: loras/moss_image_edit_lora_rank_64_bf16.safetensors
+    category: loras
+  # lodestones' 8-step DMD distillation of MOSS-Image SFT (Apache 2.0): its card loads
+  # lora.safetensors at strength 1 straight into ComfyUI's LoRA loader, cfg 1
+  moss-turbo-lora:
+    repo: lodestones/MOSS-Image-SFT-8-steps-dmd
+    path: lora.safetensors
+    save_as: moss_image_sft_8step_dmd_lora.safetensors
     category: loras
   qwen-image-8step-int4:
     repo: nunchaku-ai/nunchaku-qwen-image
@@ -1722,6 +1730,28 @@ models:
       - *moss-loras
       - *moss-shift
       - {name: sampler, type: choice, tier: expert, default: er_sde, options: [er_sde, euler, res_multistep, dpmpp_2m], label: Sampler, help: "The method that removes noise at each step. er_sde is ComfyUI's recipe; euler is the makers'."}
+      - *scheduler
+
+  # MOSS-Image SFT with lodestones' 8-step DMD LoRA: eight steps at cfg 1 (no negative
+  # pass), euler/simple. 1 MP in about 5 s against 24 s; small print slipped on one seed
+  # of four where the full model's held (2026-11-16).
+  moss-image-fast:
+    name: MOSS-Image Fast
+    kind: image
+    engine: comfy
+    license: apache-2.0
+    summary: MOSS-Image in eight steps, about five seconds, with a community speed-up. Small print slips more often; switch to MOSS-Image for finished posters.
+    settings: {prompt_style: moss-image, steps: 8, cfg: 1.0, sampler: euler}
+    variants:
+      - when: {backend: cuda, cuda_tag: cu130}
+        workflow: moss-image
+        files: [moss-sft-int8, qwen35-9b-w4a8, flux2-vae-small, moss-turbo-lora]
+    controls:
+      - {name: steps, type: int, min: 4, max: 12, default: 8, label: Steps, help: "More is slower and sometimes finer. The speed-up is trained for 8."}
+      - {name: megapixels, type: float, min: 0.5, max: 4.0, step: 0.1, default: 1.0, unit: MP, label: Size, help: "How many pixels. The makers recommend 1 to 2 MP; the model reaches 4 MP. On a 12 GB card 2 MP takes about 10 seconds."}
+      - *moss-loras
+      - *moss-shift
+      - {name: sampler, type: choice, tier: expert, default: euler, options: [euler, er_sde, res_multistep, dpmpp_2m], label: Sampler, help: "The method that removes noise at each step. euler is what the speed-up's author uses."}
       - *scheduler
 
   z-image-turbo:

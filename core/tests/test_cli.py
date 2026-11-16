@@ -187,7 +187,14 @@ def test_the_guide_names_every_model_and_no_longer_carries_the_controls_table():
 
 def test_from_is_for_the_image_models_that_start_from_a_picture():
     takers = cli.picture_models()
-    assert set(takers) == {"flux-schnell", "flux-dev", "flux-krea", "qwen-image-21", "moss-image"}
+    assert set(takers) == {
+        "flux-schnell",
+        "flux-dev",
+        "flux-krea",
+        "qwen-image-21",
+        "moss-image",
+        "moss-image-fast",
+    }
     text = GUIDE.read_text(encoding="utf-8")
     assert all(f"`{m}`" in text for m in takers)
 
