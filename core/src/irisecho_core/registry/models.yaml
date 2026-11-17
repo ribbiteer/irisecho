@@ -1032,14 +1032,36 @@ models:
         workflow: moss-edit
         files: [moss-sft-int8, qwen35-9b-w4a8, flux2-vae-small, moss-edit-lora]
     controls:
-      - {name: steps, type: int, min: 16, max: 50, default: 30, label: Steps, help: "More is slower and sometimes finer. The add-on's author uses 30."}
-      - {name: guidance, type: float, min: 2, max: 7, step: 0.1, default: 4.0, label: Follow the prompt, help: "Higher follows the instruction more strictly. Below 4, things the instruction did not ask for can appear."}
+      - {name: steps, type: int, min: 12, max: 60, default: 30, label: Steps, help: "More is slower and sometimes finer. The add-on's author uses 30."}
+      - {name: guidance, type: float, min: 1.5, max: 7, step: 0.1, default: 4.0, label: Follow the prompt, help: "Higher follows the instruction more strictly. Below 4, things the instruction did not ask for can appear."}
       - {name: megapixels, type: float, min: 0.5, max: 2.0, step: 0.1, default: 1.0, unit: MP, label: Working size, help: "The size the picture is edited at. The result comes out at this size, in the picture's own shape. 2 MP takes about a minute and a half on a 12 GB card; below about 0.5 MP the model starts to reframe the picture."}
       - {name: feather, type: int, min: 0, max: 31, default: 12, unit: px, needs: box, label: Soft edge, help: "How gradually the changed area blends into the rest when you change only an area. 0 is a hard edge."}
       - *moss-negative
       - *moss-loras
       - {name: sampler, type: choice, tier: expert, default: euler, options: [euler, er_sde, res_multistep, dpmpp_2m], label: Sampler, help: "The method that removes noise at each step. euler is what the add-on's author uses."}
       - {name: scheduler, type: choice, tier: expert, default: normal, options: [normal, simple, beta, sgm_uniform], label: Scheduler, help: "How the steps are spread from noise to finish. normal is what the add-on's author uses."}
+
+  # The edit add-on with lodestones' 8-step DMD LoRA stacked on it, at cfg 1 as MOSS-Image
+  # Fast runs: 1 MP in about 6 s against 35 s, the same edits (2026-11-17). At 2 MP it
+  # changed only part of what was asked (both schedulers); 1.2 and 1.5 MP were clean.
+  moss-image-edit-fast:
+    name: MOSS-Image Fast
+    kind: edit
+    engine: comfy
+    license: moss-image-edit
+    summary: MOSS-Image editing in eight steps, about six seconds, with a community speed-up. Up to 1.5 MP; switch to MOSS-Image for larger edits.
+    settings: {prompt_style: moss-image-edit, steps: 8, cfg: 1.0, sampler: euler, scheduler: simple, edit: {pictures: 1, areas: 1}}
+    variants:
+      - when: {backend: cuda, cuda_tag: cu130}
+        workflow: moss-edit
+        files: [moss-sft-int8, qwen35-9b-w4a8, flux2-vae-small, moss-edit-lora, moss-turbo-lora]
+    controls:
+      - {name: steps, type: int, min: 4, max: 12, default: 8, label: Steps, help: "More is slower and sometimes finer. The speed-up is trained for 8."}
+      - {name: megapixels, type: float, min: 0.5, max: 1.5, step: 0.1, default: 1.0, unit: MP, label: Working size, help: "The size the picture is edited at. The result comes out at this size, in the picture's own shape. Above 1.5 MP the fast version leaves edits half done; MOSS-Image goes to 2 MP."}
+      - {name: feather, type: int, min: 0, max: 31, default: 12, unit: px, needs: box, label: Soft edge, help: "How gradually the changed area blends into the rest when you change only an area. 0 is a hard edge."}
+      - *moss-loras
+      - {name: sampler, type: choice, tier: expert, default: euler, options: [euler, er_sde, res_multistep, dpmpp_2m], label: Sampler, help: "The method that removes noise at each step. euler is what the speed-up's author uses."}
+      - *scheduler
 
   flux-kontext:
     name: FLUX.1 Kontext

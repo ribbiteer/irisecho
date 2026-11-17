@@ -1233,10 +1233,22 @@ def moss_edit(*, prompt, seed, names, settings, hw, prefix, images, params=None,
             "strength_model": 1.0,
         },
     }
-    model = _add_loras(
-        g, ["edit_lora", 0], params.get("loras"), "LoraLoaderModelOnly", "strength_model"
-    )
-    model = _moss_skip(g, model, 1.0)
+    model = ["edit_lora", 0]
+    if "moss-turbo-lora" in names:
+        g["turbo"] = {
+            "class_type": "LoraLoaderModelOnly",
+            "inputs": {
+                "model": model,
+                "lora_name": names["moss-turbo-lora"],
+                "strength_model": float(settings.get("turbo_strength", 1.0)),
+            },
+        }
+        model = ["turbo", 0]
+    model = _add_loras(g, model, params.get("loras"), "LoraLoaderModelOnly", "strength_model")
+    cfg = float(_v(params, "guidance", settings.get("cfg", 4.0)))
+    if cfg > 1.0:
+        # Skip-layer guidance changes only the negative pass, which cfg 1 does not run.
+        model = _moss_skip(g, model, 1.0)
     # The add-on keeps every picture's keys and values for all 42 layers through the run,
     # for the prompt and the negative each: about 4 GB per megapixel, which ComfyUI's
     # memory estimate does not count. Without dynamic VRAM (see DYNAMIC_VRAM) two
@@ -1286,9 +1298,9 @@ def moss_edit(*, prompt, seed, names, settings, hw, prefix, images, params=None,
             "latent_image": ["latent", 0],
             "seed": seed,
             "steps": int(_v(params, "steps", settings.get("steps", 30))),
-            "cfg": float(_v(params, "guidance", settings.get("cfg", 4.0))),
-            "sampler_name": _v(params, "sampler", "euler"),
-            "scheduler": _v(params, "scheduler", "normal"),
+            "cfg": cfg,
+            "sampler_name": _v(params, "sampler", settings.get("sampler", "euler")),
+            "scheduler": _v(params, "scheduler", settings.get("scheduler", "normal")),
             "denoise": 1.0,
         },
     }

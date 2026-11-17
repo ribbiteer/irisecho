@@ -32,6 +32,7 @@ ADDED_LATER = {
     "moss-image",
     "moss-image-fast",
     "moss-image-edit",
+    "moss-image-edit-fast",
 }
 
 

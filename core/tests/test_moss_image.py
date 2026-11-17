@@ -76,6 +76,7 @@ def test_list_order_keeps_the_owners_models_first():
     assert images.index("moss-image") == images.index("qwen-image-fast") + 1
     assert images.index("moss-image-fast") == images.index("moss-image") + 1
     assert edits.index("moss-image-edit") == edits.index("qwen-edit-fast") + 1
+    assert edits.index("moss-image-edit-fast") == edits.index("moss-image-edit") + 1
     assert images[0] == "qwen-image-21" and edits[0] == "qwen-image-21-edit"
 
 
@@ -326,3 +327,41 @@ def test_the_writer_returns_a_layout_as_written_without_loading():
         )
         out = asyncio.run(PromptWriterEngine.run(NoWriter(), ctx))
         assert out[0]["text"] == LAYOUT and out[0]["kept"] is True
+
+
+# --- MOSS-Image Fast editing ------------------------------------------------------------
+
+
+def test_fast_edit_stacks_the_8_step_lora_on_the_edit_add_on():
+    m = model("moss-image-edit-fast")
+    assert m.kind == "edit" and m.license == "moss-image-edit"
+    assert list(m.variants[0].files) == [
+        *model("moss-image-edit").variants[0].files,
+        "moss-turbo-lora",
+    ]
+    assert m.settings["edit"] == {"pictures": 1, "areas": 1}
+    # 2 MP left edits half done in the fast version; 1.5 MP was clean.
+    assert m.control("megapixels").max == 1.5
+    assert m.control("guidance") is None and m.control("negative") is None
+    g, _ = build("moss-image-edit-fast", images={"image1": "a.png"})
+    assert g["turbo"]["inputs"]["model"] == ["edit_lora", 0]
+    assert g["turbo"]["inputs"]["strength_model"] == 1.0
+    s = g["sample"]["inputs"]
+    assert (s["steps"], s["cfg"], s["sampler_name"], s["scheduler"]) == (8, 1.0, "euler", "simple")
+    # cfg 1 runs no negative pass, so skip-layer guidance (which changes only that) is left out.
+    assert "slg" not in g and s["model"] == ["turbo", 0]
+
+
+def test_full_edit_keeps_its_recipe_and_aligned_ranges():
+    edit, image = model("moss-image-edit"), model("moss-image")
+    g, _ = build("moss-image-edit", images={"image1": "a.png"})
+    assert "turbo" not in g and g["slg"]["inputs"]["model"] == ["edit_lora", 0]
+    for name in ("steps", "guidance"):
+        assert (edit.control(name).min, edit.control(name).max) == (
+            image.control(name).min,
+            image.control(name).max,
+        )
+    # Defaults stay each recipe's own, and edits stop at 2 MP: the add-on's reference
+    # cache takes about 4 GB per megapixel.
+    assert (edit.control("steps").default, image.control("steps").default) == (30, 25)
+    assert edit.control("megapixels").max == 2.0

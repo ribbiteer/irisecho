@@ -276,7 +276,7 @@ Job `params` by kind of model:
 | Kind | Models | Params |
 |---|---|---|
 | image | `qwen-image-21`, `qwen-image`, `qwen-image-fast`, `moss-image`, `moss-image-fast`, `z-image-turbo`, `z-image-control`, `krea-2`, `flux-dev`, `flux-schnell`, `flux-krea` | `prompt`, `aspect`, `seed`; `image1` and `denoise` (0.05 to 1, default 0.2) to start from a picture, for `flux-schnell`, `flux-dev`, `flux-krea`, `qwen-image-21`, `moss-image` and `moss-image-fast` only (the others do not read `image1`); `z-image-control` needs a `guide` picture and takes `guide_type` (`canny`, `depth`, `pose`, or `as_is` for a ready-made map) |
-| edit | `qwen-image-21-edit`, `qwen-edit`, `qwen-edit-fast`, `moss-image-edit`, `flux-kontext` | `prompt`, `image1` (and `image2`, `image3` for `qwen-edit` and `qwen-edit-fast`; up to `image10` for `qwen-image-21-edit`), `seed`; `box` or `mask` to change only an area (Qwen models and `moss-image-edit`) |
+| edit | `qwen-image-21-edit`, `qwen-edit`, `qwen-edit-fast`, `moss-image-edit`, `moss-image-edit-fast`, `flux-kontext` | `prompt`, `image1` (and `image2`, `image3` for `qwen-edit` and `qwen-edit-fast`; up to `image10` for `qwen-image-21-edit`), `seed`; `box` or `mask` to change only an area (Qwen and MOSS-Image models) |
 | upscale | `seedvr2`, `seedvr2-7b` | `image1`, `scale` (2, 3 or 4), `retain` (true keeps the original size), `seed` |
 | video | `ltx25`, `wan22-t2v`, `wan22-i2v`, `wan22-i2v-1022`, `hunyuan15-i2v`, `wan22-camera` | `prompt`, `aspect`, `seconds` (2 to 5), `size` (`standard`, `large`, or `720p` on a 12 GB card; `hunyuan15-i2v` has no `large`), `smooth`, and a `start` and/or `end` frame: required for the `i2v` models (`hunyuan15-i2v` takes `start` only), optional for `ltx25`; `wan22-camera` needs `start` and takes `camera` (`static`, `pan_up`, `pan_down`, `pan_left`, `pan_right`, `zoom_in`, `zoom_out`, `clockwise`, `anticlockwise`) |
 | voice | `kokoro` | `text`, `voice`, `speed`, `clean` |
@@ -388,7 +388,7 @@ nothing.
   add-ons made for 2.1 (family `qwen-image-21`); MOSS-Image and its edit model take
   add-ons made for MOSS-Image (family `moss-image`).
 - Changing only an area (`qwen-edit`, `qwen-edit-fast`, `qwen-image-21-edit`,
-  `moss-image-edit`): `box`
+  `moss-image-edit`, `moss-image-edit-fast`): `box`
   `[left, top, right, bottom]` as fractions of Picture 1, or `mask` (an upload id
   of a picture, white where it may change). Outside the area the result is
   Picture 1's own pixels. `qwen-image-21-edit` takes up to three boxes as a list
@@ -416,6 +416,7 @@ Every model, what it is for, its limits and the names of its advanced controls
 - `qwen-edit` (edit): The careful version. Eight steps for finished work; combine up to three pictures. Controls: `steps`, `megapixels`, `keep_size`, `feather`, `shift`, `sampler`, `scheduler`.
 - `qwen-edit-fast` (edit): Change a picture by describing the change. Four steps, about fifteen seconds. Controls: `steps`, `megapixels`, `keep_size`, `feather`, `shift`, `sampler`, `scheduler`.
 - `moss-image-edit` (edit): MOSS-Image with an edit add-on. Recolor, restyle, relight or redress a picture, or change only a marked area. About 40 seconds. Controls: `steps`, `guidance`, `megapixels`, `feather`, `negative`, `loras`, `sampler`, `scheduler`.
+- `moss-image-edit-fast` (edit): MOSS-Image editing in eight steps, about six seconds, with a community speed-up. Up to 1.5 MP; switch to MOSS-Image for larger edits. Controls: `steps`, `megapixels`, `feather`, `loras`, `sampler`, `scheduler`.
 - `flux-kontext` (edit): Restyle or retouch while keeping what matters. Say only what should change. Non-commercial. Controls: `guidance`, `steps`, `loras`, `sampler`, `scheduler`.
 - `seedvr2` (upscale): Restores detail and enlarges 2, 3 or 4 times. No prompt needed. Controls: `color`, `tile`.
 - `seedvr2-7b` (upscale): The larger SeedVR2. Slower, with finer restored detail than the standard one, and it needs an 8 GB download. Controls: `color`, `tile`.
