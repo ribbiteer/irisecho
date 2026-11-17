@@ -57,7 +57,6 @@ EXPECTED = {
         "sampler": ("euler_ancestral", None, None),
         "interpolation": (2, None, None),
     },
-    "wan22-i2v-1022": {"distill_high": (1.0, 0.5, 1.4), "distill_low": (1.0, 0.5, 1.4)},
     "wan22-t2v": {"distill_high": (1.0, 0.5, 1.4), "distill_low": (1.0, 0.5, 1.4)},
     "hunyuan15-i2v": {"steps": (8, None, None), "sr_noise": (0.7, 0.4, 0.9)},
     "seedvr2": {"color": ("lab", None, None), "tile": (512, None, None)},
@@ -91,7 +90,7 @@ def test_pixal3d_has_the_same_3d_controls_as_trellis2():
 
 
 def test_wan_loras_are_pairs_of_the_wan_family():
-    for mid in ("wan22-i2v", "wan22-i2v-1022", "wan22-t2v"):
+    for mid in ("wan22-i2v", "wan22-t2v"):
         c = model(mid).control("loras")
         assert c.pair and c.family == "wan14b"
     assert (
@@ -163,9 +162,9 @@ def test_ltx_sampler_choice_reaches_both_stages():
 
 
 def test_wan_distill_strengths_are_set_per_expert():
-    g = build("wan22-i2v-1022", {"start": "s.png"})
+    g = build("wan22-t2v", {})
     assert g["lora_high"]["inputs"]["strength_model"] == 1.0
-    g = build("wan22-i2v-1022", {"start": "s.png"}, distill_high=0.7, distill_low=1.2)
+    g = build("wan22-t2v", {}, distill_high=0.7, distill_low=1.2)
     assert g["lora_high"]["inputs"]["strength_model"] == 0.7
     assert g["lora_low"]["inputs"]["strength_model"] == 1.2
 
@@ -175,7 +174,7 @@ def test_wan_loras_follow_the_distill_on_their_own_expert():
         {"high": "cam-high.safetensors", "low": "cam-low.safetensors", "strength": 0.8},
         {"low": "style-low.safetensors", "strength": 1.0},
     ]
-    g = build("wan22-i2v-1022", {"start": "s.png"}, loras=loras)
+    g = build("wan22-t2v", {}, loras=loras)
     assert g["xlora_high1"]["inputs"]["model"] == ["lora_high", 0]
     assert g["xlora_high1"]["inputs"]["lora_name"] == "cam-high.safetensors"
     assert g["xlora_high1"]["inputs"]["strength_model"] == 0.8

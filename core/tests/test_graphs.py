@@ -128,12 +128,6 @@ def test_wan_from_text_uses_the_1217_distill():
     assert g["lora_high"]["inputs"]["lora_name"] == "wan-t2v-lora-1217-high.gguf"
 
 
-def test_wan_camera_moves_model_uses_the_1022_distill():
-    g = wan_graph("wan22-i2v-1022")
-    assert g["lora_high"]["inputs"]["lora_name"] == "wan-i2v-lora-1022-high.bin"
-    assert g["lora_low"]["inputs"]["lora_name"] == "wan-i2v-lora-1022-low.bin"
-
-
 @pytest.mark.parametrize(
     ("size", "dims"),
     [(None, (848, 480)), ("standard", (848, 480)), ("large", (1024, 576)), ("720p", (1280, 720))],

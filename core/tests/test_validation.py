@@ -203,7 +203,6 @@ def check(model_id, **params):
         ("chatterbox-turbo", {"takes": "many"}, "takes must be a number."),
         ("wan22-t2v", {"seconds": 6}, "seconds must be 2 to 5 for this model (got 6)."),
         ("wan22-i2v", {"seconds": 1}, "seconds must be 2 to 5 for this model (got 1)."),
-        ("wan22-i2v-1022", {"seconds": 9}, "seconds must be 2 to 5"),
         ("wan22-camera", {"seconds": 9}, "seconds must be 2 to 5"),
         ("hunyuan15-i2v", {"seconds": 9}, "seconds must be 2 to 5"),
         ("ltx25", {"seconds": 9}, "seconds must be 2 to 5"),

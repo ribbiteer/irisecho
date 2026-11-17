@@ -893,9 +893,11 @@ def _qwen21(
     *, edit, prompt, seed, names, settings, hw, prefix, aspect="1:1", images=None, params=None, **_
 ):
     """Qwen-Image 2.1 Turbo, as ComfyUI's own Turbo templates run it: ManualSigmas,
-    euler, cfg 1. An edit hands its pictures to the text encoder, each scaled here to
-    the working size on a 32-pixel grid and passed at that size (resolution 0), so the
-    result lines up with Picture 1 and an area edit can be pasted back exactly. A
+    euler, cfg 1; or the full model as its templates do (settings: unet qwen21-int8,
+    25 steps, scheduler simple, still cfg 1). An edit hands its pictures to the text
+    encoder, each scaled here to the working size on a 32-pixel grid and passed at
+    that size (resolution 0), so the result lines up with Picture 1 and an area edit
+    can be pasted back exactly. A
     picture to start from (image kind) is image to image, as for the other models.
 
     The VAE decodes four channels. A plain picture comes out with a near-opaque alpha
@@ -913,7 +915,11 @@ def _qwen21(
     g: dict = {
         "unet": {
             "class_type": "UNETLoader",
-            "inputs": {"unet_name": names["qwen21-turbo-int8"], "weight_dtype": "default"},
+            # Turbo, or the full model (settings.unet), which runs its own schedule.
+            "inputs": {
+                "unet_name": names[settings.get("unet", "qwen21-turbo-int8")],
+                "weight_dtype": "default",
+            },
         },
         "clip": {
             "class_type": "CLIPLoader",
@@ -1022,7 +1028,7 @@ def _qwen21(
         latent = ["latent", 0]
     g["text"] = {"class_type": "TextEncodeQwenImage21", "inputs": encode}
     steps = int(_v(params, "steps", settings.get("steps", 8)))
-    scheduler = _v(params, "scheduler", "shipped")
+    scheduler = _v(params, "scheduler", settings.get("scheduler", "shipped"))
     denoise = _denoise(params) if init else 1.0
     if scheduler == "shipped":
         g["sigmas"] = {

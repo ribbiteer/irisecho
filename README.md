@@ -28,8 +28,8 @@ guidance, your own LoRAs, presets and side-by-side comparisons.
 
 | Studio | What you do | Models |
 |---|---|---|
-| **Image** | Describe a picture; get photos, illustration, lettering that reads; or follow the outlines, depth or pose of a guide picture | Qwen-Image 2.1\* (up to 4 MP), Qwen-Image (careful and fast), MOSS-Image (careful and fast), Z-Image Turbo (also with a guide picture\*), Krea 2\*, FLUX.1 dev\*, schnell and Krea\* |
-| **Edit** | Say what should change in a picture, or only in the areas you mark; combine up to ten pictures | Qwen-Image 2.1\* (up to 4 MP), Qwen Edit (careful and fast), MOSS-Image\* (careful and fast), FLUX.1 Kontext\* |
+| **Image** | Describe a picture; get photos, illustration, lettering that reads; or follow the outlines, depth or pose of a guide picture | Qwen-Image 2.1\* (careful and fast, up to 4 MP), Qwen-Image (careful and fast), MOSS-Image (careful and fast), Z-Image Turbo (also with a guide picture\*), Krea 2\*, FLUX.1 dev\*, schnell and Krea\* |
+| **Edit** | Say what should change in a picture, or only in the areas you mark; combine up to ten pictures | Qwen-Image 2.1\* (careful and fast, up to 4 MP), Qwen Edit (careful and fast), MOSS-Image\* (careful and fast), FLUX.1 Kontext\* |
 | **Upscale** | Enlarge 2-4× and restore detail, no prompt needed | SeedVR2 3B and 7B |
 | **Video** | 2-5 s clips from text, a first frame, a last frame, or both; camera moves on presets; continue a clip from its last frame; LTX-2.5 makes the sound too | LTX-2.5\*, Wan 2.2 (and Fun Camera), HunyuanVideo 1.5\* |
 | **3D** | A picture or a description becomes a model to view, print or export (GLB, STL, 3MF, OBJ, PLY) | Pixal3D\* (one picture or front and back), TRELLIS.2\* |

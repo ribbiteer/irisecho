@@ -353,3 +353,86 @@ def test_writer_handles_up_to_ten_pictures():
     many = system_prompt(STYLES["qwen-image-21-edit"], "improve_image", 6, "a group photo of them")
     assert "Picture 1 to Picture 6" in many and "up to ten pictures" in many
     assert "the draft names no canvas" in many  # a group photo needs no canvas picture
+
+
+# --- the full model, beside Turbo (Fast) -------------------------------------------------
+
+FULL = {"qwen-image-21-full": "qwen-image-21", "qwen-image-21-edit-full": "qwen-image-21-edit"}
+
+
+def test_the_full_model_comes_first_and_turbo_is_named_fast():
+    reg = registry.default()
+    for kind, full, fast in (
+        ("image", "qwen-image-21-full", "qwen-image-21"),
+        ("edit", "qwen-image-21-edit-full", "qwen-image-21-edit"),
+    ):
+        ids = [mid for mid, m in reg.models.items() if m.kind == kind]
+        assert ids[:2] == [full, fast]
+        assert model(full).name == "Qwen-Image 2.1"
+        assert model(fast).name == "Qwen-Image 2.1 Fast"
+
+
+@pytest.mark.parametrize(("full", "fast"), FULL.items())
+def test_full_and_fast_share_everything_but_the_model_file(full, fast):
+    a, b = model(full), model(fast)
+    assert list(a.variants[0].files) == ["qwen21-int8", "qwen3vl-8b-w4a8", "qwen21-vae"]
+    assert list(b.variants[0].files)[1:] == list(a.variants[0].files)[1:]
+    assert a.variants[0].workflow == b.variants[0].workflow
+    assert [v.when for v in a.variants] == [v.when for v in b.variants]
+    assert (a.license, a.kind) == (b.license, b.kind)
+    assert a.settings["prompt_style"] == b.settings["prompt_style"]
+    assert a.settings.get("edit") == b.settings.get("edit")
+    # Every control of Fast is there with the same range, except the steps and the
+    # schedule (help texts may differ: the size help gives each model's own timing).
+    for c in b.controls:
+        if c.name in ("steps", "scheduler"):
+            continue
+        other = a.control(c.name)
+        assert (other.type, other.default, other.min, other.max, other.options) == (
+            c.type,
+            c.default,
+            c.min,
+            c.max,
+            c.options,
+        ), c.name
+    assert {c.name for c in a.controls} == {c.name for c in b.controls}
+    for f in registry.default().expand(a.variants[0].files):
+        assert f.pinned and f.size > 0
+
+
+@pytest.mark.parametrize("full", FULL)
+def test_the_full_model_runs_comfyuis_template(full):
+    m = model(full)
+    assert (m.control("steps").default, m.control("steps").min, m.control("steps").max) == (
+        25,
+        12,
+        50,
+    )
+    assert m.control("scheduler").default == "simple"
+    assert "shipped" not in m.control("scheduler").options
+    images = {"image1": "a.png"} if m.kind == "edit" else {}
+    g, _ = build(full, images)
+    assert g["unet"]["inputs"]["unet_name"] == "qwen_image_2.1_int8_convrot.safetensors"
+    assert g["sigmas"]["class_type"] == "BasicScheduler"
+    assert g["sigmas"]["inputs"]["scheduler"] == "simple"
+    assert g["sigmas"]["inputs"]["steps"] == 25
+    assert g["guider"]["inputs"]["cfg"] == 1.0
+    assert g["sampler"]["inputs"]["sampler_name"] == "euler"
+    g, _ = build(full, images, steps=40, scheduler="beta")
+    assert g["sigmas"]["inputs"]["steps"] == 40 and g["sigmas"]["inputs"]["scheduler"] == "beta"
+
+
+@pytest.mark.parametrize("fast", FULL.values())
+def test_fast_keeps_the_turbo_file_and_its_shipped_schedule(fast):
+    images = {"image1": "a.png"} if model(fast).kind == "edit" else {}
+    g, _ = build(fast, images)
+    assert g["unet"]["inputs"]["unet_name"] == "qwen_image_2.1_turbo_int8_convrot.safetensors"
+    assert g["sigmas"] == {"class_type": "ManualSigmas", "inputs": {"sigmas": SHIPPED}}
+
+
+def test_the_full_model_starts_from_a_picture_and_edits_areas():
+    g, _ = build("qwen-image-21-full", {"image1": "in.png"}, denoise=0.4)
+    assert g["sigmas"]["inputs"]["denoise"] == 0.4
+    assert g["sample"]["inputs"]["latent_image"] == ["latent", 0]
+    g, _ = build("qwen-image-21-edit-full", {"image1": "a.png", "mask": "m.png", "mark": "k.png"})
+    assert "paste" in g

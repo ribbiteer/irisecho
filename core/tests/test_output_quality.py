@@ -17,7 +17,7 @@ from irisecho_core.engines.comfy import graphs
 
 PROTOCOL = Path(acestep.__file__).parent.parent / "protocol"
 HW = SimpleNamespace(gpus=[SimpleNamespace(compute_cap=8.9)], vram_mb=12282, backend="cuda")
-VIDEO = ["ltx25", "wan22-i2v", "wan22-i2v-1022", "wan22-t2v", "wan22-camera", "hunyuan15-i2v"]
+VIDEO = ["ltx25", "wan22-i2v", "wan22-t2v", "wan22-camera", "hunyuan15-i2v"]
 
 
 def worker():

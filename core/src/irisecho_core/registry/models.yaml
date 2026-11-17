@@ -34,7 +34,6 @@ repos:
   Comfy-Org/SeedVR2: df48879708206a403d2a61acd55578c2e80fd233
   Comfy-Org/frame_interpolation: 219da3c9d8c357ceaf457fc1d5932c6e861b8dee
   Comfy-Org/Wan_2.2_ComfyUI_Repackaged: ee6f4a40737a995bf5818954cfce6d59443b0f04
-  QuantStack/Wan2.2-I2V-A14B-GGUF: 6c6717459277b9cd1f72579d78a0fd62a79e57dc
   QuantStack/Wan2.2-T2V-A14B-GGUF: 73eafba53a1a8f29254e4c77f92e74ea27d7cd6f
   lightx2v/Wan2.2-Distill-Models: db93455b9e85c4d8a3ff9297fcfa189d213cfe29
   lightx2v/Wan2.2-Distill-Loras: 570044187a5219776ef30a5c60c6f76428a3a10a
@@ -478,7 +477,12 @@ files:
     repo: Comfy-Org/Krea-2
     path: text_encoders/qwen3vl_4b_fp8_scaled.safetensors
     category: text_encoders
-  # Qwen-Image 2.1 Turbo: one model for pictures and edits, ComfyUI's own int8 kernels (CUDA 13)
+  # Qwen-Image 2.1, full and Turbo: each one model for pictures and edits, ComfyUI's own
+  # int8 kernels (CUDA 13); both share the text encoder and VAE below
+  qwen21-int8:
+    repo: Comfy-Org/Qwen-Image-2.1
+    path: diffusion_models/qwen_image_2.1_int8_convrot.safetensors
+    category: diffusion_models
   qwen21-turbo-int8:
     repo: Comfy-Org/Qwen-Image-2.1
     path: diffusion_models/qwen_image_2.1_turbo_int8_convrot.safetensors
@@ -596,22 +600,6 @@ files:
     repo: Comfy-Org/Wan_2.2_ComfyUI_Repackaged
     path: split_files/vae/wan_2.1_vae.safetensors
     category: vae
-  wan-i2v-lora-1022-high:
-    repo: lightx2v/Wan2.2-Distill-Loras
-    path: wan2.2_i2v_A14b_high_noise_lora_rank64_lightx2v_4step_1022.safetensors
-    category: loras
-  wan-i2v-lora-1022-low:
-    repo: lightx2v/Wan2.2-Distill-Loras
-    path: wan2.2_i2v_A14b_low_noise_lora_rank64_lightx2v_4step_1022.safetensors
-    category: loras
-  wan-i2v-high:
-    repo: QuantStack/Wan2.2-I2V-A14B-GGUF
-    path: HighNoise/Wan2.2-I2V-A14B-HighNoise-Q4_K_M.gguf
-    category: diffusion_models
-  wan-i2v-low:
-    repo: QuantStack/Wan2.2-I2V-A14B-GGUF
-    path: LowNoise/Wan2.2-I2V-A14B-LowNoise-Q4_K_M.gguf
-    category: diffusion_models
   wan-t2v-high:
     repo: QuantStack/Wan2.2-T2V-A14B-GGUF
     path: HighNoise/Wan2.2-T2V-A14B-HighNoise-Q4_K_M.gguf
@@ -899,6 +887,25 @@ x-controls:
       - {value: sgm_uniform, label: sgm_uniform}
     label: Scheduler
     help: How the steps are spread from noise to finish. This model ships with a schedule of its own; the others were not tested by its makers.
+  # Full Qwen-Image 2.1, as ComfyUI's own templates run it: 25 steps, simple, cfg 1 (Qwen's
+  # examples use 40). Against Turbo at 2 MP (2026-11-17): pictures 35 s vs 16 s, softer and
+  # more natural, closer to the style asked for; edits 54 s vs 30 s, nearly the same.
+  qwen21-full-steps: &qwen21-full-steps
+    name: steps
+    type: int
+    min: 12
+    max: 50
+    default: 25
+    label: Steps
+    help: "More is slower and sometimes finer. 25 is ComfyUI's recommendation; Qwen's own examples use 40, which takes about half as long again."
+  qwen21-full-scheduler: &qwen21-full-scheduler
+    name: scheduler
+    type: choice
+    tier: expert
+    default: simple
+    options: [simple, beta, normal, sgm_uniform]
+    label: Scheduler
+    help: How the steps are spread from noise to finish. simple is what ComfyUI's own template uses.
   moss-loras: &moss-loras
     name: loras
     type: loras
@@ -949,12 +956,36 @@ x-limits:
     seconds: {min: 2, max: 5, default: 3}
 
 models:
-  qwen-image-21-edit:
+  # Qwen-Image 2.1 in full first, then Turbo as Fast (the owner's list order). The Turbo
+  # entries keep their ids from 0.2.2, so scripts and saved settings get what they had.
+  qwen-image-21-edit-full:
     name: Qwen-Image 2.1
     kind: edit
     engine: comfy
     license: qwen-research
-    summary: Qwen-Image 2.1 editing a picture, up to 4 MP. Combine up to ten pictures, or change up to three marked areas. The pictures are yours to use.
+    summary: Qwen-Image 2.1 editing a picture at its full 25 steps, up to 4 MP. Combine up to ten pictures, or change up to three marked areas. About twice as long as Fast for much the same result. The pictures are yours to use.
+    settings: {prompt_style: qwen-image-21-edit, unet: qwen21-int8, steps: 25, cfg: 1.0, scheduler: simple, edit: {pictures: 10, areas: 3}}
+    variants:
+      - when: {backend: cuda, cuda_tag: cu130}
+        workflow: qwen21-edit
+        files: [qwen21-int8, qwen3vl-8b-w4a8, qwen21-vae]
+    controls:
+      - *qwen21-full-steps
+      - &qwen21-edit-mp {name: megapixels, type: float, min: 0.5, max: 4.0, step: 0.1, default: 2.0, unit: MP, label: Working size, help: "The size the picture is edited at. The result comes out at this size, in the picture's own shape; up to 4 MP fits a 12 GB card."}
+      - &qwen21-feather {name: feather, type: int, min: 0, max: 31, default: 12, unit: px, needs: box, label: Soft edge, help: "How gradually the changed area blends into the rest when you change only an area. 0 is a hard edge."}
+      - &qwen21-ref-mp {name: ref_megapixels, type: float, tier: expert, min: 0.25, max: 4.0, step: 0.05, default: 2.0, unit: MP, needs: image2, label: Size of the other pictures, help: "The size Pictures 2 and up are read at, up to 4 MP like Picture 1. Unset, they follow the working size while together they stay within 3.3 MP (1.65 MP each for two, 0.37 MP each for nine), which keeps a ten-picture edit to about a minute and a quarter on a 12 GB card with Fast. Larger keeps more of their fine detail but is slower, and many large pictures together can take many minutes."}
+      - &qwen21-keep-alpha {name: transparent, type: bool, default: false, label: Keep transparency, help: "Saves the result with a transparent background when the edit asks for one, such as 'remove the background'. Off, a result keeps transparency only when part of it really came out clear. Changing only an area always gives an opaque picture."}
+      - *qwen21-loras
+      - &qwen21-cache {name: cache, type: choice, tier: expert, default: auto, options: [auto, gpu, cpu, "off"], label: Reference memory, help: "Where the model keeps what it read from the prompt and pictures between steps. auto uses spare graphics memory, then RAM; off reads them again at every step, slower but the plainest."}
+      - *qwen-sampler
+      - *qwen21-full-scheduler
+
+  qwen-image-21-edit:
+    name: Qwen-Image 2.1 Fast
+    kind: edit
+    engine: comfy
+    license: qwen-research
+    summary: Qwen-Image 2.1 Turbo editing a picture in eight steps, up to 4 MP. Combine up to ten pictures, or change up to three marked areas. The pictures are yours to use.
     settings: {prompt_style: qwen-image-21-edit, steps: 8, cfg: 1.0, edit: {pictures: 10, areas: 3}}
     variants:
       - when: {backend: cuda, cuda_tag: cu130}
@@ -962,12 +993,12 @@ models:
         files: [qwen21-turbo-int8, qwen3vl-8b-w4a8, qwen21-vae]
     controls:
       - *qwen21-steps
-      - {name: megapixels, type: float, min: 0.5, max: 4.0, step: 0.1, default: 2.0, unit: MP, label: Working size, help: "The size the picture is edited at. The result comes out at this size, in the picture's own shape; up to 4 MP fits a 12 GB card."}
-      - {name: feather, type: int, min: 0, max: 31, default: 12, unit: px, needs: box, label: Soft edge, help: "How gradually the changed area blends into the rest when you change only an area. 0 is a hard edge."}
-      - {name: ref_megapixels, type: float, tier: expert, min: 0.25, max: 4.0, step: 0.05, default: 2.0, unit: MP, needs: image2, label: Size of the other pictures, help: "The size Pictures 2 and up are read at, up to 4 MP like Picture 1. Unset, they follow the working size while together they stay within 3.3 MP (1.65 MP each for two, 0.37 MP each for nine), which keeps a ten-picture edit to about a minute and a quarter on a 12 GB card. Larger keeps more of their fine detail but is slower, and many large pictures together can take many minutes."}
-      - {name: transparent, type: bool, default: false, label: Keep transparency, help: "Saves the result with a transparent background when the edit asks for one, such as 'remove the background'. Off, a result keeps transparency only when part of it really came out clear. Changing only an area always gives an opaque picture."}
+      - *qwen21-edit-mp
+      - *qwen21-feather
+      - *qwen21-ref-mp
+      - *qwen21-keep-alpha
       - *qwen21-loras
-      - {name: cache, type: choice, tier: expert, default: auto, options: [auto, gpu, cpu, "off"], label: Reference memory, help: "Where the model keeps what it read from the prompt and pictures between steps. auto uses spare graphics memory, then RAM; off reads them again at every step, slower but the plainest."}
+      - *qwen21-cache
       - *qwen-sampler
       - *qwen21-scheduler
 
@@ -1269,29 +1300,6 @@ models:
       - *video-interpolation
       - *video-quality
 
-  wan22-i2v-1022:
-    name: Wan 2.2 camera moves
-    kind: video
-    engine: comfy
-    license: apache-2.0
-    summary: Bigger camera moves that keep faces intact. A last frame sets where the move ends.
-    settings:
-      prompt_style: wan-i2v
-      mode: i2v
-      distill: "1022"
-      video: {frames: [start, end], needs_frame: true, sizes: [standard, large, 720p], fps: 16, sound: false, pace: {standard: 35, large: 50, 720p: 95}}
-      limits: *limits-video
-    variants:
-      - when: {backend: cuda}
-        workflow: wan22
-        files: [wan-i2v-high, wan-i2v-low, wan-i2v-lora-1022-high, wan-i2v-lora-1022-low, wan-umt5, wan-vae, film]
-    controls:
-      - &wan-distill-high {name: distill_high, type: float, min: 0.5, max: 1.4, step: 0.05, default: 1.0, label: "Speed-up strength, high noise", help: "Strength of the four-step speed-up on the first half of the clip's making, which sets the motion. Lowering it (0.6 to 0.8) is the usual fix when the motion looks slow."}
-      - &wan-distill-low {name: distill_low, type: float, min: 0.5, max: 1.4, step: 0.05, default: 1.0, label: "Speed-up strength, low noise", help: "Strength of the four-step speed-up on the second half, which sets the fine detail. Change it only if the details look off."}
-      - *wan-loras
-      - *video-interpolation
-      - *video-quality
-
   wan22-t2v:
     name: Wan 2.2 from text
     kind: video
@@ -1309,8 +1317,8 @@ models:
         workflow: wan22
         files: [wan-t2v-high, wan-t2v-low, wan-t2v-lora-1217-high, wan-t2v-lora-1217-low, wan-umt5, wan-vae, film]
     controls:
-      - *wan-distill-high
-      - *wan-distill-low
+      - &wan-distill-high {name: distill_high, type: float, min: 0.5, max: 1.4, step: 0.05, default: 1.0, label: "Speed-up strength, high noise", help: "Strength of the four-step speed-up on the first half of the clip's making, which sets the motion. Lowering it (0.6 to 0.8) is the usual fix when the motion looks slow."}
+      - &wan-distill-low {name: distill_low, type: float, min: 0.5, max: 1.4, step: 0.05, default: 1.0, label: "Speed-up strength, low noise", help: "Strength of the four-step speed-up on the second half, which sets the fine detail. Change it only if the details look off."}
       - *wan-loras
       - *video-interpolation
       - *video-quality
@@ -1667,12 +1675,32 @@ models:
       - {name: blend, type: text, default: "", label: Mix voices, help: "Mix several voices into a new one, replacing the voice chosen above. Write voice names, optionally with weights: Bella:0.6, Sky:0.4. Without weights the voices count equally. Up to 5."}
       - *audio-format
 
-  qwen-image-21:
+  qwen-image-21-full:
     name: Qwen-Image 2.1
     kind: image
     engine: comfy
     license: qwen-research
-    summary: Qwen's newer model. Long, exact lettering and fine detail up to 4 MP in eight steps. The pictures are yours to use.
+    summary: Qwen's newer model at its full 25 steps. Long, exact lettering and fine detail up to 4 MP, with a softer, more natural look than Fast that follows the style you ask for more closely. About twice as long as Fast. The pictures are yours to use.
+    settings: {prompt_style: qwen-image-21, unet: qwen21-int8, steps: 25, cfg: 1.0, scheduler: simple}
+    variants:
+      - when: {backend: cuda, cuda_tag: cu130}
+        workflow: qwen21-image
+        files: [qwen21-int8, qwen3vl-8b-w4a8, qwen21-vae]
+    controls:
+      - *qwen21-full-steps
+      - {name: megapixels, type: float, min: 0.5, max: 4.0, step: 0.1, default: 2.0, unit: MP, label: Size, help: "How many pixels. Bigger takes longer; this model is made for up to 4 MP, which a 12 GB card fits in about a minute and a half."}
+      - &qwen21-trained-sizes {name: trained_sizes, type: bool, default: false, label: Use the trained sizes, help: "Qwen-Image 2.1's own 4 MP size for each shape (2048 x 2048, 2752 x 1536 for 16:9 and so on), instead of the Size above."}
+      - &qwen21-cutout {name: transparent, type: bool, default: false, label: Transparent background, help: "Makes a cut-out on a clear background, saved as a PNG with transparency. Describe only the subject."}
+      - *qwen21-loras
+      - *qwen-sampler
+      - *qwen21-full-scheduler
+
+  qwen-image-21:
+    name: Qwen-Image 2.1 Fast
+    kind: image
+    engine: comfy
+    license: qwen-research
+    summary: Qwen-Image 2.1 Turbo in eight steps. Long, exact lettering and fine detail up to 4 MP, crisp and high in contrast. The pictures are yours to use.
     settings: {prompt_style: qwen-image-21, steps: 8, cfg: 1.0}
     variants:
       - when: {backend: cuda, cuda_tag: cu130}
@@ -1681,8 +1709,8 @@ models:
     controls:
       - *qwen21-steps
       - {name: megapixels, type: float, min: 0.5, max: 4.0, step: 0.1, default: 2.0, unit: MP, label: Size, help: "How many pixels. Bigger takes longer; this model is made for up to 4 MP, which a 12 GB card fits in about half a minute."}
-      - {name: trained_sizes, type: bool, default: false, label: Use the trained sizes, help: "Qwen-Image 2.1's own 4 MP size for each shape (2048 x 2048, 2752 x 1536 for 16:9 and so on), instead of the Size above."}
-      - {name: transparent, type: bool, default: false, label: Transparent background, help: "Makes a cut-out on a clear background, saved as a PNG with transparency. Describe only the subject."}
+      - *qwen21-trained-sizes
+      - *qwen21-cutout
       - *qwen21-loras
       - *qwen-sampler
       - *qwen21-scheduler

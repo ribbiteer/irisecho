@@ -77,7 +77,8 @@ def test_list_order_keeps_the_owners_models_first():
     assert images.index("moss-image-fast") == images.index("moss-image") + 1
     assert edits.index("moss-image-edit") == edits.index("qwen-edit-fast") + 1
     assert edits.index("moss-image-edit-fast") == edits.index("moss-image-edit") + 1
-    assert images[0] == "qwen-image-21" and edits[0] == "qwen-image-21-edit"
+    assert images[:2] == ["qwen-image-21-full", "qwen-image-21"]
+    assert edits[:2] == ["qwen-image-21-edit-full", "qwen-image-21-edit"]
 
 
 def test_controls():

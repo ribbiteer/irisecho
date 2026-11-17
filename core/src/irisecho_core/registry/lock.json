@@ -275,6 +275,10 @@
   "size": 5584555824,
   "sha256": "6b1eb3328930d921d3b57508d9c46cceec1c174dcedeebc14f176ab67d49f477"
  },
+ "Comfy-Org/Qwen-Image-2.1@a8342359c61979b06a8dafb1a47991fe1f30e994:diffusion_models/qwen_image_2.1_int8_convrot.safetensors": {
+  "size": 7256783064,
+  "sha256": "cb74113cb03faecd79611b01fd7fd642f0aa60d6f0b95086abee214d75eaa57d"
+ },
  "Comfy-Org/Qwen-Image-2.1@a8342359c61979b06a8dafb1a47991fe1f30e994:diffusion_models/qwen_image_2.1_turbo_int8_convrot.safetensors": {
   "size": 7256787829,
   "sha256": "8144a0182964aa8403ad6dbc011db837304167d235161b9aabaa8532e967314c"
@@ -398,14 +402,6 @@
  "Lightricks/LTX-2.5@2356ce76915d6c48d313d7e8b25900e1dd3abaa8:vae/ltx-2.5-video-vae-bf16.safetensors": {
   "size": 1472223346,
   "sha256": "847e14ca7f3355debca0cea4eaa24ac0fbcdf0061da054ac89ca638a869ddba3"
- },
- "QuantStack/Wan2.2-I2V-A14B-GGUF@6c6717459277b9cd1f72579d78a0fd62a79e57dc:HighNoise/Wan2.2-I2V-A14B-HighNoise-Q4_K_M.gguf": {
-  "size": 9651728896,
-  "sha256": "836250abfaa3411694e2c9cf3a0cc18265329d5156d81aa116d5366b0f8f02e7"
- },
- "QuantStack/Wan2.2-I2V-A14B-GGUF@6c6717459277b9cd1f72579d78a0fd62a79e57dc:LowNoise/Wan2.2-I2V-A14B-LowNoise-Q4_K_M.gguf": {
-  "size": 9651728896,
-  "sha256": "e2f98d834af009d035c6b0918268f2eba0aa8a63025ce942277e2384d40b0866"
  },
  "QuantStack/Wan2.2-T2V-A14B-GGUF@73eafba53a1a8f29254e4c77f92e74ea27d7cd6f:HighNoise/Wan2.2-T2V-A14B-HighNoise-Q4_K_M.gguf": {
   "size": 9650090496,
@@ -654,14 +650,6 @@
  "hexgrad/Kokoro-82M@f3ff3571791e39611d31c381e3a41a3af07b4987:voices/bm_lewis.pt": {
   "size": 523425,
   "sha256": "b5204750dcba01029d2ac9cec17aec3b20a6d64073c579d694a23cb40effbd0e"
- },
- "lightx2v/Wan2.2-Distill-Loras@570044187a5219776ef30a5c60c6f76428a3a10a:wan2.2_i2v_A14b_high_noise_lora_rank64_lightx2v_4step_1022.safetensors": {
-  "size": 634645944,
-  "sha256": "887c3bdeb74e83859c920438e16ca31f39ab18ce189abc5f0e36f8348c5bbb19"
- },
- "lightx2v/Wan2.2-Distill-Loras@570044187a5219776ef30a5c60c6f76428a3a10a:wan2.2_i2v_A14b_low_noise_lora_rank64_lightx2v_4step_1022.safetensors": {
-  "size": 739472104,
-  "sha256": "8833bd4fd7c8eabebf0bc8ee5cfaf47f4f310ce116928a02c1adf8941dd4b0f1"
  },
  "lightx2v/Wan2.2-Distill-Loras@570044187a5219776ef30a5c60c6f76428a3a10a:wan2.2_t2v_A14b_high_noise_lora_rank64_lightx2v_4step_1217.safetensors": {
   "size": 613518320,

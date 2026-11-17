@@ -192,6 +192,7 @@ def test_from_is_for_the_image_models_that_start_from_a_picture():
         "flux-dev",
         "flux-krea",
         "qwen-image-21",
+        "qwen-image-21-full",
         "moss-image",
         "moss-image-fast",
     }
