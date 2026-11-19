@@ -54,6 +54,22 @@ def engine(tmp_path):
     engine.io, engine.state, engine.port = tmp_path / "io", "ready", 1
     engine.proc, engine._log_task = Process(), None
     engine.prompt_of, engine.log_tail = {}, deque(maxlen=80)
+    engine.dynamic_vram = True
+    # Stand-ins for starting and stopping the process. A restarted engine dies again
+    # when the test sets engine.dies_again, as a dead one does in the tests below.
+    engine.started, engine.stopped, engine.dies_again = [], 0, True
+
+    async def ensure_running(report, cancelled=None, dynamic_vram=False):
+        engine.started.append(dynamic_vram)
+        engine.proc = Process()
+        if engine.dies_again:
+            dies(engine)
+
+    async def stop():
+        engine.stopped += 1
+        engine.proc = None
+
+    engine.ensure_running, engine.stop = ensure_running, stop
     return engine
 
 
@@ -115,7 +131,8 @@ def test_a_connection_that_just_ends_is_not_taken_for_a_finished_job(engine, api
     dies(engine)
     with pytest.raises(RuntimeError, match=OOM):
         asyncio.run(engine._execute(context(), {}))
-    assert asked == ["/prompt"]  # no asking a dead engine for the job's history
+    # Sent, and sent once more to a fresh engine; never asking a dead one for its history.
+    assert asked == ["/prompt", "/prompt"]
 
 
 def test_an_engine_that_is_gone_before_the_job_is_sent(engine, api, monkeypatch):
@@ -150,6 +167,110 @@ def test_a_job_that_finishes_still_returns_what_it_saved(engine, api, monkeypatc
     done = {"type": "execution_success", "data": {"prompt_id": "p1"}}
     monkeypatch.setattr(websockets, "connect", lambda *a, **k: Socket([STARTED, done]))
     assert asyncio.run(engine._execute(context(), {})) == saved
+
+
+SAVED = {"save": {"images": [{"filename": "j1_00001_.png"}]}}
+DONE = {"type": "execution_success", "data": {"prompt_id": "p1"}}
+CUDA_OOM = {
+    "type": "execution_error",
+    "data": {
+        "prompt_id": "p1",
+        "exception_type": "torch.AcceleratorError",
+        "exception_message": "CUDA error: out of memory\nSearch for `cudaErrorMemoryAllocation'",
+    },
+}
+
+
+def finishes(request):
+    if request.url.path == "/history/p1":
+        done = {"status": {"status_str": "success"}, "outputs": SAVED}
+        return httpx.Response(200, json={"p1": done})
+    return accepted(request)
+
+
+def sockets(monkeypatch, *runs):
+    """One websocket per attempt: each a list of messages, ending as Socket ends them."""
+    queue = list(runs)
+    monkeypatch.setattr(websockets, "connect", lambda *a, **k: queue.pop(0))
+    return queue
+
+
+def test_an_engine_that_dies_mid_job_runs_it_again_on_a_fresh_one(engine, api, monkeypatch):
+    api(finishes)
+    closed = websockets.ConnectionClosedError(None, None)
+    left = sockets(monkeypatch, Socket([STARTED], closed), Socket([STARTED, DONE]))
+    dies(engine)
+    engine.dies_again = False
+    told = []
+    ctx = context()
+    ctx.report = lambda progress, message: told.append(message)
+    assert asyncio.run(engine._execute(ctx, {})) == SAVED
+    assert left == [] and engine.started == [True]  # in the memory mode it ran in
+    assert "The image engine stopped; starting it again" in told
+
+
+def test_out_of_memory_runs_the_job_again_on_a_fresh_engine(engine, api, monkeypatch):
+    api(finishes)
+    engine.dies_again = False
+    sockets(monkeypatch, Socket([STARTED, CUDA_OOM]), Socket([STARTED, DONE]))
+    assert asyncio.run(engine._execute(context(), {})) == SAVED
+    assert engine.stopped == 1 and engine.started == [True]
+
+
+def test_out_of_memory_twice_says_so_plainly(engine, api, monkeypatch):
+    api(finishes)
+    sockets(monkeypatch, Socket([STARTED, CUDA_OOM]), Socket([STARTED, CUDA_OOM]))
+    with pytest.raises(RuntimeError, match="Ran out of graphics memory, also after") as caught:
+        asyncio.run(engine._execute(context(), {}))
+    assert "CUDA error: out of memory" in str(caught.value)
+    assert "cudaErrorMemoryAllocation" not in str(caught.value)  # the first line only
+    assert engine.started == [True]  # one fresh start, not more
+
+
+def test_a_cancelled_job_is_not_run_again(engine, api, monkeypatch):
+    api(finishes)
+    sockets(monkeypatch, Socket([STARTED, CUDA_OOM]), Socket([STARTED, DONE]))
+    ctx = context()
+    ctx.cancelled.set()
+    with pytest.raises(RuntimeError, match="Ran out of graphics memory"):
+        asyncio.run(engine._execute(ctx, {}))
+    assert engine.started == []
+
+
+def test_an_engine_that_is_still_running_is_not_restarted(engine, api, monkeypatch):
+    """A connection lost to a live engine is not a crash: nothing is run twice."""
+    monkeypatch.setattr(asyncio, "wait_for", _times_out)
+    api(finishes)
+    closed = websockets.ConnectionClosedError(None, None)
+    sockets(monkeypatch, Socket([STARTED], closed), Socket([STARTED, DONE]))
+    with pytest.raises(RuntimeError, match="stopped answering"):
+        asyncio.run(engine._execute(context(), {}))
+    assert engine.started == []
+
+
+async def _times_out(awaitable, timeout):
+    if asyncio.iscoroutine(awaitable):
+        awaitable.close()
+    raise TimeoutError
+
+
+def test_other_errors_are_not_taken_for_memory():
+    assert comfy.memory_error({"exception_message": "CUDA error: out of memory"})
+    assert comfy.memory_error({"exception_type": "torch.OutOfMemoryError"})
+    assert comfy.memory_error(
+        {"exception_message": "Allocation on device 0 would exceed allowed memory"}
+    )
+    assert not comfy.memory_error({"exception_message": "mat1 and mat2 shapes cannot be"})
+    assert not comfy.memory_error({})
+
+
+def test_3d_steps_down_on_its_own_without_a_restart(engine, api, monkeypatch):
+    api(finishes)
+    sockets(monkeypatch, Socket([STARTED, CUDA_OOM]))
+    with pytest.raises(RuntimeError, match="CUDA error: out of memory") as caught:
+        asyncio.run(engine._execute(context(), {}, retry_oom=False))
+    assert comfy.out_of_memory(caught.value)  # what _run_model3d looks for
+    assert engine.started == [] and engine.stopped == 0
 
 
 def test_a_cancel_that_missed_a_starting_prompt_is_sent_again(engine, api, monkeypatch):
@@ -213,3 +334,29 @@ def test_a_failed_job_leaves_nothing_of_its_own_behind(engine):
         asyncio.run(engine.run(context("j1")))
     assert not any(path.exists() for path in mine)
     assert all(path.exists() for path in others)
+
+
+def watchdog(monkeypatch):
+    import importlib.util
+    from pathlib import Path
+
+    monkeypatch.delenv("IRISECHO_PARENT_PID", raising=False)  # no thread, no hook
+    path = Path(comfy.__file__).parent / "watchdog_node.py"
+    spec = importlib.util.spec_from_file_location("irisecho_watchdog_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_watchdog_ends_the_engine_when_comfyuis_job_thread_dies(monkeypatch, capsys):
+    module = watchdog(monkeypatch)
+    ended = []
+    monkeypatch.setattr(module.os, "_exit", ended.append)
+    monkeypatch.setattr(module, "_previous_hook", lambda args: None)
+    worker = SimpleNamespace(name="Thread-1 (prompt_worker)")
+    other = SimpleNamespace(name="Thread-3 (download)")
+    module._on_thread_exception(SimpleNamespace(thread=other, exc_type=RuntimeError))
+    assert ended == []
+    module._on_thread_exception(SimpleNamespace(thread=worker, exc_type=RuntimeError))
+    assert ended == [module.WORKER_DIED]
+    assert "job thread stopped with RuntimeError" in capsys.readouterr().out

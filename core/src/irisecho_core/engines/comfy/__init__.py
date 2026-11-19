@@ -180,6 +180,17 @@ async def finished_entry(history, wait: float = 60.0, every: float = 0.25) -> di
     return entry
 
 
+class EngineOutOfMemory(RuntimeError):
+    """ComfyUI caught an out-of-memory error itself and failed the job."""
+
+
+def memory_error(error: dict) -> bool:
+    """Whether an execution_error is about memory: torch.OutOfMemoryError, or a CUDA
+    error such as cudaErrorMemoryAllocation, which reaches Python as AcceleratorError."""
+    kind = str(error.get("exception_type") or "")
+    return "OutOfMemory" in kind or out_of_memory(RuntimeError(error.get("exception_message")))
+
+
 # After a cancel: how often, and how many times, to look whether the prompt is still there.
 CANCEL_CHECK_EVERY = 0.5
 CANCEL_CHECKS = 4
@@ -346,6 +357,7 @@ class ComfyEngine(Engine):
         self.proc: asyncio.subprocess.Process | None = None
         self.port = 0
         self.paths_key = ""
+        self.dynamic_vram = False  # the memory mode the running engine was started in
         self.log_tail: deque[str] = deque(maxlen=80)
         self._start_lock = asyncio.Lock()
         self.prompt_of: dict[str, str] = {}  # job id -> prompt id
@@ -425,6 +437,7 @@ class ComfyEngine(Engine):
                 return
             if self.alive:
                 await self.stop()
+            self.dynamic_vram = dynamic_vram
             report(None, "Starting the image engine")
             self.state = "starting"
             for sub in ("input", "output", "temp", "user"):
@@ -735,7 +748,7 @@ class ComfyEngine(Engine):
         for n, res in enumerate(tries):
             graph, save_node = build({**ctx.params, "resolution": res})
             try:
-                found = await self._execute(ctx, graph, graphs.MODEL3D_PROGRESS)
+                found = await self._execute(ctx, graph, graphs.MODEL3D_PROGRESS, retry_oom=False)
                 break
             except RuntimeError as e:
                 if not out_of_memory(e) or n == len(tries) - 1:
@@ -896,18 +909,49 @@ class ComfyEngine(Engine):
                 mark_areas(staged["image1"], box, staged["mark"])
         return staged
 
-    async def _execute(self, ctx: RunContext, graph: dict, plan: dict | None = None) -> dict:
+    async def _execute(
+        self, ctx: RunContext, graph: dict, plan: dict | None = None, retry_oom: bool = True
+    ) -> dict:
         """Run one graph; returns its history outputs (node id -> what it saved or reported).
 
         plan maps node ids to (start, end, message) for progress; without one, the
-        sampler's steps drive it."""
+        sampler's steps drive it. retry_oom=False leaves running out of memory to the
+        caller, which has a smaller try of its own."""
         import websockets
 
-        try:
-            return await self._execute_graph(ctx, graph, plan)
-        except (websockets.WebSocketException, httpx.HTTPError, OSError) as e:
-            # The engine died (out of memory, most often) or no longer answers.
-            raise RuntimeError(await self._lost_message(e)) from e
+        # Once more on a fresh engine when this one ran out of memory or died. A long
+        # session leaves memory behind (an LTX-2.5 queue after MOSS-Image pictures ran
+        # out on its third clip on 2026-11-19, and the next seven ran fine after a
+        # restart), and a queue left to an agent then carries on by itself.
+        for attempt in (1, 2):
+            try:
+                return await self._execute_graph(ctx, graph, plan)
+            except EngineOutOfMemory as e:
+                if not retry_oom:
+                    raise RuntimeError(str(e)) from e
+                if attempt == 2 or ctx.cancelled.is_set():
+                    first = str(e).strip().splitlines()[0]
+                    raise RuntimeError(
+                        f"Ran out of graphics memory, also after starting the engine afresh "
+                        f"({first}). Try a smaller size or a shorter clip."
+                    ) from e
+                why = "ran out of memory"
+                await self.stop()  # a CUDA error can leave the process unfit to go on
+            except (websockets.WebSocketException, httpx.HTTPError, OSError) as e:
+                # The engine died (out of memory, most often) or no longer answers.
+                message = await self._lost_message(e)
+                if attempt == 2 or ctx.cancelled.is_set() or self.alive:
+                    raise RuntimeError(message) from e
+                why = "stopped"
+            print(
+                f"comfy: the engine {why} during job {ctx.job_id}; running it again",
+                file=sys.stderr,
+                flush=True,
+            )
+            ctx.report(None, f"The image engine {why}; starting it again")
+            await self.ensure_running(ctx.report, ctx.cancelled, self.dynamic_vram)
+            self.state = "busy"
+        raise AssertionError("unreachable")
 
     async def _execute_graph(self, ctx: RunContext, graph: dict, plan: dict | None) -> dict:
         import websockets
@@ -972,9 +1016,10 @@ class ComfyEngine(Engine):
                                     0.1 + 0.85 * value / total, f"Drawing · step {value} of {total}"
                                 )
                         elif kind == "execution_error":
-                            raise RuntimeError(
-                                d.get("exception_message") or "The image engine failed."
-                            )
+                            text = d.get("exception_message") or "The image engine failed."
+                            if memory_error(d):
+                                raise EngineOutOfMemory(text)
+                            raise RuntimeError(text)
                         elif kind == "execution_interrupted":
                             raise asyncio.CancelledError
                         elif kind == "execution_success":
