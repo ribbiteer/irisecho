@@ -519,5 +519,10 @@ Inside the data folder:
 - *"did not start"*: an engine's own program failed to launch. Its log in
   `logs/` has the last lines it printed. Every job waiting for that engine is
   failed at once rather than left to wait.
+- A picture, video or 3D job whose engine runs out of graphics memory or stops
+  in the middle is run once more on a freshly started engine, by itself; the
+  job's `message` says so and it takes the start-up time longer. A job that
+  fails again says *"Ran out of graphics memory, also after starting the engine
+  afresh"*: make it smaller or shorter rather than sending it unchanged.
 - Image models want plain descriptive sentences. `irisecho write "rough idea"
   --for MODEL` rewrites a draft the way that model likes it.

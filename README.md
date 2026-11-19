@@ -42,7 +42,8 @@ guidance, your own LoRAs, presets and side-by-side comparisons.
 
 **Improve** sits under every picture and video prompt: a small local model
 (Qwen3-VL) rewrites a rough idea the way the chosen model likes it, or describes
-a picture as a prompt, and you accept or undo the result. The **Library** is
+a picture as a prompt, and you accept or undo the result; a layout written as
+JSON goes to the model as written. The **Library** is
 searchable by the words in your prompts, with filters for studio, model, date
 and favourites; a search is a link (`#/library?q=fox`). Select several to
 delete them together, with an Undo for a few seconds after.
@@ -275,6 +276,9 @@ irisecho agents                                              # the full guide fo
   Stable Audio) lives in its own Python environment. IrisEcho frees the GPU from
   one before starting the next, so versions never clash and a 12 GB card is
   enough.
+- **Recovers by itself.** When the picture and video engine runs out of graphics
+  memory or stops in the middle of a job, IrisEcho starts it afresh and runs the
+  job once more, so a long queue keeps going.
 - **Pinned and verified.** Every model file is pinned to a repository commit and
   checked against a recorded hash; every engine is installed from a pinned
   source. Engines run offline, so nothing is fetched behind your back.
